@@ -212,6 +212,10 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       expect(screen.getByTestId('tiled-pane-1')).toBeInTheDocument();
     });
 
+    const logo = screen.getByTestId('app-logo') as HTMLImageElement;
+    expect(logo).toBeInTheDocument();
+    expect(logo.getAttribute('src')).toBe('/icon.png');
+
     // Enter pattern and run search
     const input = screen.getByTestId('pattern-input') as HTMLInputElement;
     await fireEvent.input(input, { target: { value: '.....*;aadmort' } });
@@ -355,4 +359,5 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       '/dicts/core.tsd'
     ]);
   });
+
 });

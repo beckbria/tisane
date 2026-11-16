@@ -87,9 +87,12 @@
   <div class="flex flex-wrap items-center gap-2.5">
     <!-- App Brand -->
     <div class="mr-1 flex items-center gap-2 select-none">
-      <div class="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 font-bold text-sm">
-        T
-      </div>
+      <img
+        src="/icon.png"
+        alt="Tisane logo"
+        data-testid="app-logo"
+        class="h-7 w-7 rounded-md object-contain shadow-xs ring-1 ring-slate-700/60"
+      />
       <span class="text-sm font-semibold tracking-wide text-slate-100">Tisane</span>
     </div>
 

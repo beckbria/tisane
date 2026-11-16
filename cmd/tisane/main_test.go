@@ -77,4 +77,19 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "<title>Tisane</title>") {
 		t.Fatalf("unexpected embedded index.html body: %s", rec.Body.String())
 	}
+
+	// Verify embedded application icon (PNG) and frontend /icon.png asset
+	pngMagic := "\x89PNG\r\n\x1a\n"
+	if len(appIcon) < len(pngMagic) || string(appIcon[:len(pngMagic)]) != pngMagic {
+		t.Fatalf("expected embedded appIcon to be a valid PNG, got %d bytes", len(appIcon))
+	}
+	iconReq := httptest.NewRequest(http.MethodGet, "/icon.png", nil)
+	iconRec := httptest.NewRecorder()
+	assetHandler.ServeHTTP(iconRec, iconReq)
+	if iconRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK serving embedded '/icon.png', got %d", iconRec.Code)
+	}
+	if !strings.HasPrefix(iconRec.Body.String(), pngMagic) {
+		t.Fatalf("expected embedded '/icon.png' response body to start with PNG signature")
+	}
 }

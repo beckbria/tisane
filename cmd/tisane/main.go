@@ -14,6 +14,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed icon.png
+var appIcon []byte
+
 // wailsHostBridge connects the testable app.State services to the live Wails v3 runtime.
 type wailsHostBridge struct {
 	wailsApp *application.App
@@ -146,6 +149,7 @@ func main() {
 	wailsApp := application.New(application.Options{
 		Name:        "Tisane",
 		Description: "High-speed crossword, anagram, and wordplay dictionary search",
+		Icon:        appIcon,
 		Services:    services,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -164,6 +168,9 @@ func main() {
 		MinWidth:  920,
 		MinHeight: 600,
 		URL:       "/",
+		Linux: application.LinuxWindow{
+			Icon: appIcon,
+		},
 	})
 
 	state.SetBridge(&wailsHostBridge{
