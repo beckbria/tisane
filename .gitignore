@@ -4,3 +4,5 @@ tea*
 /tisane-cli
 /tisane-build
 *.exe
+cmd/tisane/frontend/node_modules/
+cmd/tisane/frontend/dist/

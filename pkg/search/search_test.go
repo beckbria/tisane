@@ -36,7 +36,7 @@ func matchWords(matches []search.Match) []string {
 }
 
 func TestMultiDictDedupeSortingFiltersEnumerationAndDefEnrichment(t *testing.T) {
-	core := openRepoDict(t, filepath.Join("Dictionaries", "Core English.tsd"))          // TSD0 (no definitions)
+	core := openRepoDict(t, filepath.Join("Dictionaries", "Core English.tsd"))            // TSD0 (no definitions)
 	devil := openRepoDict(t, filepath.Join("Dictionaries", "The Devil's Dictionary.tsd")) // TSD1 (has definitions)
 
 	eng := search.NewEngine()
@@ -158,8 +158,8 @@ func TestFullTextSearchIndexedVsSequentialParity(t *testing.T) {
 		query      string
 		wantIdxFTS bool
 	}{
-		{tsb2, "synonym*", false},         // Unbounded '*' exceeds indexed length buckets -> Sequential FTS fallback
-		{tsb2, "agoni[sz]e", true},        // Bounded length 7 (WordCount(7)==5 > 0) -> Indexed FTS!
+		{tsb2, "synonym*", false},            // Unbounded '*' exceeds indexed length buckets -> Sequential FTS fallback
+		{tsb2, "agoni[sz]e", true},           // Bounded length 7 (WordCount(7)==5 > 0) -> Indexed FTS!
 		{tsb2, "crosswordman & !http", true}, // Exercises Indexed set_difference (A & !B)!
 		{tsb2, "rtf & (web | mailto)", true},
 		{devil, "dictionary & !lexicographer", true},

@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+/* Clean dark scrollbars for virtualized dictionary panes and definitions */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #0f172a;
+}
+
+/* Styled RTF-to-HTML definition typography */
+.tisane-def {
+  line-height: 1.65;
+  color: #e2e8f0;
+  font-size: 0.925rem;
+}
+
+.tisane-def p {
+  margin-bottom: 0.6rem;
+}
+
+.tisane-def p:last-child {
+  margin-bottom: 0;
+}
+
+.tisane-def b,
+.tisane-def strong {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.tisane-def i,
+.tisane-def em {
+  color: #cbd5e1;
+}
+
+.tisane-def a {
+  color: #fbbf24;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tisane-def a:hover {
+  color: #fde68a;
+}

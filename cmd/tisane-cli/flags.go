@@ -22,39 +22,39 @@ const (
 )
 
 type cliOptions struct {
-	DictSpecs        []string
-	ConfigPath       string
-	AtMacro          string
-	HashMacro        string
-	MinLen           int
-	MaxLen           int
-	ShowAnnotations  bool
-	ShowBalances     bool
-	ExclusiveVars    bool
-	IgnorePunct      bool
-	OutputTransform  int // /O:0..4 (0=exact, 1=ascii, 2=ascii-letters, 3=ascii-lower, 4=ascii-upper)
-	Quiet            bool
-	Limit            int
-	CountOnly        bool
-	ShowStats        bool
-	FTSMode          bool
-	DefineMode       bool
-	DefineWords      []string
-	IncludeMentions  bool
-	Sort             search.SortMode
-	Dedupe           bool
-	DedupeExplicit   bool
-	ShowDict         bool
-	EntryFilter      search.EntryTypeMask
-	NoPhrases        bool
-	NoProper         bool
-	EnumSpec         string
-	EnumParts        []pattern.EnumerationPart
-	Format           OutputFormat
-	Interactive      bool
-	ShowHelp         bool
-	ShowVersion      bool
-	Patterns         []string
+	DictSpecs       []string
+	ConfigPath      string
+	AtMacro         string
+	HashMacro       string
+	MinLen          int
+	MaxLen          int
+	ShowAnnotations bool
+	ShowBalances    bool
+	ExclusiveVars   bool
+	IgnorePunct     bool
+	OutputTransform int // /O:0..4 (0=exact, 1=ascii, 2=ascii-letters, 3=ascii-lower, 4=ascii-upper)
+	Quiet           bool
+	Limit           int
+	CountOnly       bool
+	ShowStats       bool
+	FTSMode         bool
+	DefineMode      bool
+	DefineWords     []string
+	IncludeMentions bool
+	Sort            search.SortMode
+	Dedupe          bool
+	DedupeExplicit  bool
+	ShowDict        bool
+	EntryFilter     search.EntryTypeMask
+	NoPhrases       bool
+	NoProper        bool
+	EnumSpec        string
+	EnumParts       []pattern.EnumerationPart
+	Format          OutputFormat
+	Interactive     bool
+	ShowHelp        bool
+	ShowVersion     bool
+	Patterns        []string
 }
 
 func defaultCLIOptions(cfg *profile.Config) cliOptions {
