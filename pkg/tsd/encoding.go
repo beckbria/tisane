@@ -197,6 +197,37 @@ func EncodeCP1252(s string) (out []byte, ok bool) {
 	return out, ok
 }
 
+// FoldCP1252 returns a lowercase-folded UTF-8 string from raw CP1252 bytes,
+// folding ASCII and Western European accented capitals while preserving spaces and punctuation.
+// Used for case-insensitive cross-dictionary deduplication and definition matching.
+func FoldCP1252(b []byte) string {
+	var buf [128]byte
+	var dst []byte
+	if len(b) <= len(buf) {
+		dst = buf[:len(b)]
+	} else {
+		dst = make([]byte, len(b))
+	}
+	for i, c := range b {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			c += 'a' - 'A'
+		case (c >= 0xC0 && c <= 0xD6) || (c >= 0xD8 && c <= 0xDE):
+			c += 0x20
+		case c == 0x8A: // Š -> š
+			c = 0x9A
+		case c == 0x8C: // Œ -> œ
+			c = 0x9C
+		case c == 0x8E: // Ž -> ž
+			c = 0x9E
+		case c == 0x9F: // Ÿ -> ÿ
+			c = 0xFF
+		}
+		dst[i] = c
+	}
+	return DecodeCP1252(dst)
+}
+
 // normalizeBuilderInput converts raw source bytes to Windows-1252 according to enc.
 func normalizeBuilderInput(data []byte, enc InputEncoding) []byte {
 	switch enc {

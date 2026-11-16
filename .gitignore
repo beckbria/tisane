@@ -1,2 +1,6 @@
 binary
 tea*
+/tisane
+/tisane-cli
+/tisane-build
+*.exe

@@ -80,9 +80,9 @@ func isASCIIDigit(b byte) bool {
 	return b >= '0' && b <= '9'
 }
 
-// stripRTFForFTS reproduces TSBuild.exe's RTF markup stripper (VA 0x4055f0) used when
+// StripRTFForFTS reproduces TSBuild.exe's RTF markup stripper (VA 0x4055f0) used when
 // tokenizing Pass 2 definitions for Full Text Search.
-func stripRTFForFTS(rawDef []byte) []byte {
+func StripRTFForFTS(rawDef []byte) []byte {
 	if !bytes.HasPrefix(rawDef, []byte(`{\rtf1`)) {
 		if len(rawDef) > 0 && rawDef[len(rawDef)-1] == '\n' {
 			return rawDef[:len(rawDef)-1]
@@ -447,7 +447,7 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 					linePass[lineIdx] = 1
 				} else {
 					linePass[lineIdx] = 2
-					plainDef := stripRTFForFTS(line[p+1:])
+					plainDef := StripRTFForFTS(line[p+1:])
 					tokScratch = tokScratch[:0]
 					for k := 0; k <= len(plainDef); k++ {
 						var mb byte
