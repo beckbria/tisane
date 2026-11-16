@@ -81,7 +81,7 @@ TODO: Screenshot, Screencast
 
 ### CLI
 
-`tisane-cli` accepts both modern POSIX flags and legacy `TEACON.exe` switches (`/D:`, `/S:`, `/L:`, `/A:`, `/H:`, `/B:`, `/N:`, `/O:`, `/X:`, `/U:`, `/Q`, `/?`).
+`tisane-cli` accepts both modern POSIX flags and legacy `TEACON.exe` switches (`/D:`, `/S:`, `/L:`, `/A:`, `/H:`, `/B:`, `/N:`, `/O:`, `/X:`, `/U:`, `/Q`, `/?`). It can be used for a single query or in an interactive mode (`-i`) and can output plain text or structured formats.
 
 ```bash
 # Basic crossword template & anagram query against specific dictionaries
@@ -114,7 +114,9 @@ TODO: Screenshot, Screencast
 
 Run `./tisane-cli --help` for the complete list of flags.
 
-### Dictionary Builder
+### Dictionary Builder (`tisane-build`)
+
+`tisane-build` compiles UTF-8 or Windows-1252 word/definition text files into compressed `TSD1` `.tsd` dictionaries (with optional `.tsm` custom alphabet maps and inverted FTS indexes), or inspects headers of existing `.tsd` files.
 
 ```bash
 # Inspect metadata, version, capabilities, and word counts of existing .tsd files
@@ -127,11 +129,35 @@ Run `./tisane-cli --help` for the complete list of flags.
 ./tisane-build --map Maps/French.TSM --tsv -i lexicon.tsv -o french.tsd
 ```
 
-### Input File Syntax Summary
+#### Input File Syntax Summary
 - **Simple word list**: One entry per line, optional `;annotation` (or `\tannotation` with `--tsv`).
 - **Definitions**: `headword;optional_qualifier|definition text` (supports plain text or `{\rtf1 ...}` RTF blocks; multiple headwords/aliases sharing one definition can be separated by `|` before the final definition segment, matching `TSBuild` format).
 
 Run `./tisane-build --help` for all builder flags (`--min-len`, `--max-len`, `--max-fts-pct`, `--no-sort`, `--encoding`).
+
+### Dictionary Extractor
+
+`tisane-extract` exports words from any `.tsd` (`TSD0` or `TSD1`) dictionary either as a clean one-word-per-line list (`--simple`, default) or as a `tisane-build`-compatible metadata source file (`--metadata`, preserving description headers, `+annotations`, `+qualifiers`, `:shared` headwords, `;aliases`, and `|definitions`).
+
+```bash
+# Simple mode (default): one word per line to stdout or file, discarding definitions & annotations
+./tisane-extract "Dictionaries/Core English.tsd" > words.txt
+./tisane-extract --simple "Dictionaries/The Devil's Dictionary.tsd" devils-words.txt
+
+# Metadata mode: full tisane-build / TSBuild source format (headwords, annotations, aliases, definitions)
+./tisane-extract --metadata "Dictionaries/The Devil's Dictionary.tsd" devils-source.txt
+
+# Metadata without definitions: keep word+annotation pairs only, discarding definitions & qualifiers
+./tisane-extract --metadata --no-defs "Dictionaries/tsbuild2.tsd" annotated-words.txt
+
+# Filter extracted words by canonical letter length (e.g. 5-letter words only) and stream by length bucket
+./tisane-extract --min-len 5 --max-len 5 --sort length "Dictionaries/Core English.tsd" fives.txt
+
+# Also extract the dictionary's embedded .tsm alphabet map for recompilation with tisane-build
+./tisane-extract --metadata --save-map custom.tsm custom.tsd custom-source.txt
+```
+
+Run `./tisane-extract --help` for all extractor options (`--no-header`, `--no-dedupe`, `--sort`, `--encoding`).
 
 ---
 
@@ -158,6 +184,7 @@ Run `./tisane-build --help` for all builder flags (`--min-len`, `--max-len`, `--
 | `cmd/tisane` | **Desktop GUI application** (Go + Wails v3 + Svelte 5 + Tailwind CSS + `@tanstack/svelte-virtual`) |
 | `cmd/tisane-cli` | **Command-line & interactive REPL search tool** (compatible with legacy `TEACON` switches plus JSON/CSV, FTS, `--define`, and `--enum`) |
 | `cmd/tisane-build` | **Dictionary compiler & inspector** (replaces `TSBuild.exe`; compiles plain-text/RTF word lists into `.tsd` files) |
+| `cmd/tisane-extract` | **Word list & metadata extractor** (exports `.tsd` dictionaries to plain one-word-per-line lists or `tisane-build` source files) |
 | `pkg/tsd` | Pure-Go reader, streaming bit-unpacker, RTF/zlib definition decoder, and byte-accurate `TSD1` writer |
 | `pkg/pattern` | Macro expander, boolean expression parser, live span validator, calibration-sorted compiler, and backtracking VM |
 | `pkg/search` | Concurrent multi-dictionary word & indexed/sequential Full-Text Search (FTS) engine with 6 sort modes |
@@ -251,15 +278,9 @@ FRONTEND_DEVSERVER_URL=http://localhost:5173 ./tisane
 CGO_ENABLED=0 go build -o tisane-cli ./cmd/tisane-cli
 ```
 
-## Building and Running the Dictionary Builder (`tisane-build`)
+## Dictionary Builder (`tisane-build`)
 
 `tisane-build` compiles UTF-8 or Windows-1252 word/definition text files into compressed `TSD1` `.tsd` dictionaries (with optional `.tsm` custom alphabet maps and inverted FTS indexes), or inspects headers of existing `.tsd` files.
-
-### Build
-
-```bash
-CGO_ENABLED=0 go build -o tisane-build ./cmd/tisane-build
-```
 
 ### Usage & Examples
 
@@ -280,13 +301,25 @@ CGO_ENABLED=0 go build -o tisane-build ./cmd/tisane-build
 
 Run `./tisane-build --help` for all builder flags (`--min-len`, `--max-len`, `--max-fts-pct`, `--no-sort`, `--encoding`).
 
+### Dictionary Builder
+
+```bash
+CGO_ENABLED=0 go build -o tisane-build ./cmd/tisane-build
+```
+
+### Dictionary Extractor
+
+```bash
+CGO_ENABLED=0 go build -o tisane-extract ./cmd/tisane-extract
+```
+
 ### Running Tests & Verification
 
 #### Go Unit, Integration & Race Tests
 
 ```bash
-# Core libraries, CLI, Builder, and Desktop backend services (with race detector)
-go test -race ./pkg/... ./cmd/tisane-build ./cmd/tisane-cli ./cmd/tisane/app
+# Core libraries, CLI, Builder, Extractor, and Desktop backend services (with race detector)
+go test -race ./pkg/... ./cmd/tisane-build ./cmd/tisane-extract ./cmd/tisane-cli ./cmd/tisane/app
 
 # Wails v3 service FQN bindings & embedded asset server check (Linux PureGo)
 CGO_ENABLED=0 go test -tags purego,gtk3 -v ./cmd/tisane
