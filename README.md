@@ -239,7 +239,7 @@ CGO_ENABLED=1 go build -o tisane ./cmd/tisane
 ```bash
 go build -o tisane ./cmd/tisane
 # On Windows (PowerShell):
-# go build -o tisane.exe ./cmd/tisane
+# go build -ldflags "-H=windowsgui" -o tisane.exe ./cmd/tisane
 ```
 
 ##### Headless / Browser Server Mode (Any OS, no GUI libraries needed)

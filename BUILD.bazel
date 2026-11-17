@@ -109,18 +109,18 @@ filegroup(
 
 release_archive(
     name = "linux-release",
+    out = "linux-release.tar.gz",
     binaries = [":linux"],
     dictionaries = [":dictionaries"],
     format = "tar.gz",
-    out = "linux-release.tar.gz",
     visibility = ["//visibility:public"],
 )
 
 release_archive(
     name = "windows-release",
+    out = "windows-release.zip",
     binaries = [":windows"],
     dictionaries = [":dictionaries"],
     format = "zip",
-    out = "windows-release.zip",
     visibility = ["//visibility:public"],
 )

@@ -38,6 +38,10 @@ go_library(
 go_binary(
     name = "tisane",
     embed = [":tisane_lib"],
+    gc_linkopts = select({
+        "@rules_go//go/platform:windows": ["-H=windowsgui"],
+        "//conditions:default": [],
+    }),  # keep
     visibility = ["//visibility:public"],
 )
 
@@ -55,6 +59,7 @@ go_binary(
 go_binary(
     name = "tisane_windows_bin",
     embed = [":tisane_lib"],
+    gc_linkopts = ["-H=windowsgui"],  # keep
     goarch = "amd64",
     goos = "windows",
     pure = "on",
