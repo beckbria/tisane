@@ -262,7 +262,7 @@ You can optionally point Tisane at one or more directories of `.tsd` files or a 
 TISANE_DICT_PATH="/path/to/Dictionaries:/another/folder" ./tisane
 ```
 
-- **First-run discovery**: On first launch, Tisane automatically scans `TISANE_DICT_PATH`, `./Dictionaries`, `./binary/Dictionaries`, `./binary`, and the working directory for `.tsd` files, and saves your profile to `~/.config/tisane/config.toml` (Linux/macOS) or `%AppData%\tisane\config.toml` (Windows). Override the config file path at any time with `TISANE_CONFIG=/path/to/config.toml`.
+- **First-run discovery**: On first launch, Tisane automatically scans `TISANE_DICT_PATH`, the directory the executable is running from, the working directory, and the `dictionaries` subdirectory for `.tsd` files, and saves your profile to `~/.config/tisane/config.toml` (Linux/macOS) or `%AppData%\tisane\config.toml` (Windows). Override the config file path at any time with `TISANE_CONFIG=/path/to/config.toml`.
 
 ### Live Frontend Hot-Reload (UI Development Workflow)
 

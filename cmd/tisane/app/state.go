@@ -3,6 +3,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -92,30 +93,16 @@ func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 		for _, dc := range cfg.Dictionaries {
 			_, _ = s.openAndAppendLocked(dc.Path, dc.Name, dc.Enabled)
 		}
-	} else {
-		// First-run convenience discovery across TISANE_DICT_PATH and standard local directories.
-		var dirs []string
-		dirs = append(dirs, profile.SplitDictPathEnv("")...)
-		dirs = append(dirs, cfg.DictDirs...)
-		dirs = append(dirs, "Dictionaries", "dictionaries", "binary/Dictionaries", "binary", ".")
-		discovered, _ := profile.DiscoverDictionaries(dirs...)
-		enabledCount := 0
+	}
+	if len(s.dicts) == 0 {
+		// First-run discovery across TISANE_DICT_PATH, the executable directory,
+		// the current working directory, and the dictionaries subdirectory.
+		discovered, _ := profile.DiscoverDictionaries(profile.DefaultSearchDirs(cfg)...)
 		for _, p := range discovered {
-			base := strings.ToLower(filepath.Base(p))
-			enable := false
-			if strings.Contains(base, "core english") || strings.Contains(base, "edited english") {
-				enable = true
-				enabledCount++
-			}
-			_, _ = s.openAndAppendLocked(p, "", enable)
-		}
-		// If neither Core nor Edited English was present, enable up to the first 2 discovered dictionaries.
-		if enabledCount == 0 {
-			for i := 0; i < len(s.dicts) && i < 2; i++ {
-				s.dicts[i].info.Enabled = true
-			}
+			_, _ = s.openAndAppendLocked(p, "", true)
 		}
 		s.syncConfigDictionariesLocked()
+		_ = s.saveConfigLocked()
 	}
 
 	return s, nil
@@ -163,9 +150,15 @@ func (s *State) openAndAppendLocked(path string, customName string, enabled bool
 		absPath = filepath.Clean(path)
 	}
 	id := makeDictID(absPath)
+	info, statErr := os.Stat(absPath)
 	for _, existing := range s.dicts {
 		if existing.info.ID == id {
 			return existing, nil
+		}
+		if statErr == nil {
+			if exInfo, exErr := os.Stat(existing.info.Path); exErr == nil && os.SameFile(info, exInfo) {
+				return existing, nil
+			}
 		}
 	}
 

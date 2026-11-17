@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"tisane/cmd/tisane/app"
+	"tisane/pkg/profile"
 	"tisane/pkg/search"
+	"tisane/pkg/tsd"
 )
 
 const repoBinDir = "../../../binary"
@@ -215,5 +217,70 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 	})
 	if err != nil || updatedCfg.LayoutMode != "unified" || updatedCfg.Fonts.Results.Family != "Fira Code" || updatedCfg.Fonts.Results.Size != 17 {
 		t.Fatalf("UpdateConfig: %+v, err=%v", updatedCfg, err)
+	}
+}
+
+func TestFirstRunDiscoversExecutableDirAndDictionariesSubdir(t *testing.T) {
+	exeDir := t.TempDir()
+	dictsSubdir := filepath.Join(exeDir, "dictionaries")
+	if err := os.MkdirAll(dictsSubdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	topBytes, _, err := tsd.BuildBytes([]byte("alpha\nbeta\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	subBytes, _, err := tsd.BuildBytes([]byte("gamma\ndelta\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	topPath := filepath.Join(exeDir, "root-dict.tsd")
+	subPath := filepath.Join(dictsSubdir, "bundled-dict.tsd")
+	if err := os.WriteFile(topPath, topBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(subPath, subBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origExeFunc := profile.ExecutablePathFunc
+	profile.ExecutablePathFunc = func() (string, error) {
+		return filepath.Join(exeDir, "tisane"), nil
+	}
+	defer func() {
+		profile.ExecutablePathFunc = origExeFunc
+	}()
+
+	// Run from an unrelated empty working directory so discovery must use the executable directory.
+	t.Chdir(t.TempDir())
+
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	state, err := app.NewState(cfgPath, app.NoopBridge{})
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+	defer state.Close()
+
+	dictSvc := app.NewDictionaryService(state)
+	infos := dictSvc.ListDictionaries()
+	if len(infos) != 2 {
+		t.Fatalf("expected 2 discovered dictionaries on first run, got %d: %+v", len(infos), infos)
+	}
+	if infos[0].Path != topPath || !infos[0].Enabled {
+		t.Fatalf("unexpected first dictionary: %+v (want path=%q enabled=true)", infos[0], topPath)
+	}
+	if infos[1].Path != subPath || !infos[1].Enabled {
+		t.Fatalf("unexpected second dictionary: %+v (want path=%q enabled=true)", infos[1], subPath)
+	}
+
+	// Verify config.toml was saved on first run with both dictionaries.
+	savedCfg, err := profile.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("expected config.toml to be saved on first run: %v", err)
+	}
+	if len(savedCfg.Dictionaries) != 2 {
+		t.Fatalf("expected 2 dictionaries in saved config.toml, got %+v", savedCfg.Dictionaries)
 	}
 }

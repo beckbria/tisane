@@ -77,3 +77,50 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 		}
 	}
 }
+
+func TestExecutableAndSubdirectoryDiscovery(t *testing.T) {
+	exeRoot := t.TempDir()
+	subDictsDir := filepath.Join(exeRoot, "dictionaries")
+	if err := os.MkdirAll(subDictsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	topDict := filepath.Join(exeRoot, "top.tsd")
+	subDict := filepath.Join(subDictsDir, "bundled.tsd")
+	for _, p := range []string{topDict, subDict} {
+		if err := os.WriteFile(p, []byte("TSD1"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	origExeFunc := profile.ExecutablePathFunc
+	profile.ExecutablePathFunc = func() (string, error) {
+		return filepath.Join(exeRoot, "tisane"), nil
+	}
+	defer func() {
+		profile.ExecutablePathFunc = origExeFunc
+	}()
+
+	// Run from a separate empty working directory to ensure discovery uses the executable's directory.
+	emptyCwd := t.TempDir()
+	t.Chdir(emptyCwd)
+
+	dirs := profile.DefaultSearchDirs(profile.DefaultConfig())
+	discovered, err := profile.DiscoverDictionaries(dirs...)
+	if err != nil {
+		t.Fatalf("DiscoverDictionaries: %v", err)
+	}
+	if len(discovered) != 2 || discovered[0] != topDict || discovered[1] != subDict {
+		t.Fatalf("DiscoverDictionaries = %v, want [%s %s]", discovered, topDict, subDict)
+	}
+
+	// Also verify no duplicates when CWD is the same as the executable directory.
+	t.Chdir(exeRoot)
+	discoveredSameDir, err := profile.DiscoverDictionaries(profile.DefaultSearchDirs(profile.DefaultConfig())...)
+	if err != nil {
+		t.Fatalf("DiscoverDictionaries (same dir): %v", err)
+	}
+	if len(discoveredSameDir) != 2 {
+		t.Fatalf("expected 2 deduplicated dictionaries when CWD == exeDir, got %v", discoveredSameDir)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -89,13 +90,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		fmt.Fprintf(stderr, "\"%s\" is not a valid dictionary (%v)\n", strings.Join(opts.DictSpecs, ";"), err)
 		return 1
 	}
-	// Helpful fallback: if no profile dictionaries were configured yet and -d was omitted,
-	// discover *.tsd in TISANE_DICT_PATH or ./Dictionaries.
-	if len(dictPaths) == 0 && len(opts.DictSpecs) == 0 {
-		searchDirs := append(profile.SplitDictPathEnv(os.Getenv(profile.EnvDictPath)), cfg.DictDirs...)
-		searchDirs = append(searchDirs, "Dictionaries", "dictionaries", "binary/Dictionaries", ".")
-		discovered, _ := profile.DiscoverDictionaries(searchDirs...)
-		dictPaths = discovered
+	// When no -d dictionary flags are given, search TISANE_DICT_PATH, configured dict_dirs,
+	// the executable directory, current working directory, and the dictionaries subdirectory,
+	// adding any dictionaries found there.
+	if len(opts.DictSpecs) == 0 {
+		discovered, _ := profile.DiscoverDictionaries(profile.DefaultSearchDirs(cfg)...)
+		dictPaths = mergeDiscoveredDictionaries(cfg, dictPaths, discovered)
 	}
 
 	if len(dictPaths) == 0 && !opts.Interactive {
@@ -351,6 +351,71 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	return exitCode
+}
+
+func mergeDiscoveredDictionaries(cfg *profile.Config, activePaths []string, discovered []string) []string {
+	var knownInfos []os.FileInfo
+	seenPaths := make(map[string]bool)
+
+	recordKnown := func(p string) {
+		if p == "" {
+			return
+		}
+		if abs, err := filepath.Abs(p); err == nil {
+			seenPaths[filepath.Clean(abs)] = true
+		} else {
+			seenPaths[filepath.Clean(p)] = true
+		}
+		if info, err := os.Stat(p); err == nil {
+			knownInfos = append(knownInfos, info)
+		}
+	}
+
+	if cfg != nil {
+		for _, dc := range cfg.Dictionaries {
+			recordKnown(dc.Path)
+		}
+	}
+	for _, p := range activePaths {
+		recordKnown(p)
+	}
+
+	out := append([]string(nil), activePaths...)
+	for _, p := range discovered {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			abs = filepath.Clean(p)
+		} else {
+			abs = filepath.Clean(abs)
+		}
+		if seenPaths[abs] {
+			continue
+		}
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		dup := false
+		for _, ki := range knownInfos {
+			if os.SameFile(info, ki) {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		seenPaths[abs] = true
+		knownInfos = append(knownInfos, info)
+		out = append(out, p)
+		if cfg != nil {
+			cfg.Dictionaries = append(cfg.Dictionaries, profile.DictConfig{
+				Path:    abs,
+				Enabled: true,
+			})
+		}
+	}
+	return out
 }
 
 func buildSearchRequest(

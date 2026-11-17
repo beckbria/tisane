@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"tisane/pkg/profile"
 	"tisane/pkg/search"
 	"tisane/pkg/tsd"
 )
@@ -248,6 +249,58 @@ func TestInteractiveREPLSession(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("REPL output missing %q\ngot:\n%s", want, out)
 		}
+	}
+}
+
+func TestCLIDiscoversExecutableDirAndDictionariesSubdir(t *testing.T) {
+	exeDir := t.TempDir()
+	dictsSubdir := filepath.Join(exeDir, "dictionaries")
+	if err := os.MkdirAll(dictsSubdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	topBytes, _, err := tsd.BuildBytes([]byte("rootword\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	subBytes, _, err := tsd.BuildBytes([]byte("subword\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(exeDir, "top.tsd"), topBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dictsSubdir, "sub.tsd"), subBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origExeFunc := profile.ExecutablePathFunc
+	profile.ExecutablePathFunc = func() (string, error) {
+		return filepath.Join(exeDir, "tisane-cli"), nil
+	}
+	defer func() {
+		profile.ExecutablePathFunc = origExeFunc
+	}()
+
+	// Run from an empty working directory with an isolated empty config path and no -d flag.
+	t.Chdir(t.TempDir())
+	t.Setenv(profile.EnvConfigPath, filepath.Join(t.TempDir(), "config.toml"))
+
+	var stdout, stderr bytes.Buffer
+	code := run(
+		context.Background(),
+		[]string{"-q", "*word"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("CLI failed (%d): %s", code, stderr.String())
+	}
+	got := strings.Fields(stdout.String())
+	if len(got) != 2 || got[0] != "rootword" || got[1] != "subword" {
+		t.Fatalf("CLI output = %v, want [rootword subword]", got)
 	}
 }
 

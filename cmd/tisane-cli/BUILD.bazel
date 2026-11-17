@@ -61,6 +61,7 @@ go_test(
     srcs = ["main_test.go"],
     embed = [":tisane-cli_lib"],
     deps = [
+        "//pkg/profile",
         "//pkg/search",
         "//pkg/tsd",
     ],

@@ -215,15 +215,83 @@ func SplitDictPathEnv(val string) []string {
 	return out
 }
 
+// ExecutablePathFunc is used to determine the path of the running executable.
+// It defaults to os.Executable and may be overridden in tests.
+var ExecutablePathFunc = os.Executable
+
+// ExecutableSearchDirs returns candidate dictionary directories relative to the
+// directory the executable is running from as well as the current working directory,
+// including each location's "dictionaries" subdirectory.
+func ExecutableSearchDirs() []string {
+	var dirs []string
+	seen := make(map[string]bool)
+	addDir := func(d string) {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			return
+		}
+		clean := filepath.Clean(d)
+		if !seen[clean] {
+			seen[clean] = true
+			dirs = append(dirs, d)
+		}
+	}
+	addBase := func(base string) {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			return
+		}
+		addDir(base)
+		addDir(filepath.Join(base, "dictionaries"))
+		addDir(filepath.Join(base, "Dictionaries"))
+	}
+
+	if ExecutablePathFunc != nil {
+		if exePath, err := ExecutablePathFunc(); err == nil && exePath != "" {
+			exeDir := filepath.Dir(exePath)
+			addBase(exeDir)
+			if resolved, err := filepath.EvalSymlinks(exePath); err == nil && resolved != "" {
+				realDir := filepath.Dir(resolved)
+				if realDir != exeDir {
+					addBase(realDir)
+				}
+			}
+		}
+	}
+
+	addBase(".")
+
+	if bwd := strings.TrimSpace(os.Getenv("BUILD_WORKING_DIRECTORY")); bwd != "" {
+		addBase(bwd)
+	}
+
+	return dirs
+}
+
+// DefaultSearchDirs returns all dictionary search directories in priority order:
+//  1. TISANE_DICT_PATH environment variable entries
+//  2. Configured cfg.DictDirs entries
+//  3. The executable's directory, the current working directory, and their "dictionaries" subdirectories
+func DefaultSearchDirs(cfg *Config) []string {
+	var searchDirs []string
+	searchDirs = append(searchDirs, SplitDictPathEnv(os.Getenv(EnvDictPath))...)
+	if cfg != nil {
+		searchDirs = append(searchDirs, cfg.DictDirs...)
+	}
+	searchDirs = append(searchDirs, ExecutableSearchDirs()...)
+	return searchDirs
+}
+
 // DiscoverDictionaries scans dirs for *.tsd files (case-insensitive extension) and returns sorted paths.
 func DiscoverDictionaries(dirs ...string) ([]string, error) {
 	seen := make(map[string]bool)
+	var seenInfos []os.FileInfo
 	var found []string
 
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if os.IsNotExist(err) || len(dirs) > 1 {
 				continue
 			}
 			return nil, err
@@ -235,14 +303,20 @@ func DiscoverDictionaries(dirs ...string) ([]string, error) {
 			}
 			if strings.EqualFold(filepath.Ext(e.Name()), ".tsd") {
 				full := filepath.Join(dir, e.Name())
+				info, statErr := os.Stat(full)
+				if statErr != nil || info.IsDir() {
+					continue
+				}
 				abs, err := filepath.Abs(full)
 				if err != nil {
-					abs = full
+					abs = filepath.Clean(full)
 				}
-				if !seen[abs] {
-					seen[abs] = true
-					dirHits = append(dirHits, full)
+				if seen[abs] || isSameAsAny(info, seenInfos) {
+					continue
 				}
+				seen[abs] = true
+				seenInfos = append(seenInfos, info)
+				dirHits = append(dirHits, full)
 			}
 		}
 		sort.Strings(dirHits)
@@ -251,11 +325,20 @@ func DiscoverDictionaries(dirs ...string) ([]string, error) {
 	return found, nil
 }
 
+func isSameAsAny(info os.FileInfo, seen []os.FileInfo) bool {
+	for _, s := range seen {
+		if os.SameFile(info, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // ResolveDictionaryPaths resolves CLI or UI dictionary specifications (such as "/D:core;edited"
 // or bare names) into concrete .tsd filesystem paths using:
 //  1. Direct path (with or without ".tsd" suffix)
 //  2. Configured profile dictionary names/paths
-//  3. Search directories in TISANE_DICT_PATH, cfg.DictDirs, and current directory
+//  3. Search directories in TISANE_DICT_PATH, cfg.DictDirs, executable directory, current directory, and "dictionaries" subdirectories
 //
 // If specs is empty, all Enabled dictionaries in cfg.Dictionaries are returned in priority order.
 func ResolveDictionaryPaths(specs []string, cfg *Config) ([]string, error) {
@@ -275,17 +358,14 @@ func ResolveDictionaryPaths(specs []string, cfg *Config) ([]string, error) {
 	if len(flatSpecs) == 0 {
 		var active []string
 		for _, dc := range cfg.Dictionaries {
-			if dc.Enabled && dc.Path != "" {
+			if dc.Enabled && dc.Path != "" && fileExists(dc.Path) {
 				active = append(active, dc.Path)
 			}
 		}
 		return active, nil
 	}
 
-	var searchDirs []string
-	searchDirs = append(searchDirs, SplitDictPathEnv(os.Getenv(EnvDictPath))...)
-	searchDirs = append(searchDirs, cfg.DictDirs...)
-	searchDirs = append(searchDirs, "Dictionaries", "dictionaries", ".")
+	searchDirs := DefaultSearchDirs(cfg)
 
 	out := make([]string, 0, len(flatSpecs))
 	for _, spec := range flatSpecs {
