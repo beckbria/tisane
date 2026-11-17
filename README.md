@@ -1,4 +1,4 @@
-# Tisane
+# <img src="./img/icon.png" alt="Tisane icon" width="80" align="center" /> Tisane
 
 **Tisane** is a pattern matching/regex tool. It provides high-speed crossword, cryptic, anagram, and dictionary search. It can operate on custom user-defined dictionaries.
 
