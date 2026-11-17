@@ -185,10 +185,18 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 		t.Fatalf("expected unsafe javascript: scheme to be rejected")
 	}
 
-	// Toggle layout mode to "unified" and verify persistence
+	// Toggle layout mode to "unified" and update custom fonts, verifying persistence
 	unified := "unified"
-	updatedCfg, err := profSvc.UpdateConfig(app.ConfigPatch{LayoutMode: &unified})
-	if err != nil || updatedCfg.LayoutMode != "unified" {
+	customFonts := cfg.Fonts
+	customFonts.Results.Family = "Fira Code"
+	customFonts.Results.Size = 17
+	customFonts.Definitions.Family = "Georgia"
+	customFonts.Definitions.Size = 18
+	updatedCfg, err := profSvc.UpdateConfig(app.ConfigPatch{
+		LayoutMode: &unified,
+		Fonts:      &customFonts,
+	})
+	if err != nil || updatedCfg.LayoutMode != "unified" || updatedCfg.Fonts.Results.Family != "Fira Code" || updatedCfg.Fonts.Results.Size != 17 {
 		t.Fatalf("UpdateConfig: %+v, err=%v", updatedCfg, err)
 	}
 }

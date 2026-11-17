@@ -28,6 +28,63 @@ type DictConfig struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// ElementFont holds the font family and pixel size for a specific UI text area.
+type ElementFont struct {
+	Family string `json:"family"`
+	Size   int    `json:"size"`
+}
+
+// FontConfig holds customizable typography settings for Tisane UI text elements.
+type FontConfig struct {
+	Results          ElementFont `json:"results"`
+	Definitions      ElementFont `json:"definitions"`
+	PatternInput     ElementFont `json:"patternInput"`
+	DictionariesList ElementFont `json:"dictionariesList"`
+	StatusBar        ElementFont `json:"statusBar"`
+	Toolbar          ElementFont `json:"toolbar"`
+}
+
+// DefaultFontConfig returns the default font families and pixel sizes for all UI text areas.
+func DefaultFontConfig() FontConfig {
+	return FontConfig{
+		Results:          ElementFont{Family: "monospace", Size: 13},
+		Definitions:      ElementFont{Family: "sans-serif", Size: 15},
+		PatternInput:     ElementFont{Family: "monospace", Size: 14},
+		DictionariesList: ElementFont{Family: "sans-serif", Size: 12},
+		StatusBar:        ElementFont{Family: "sans-serif", Size: 11},
+		Toolbar:          ElementFont{Family: "sans-serif", Size: 12},
+	}
+}
+
+func normalizeElementFont(ef ElementFont, def ElementFont) ElementFont {
+	family := strings.TrimSpace(ef.Family)
+	if family == "" {
+		family = def.Family
+	}
+	size := ef.Size
+	if size <= 0 {
+		size = def.Size
+	} else if size < 8 {
+		size = 8
+	} else if size > 48 {
+		size = 48
+	}
+	return ElementFont{Family: family, Size: size}
+}
+
+// NormalizeFontConfig ensures all font families are non-empty and font sizes are within [8, 48].
+func NormalizeFontConfig(fc FontConfig) FontConfig {
+	def := DefaultFontConfig()
+	return FontConfig{
+		Results:          normalizeElementFont(fc.Results, def.Results),
+		Definitions:      normalizeElementFont(fc.Definitions, def.Definitions),
+		PatternInput:     normalizeElementFont(fc.PatternInput, def.PatternInput),
+		DictionariesList: normalizeElementFont(fc.DictionariesList, def.DictionariesList),
+		StatusBar:        normalizeElementFont(fc.StatusBar, def.StatusBar),
+		Toolbar:          normalizeElementFont(fc.Toolbar, def.Toolbar),
+	}
+}
+
 // Config holds user preferences shared by the Tisane desktop app and tisane-cli.
 type Config struct {
 	DictDirs                []string             `json:"dictDirs"`
@@ -48,6 +105,7 @@ type Config struct {
 	DefaultWebProvider      string               `json:"defaultWebProvider"`
 	WebProviders            []lookup.WebProvider `json:"webProviders"`
 	RecentQueries           []string             `json:"recentQueries"`
+	Fonts                   FontConfig           `json:"fonts"`
 }
 
 // DefaultConfig returns Tisane's standard out-of-the-box configuration.
@@ -72,6 +130,7 @@ func DefaultConfig() *Config {
 		DefaultWebProvider:      "onelook",
 		WebProviders:            lookup.DefaultWebProviders(),
 		RecentQueries:           []string{},
+		Fonts:                   DefaultFontConfig(),
 	}
 }
 

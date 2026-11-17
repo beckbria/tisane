@@ -146,6 +146,7 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="space-y-3"
+        style="font-family: var(--tisane-font-definitions-family); font-size: var(--tisane-font-definitions-size);"
         onclick={handleDefClick}
         ondblclick={handleDefDoubleClick}
         data-testid="definition-entries"
@@ -154,11 +155,11 @@
           <article class="rounded-lg border border-slate-800 bg-slate-950/75 p-3 shadow-xs">
             <div class="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-1">
               <div class="flex flex-wrap items-center gap-2">
-                <span class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-300">
+                <span class="rounded bg-amber-500/15 px-1.5 py-0.5 font-sans text-[11px] font-semibold text-amber-300">
                   {entry.dict}
                 </span>
                 {#if entry.headwords && entry.headwords.length > 0}
-                  <span class="font-mono text-xs font-semibold text-slate-100">
+                  <span class="font-semibold text-slate-100">
                     {#each entry.headwords as hw, idx}
                       {#if idx > 0}<span class="text-slate-600"> · </span>{/if}
                       {hw.headword}{#if hw.qualifier}
@@ -168,7 +169,7 @@
                   </span>
                 {/if}
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1.5 font-sans">
                 {#if entry.isMention}
                   <span class="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-300">
                     Text mention
@@ -182,7 +183,10 @@
               </div>
             </div>
 
-            <div class="tisane-def">
+            <div
+              class="tisane-def"
+              style="font-family: var(--tisane-font-definitions-family); font-size: var(--tisane-font-definitions-size);"
+            >
               {@html entry.html}
             </div>
           </article>

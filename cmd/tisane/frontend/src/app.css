@@ -6,11 +6,27 @@
   scrollbar-color: #334155 #0f172a;
 }
 
+:root {
+  --tisane-font-results-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --tisane-font-results-size: 13px;
+  --tisane-font-definitions-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --tisane-font-definitions-size: 15px;
+  --tisane-font-pattern-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --tisane-font-pattern-size: 14px;
+  --tisane-font-dicts-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --tisane-font-dicts-size: 12px;
+  --tisane-font-status-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --tisane-font-status-size: 11px;
+  --tisane-font-toolbar-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --tisane-font-toolbar-size: 12px;
+}
+
 /* Styled RTF-to-HTML definition typography */
 .tisane-def {
   line-height: 1.65;
   color: #e2e8f0;
-  font-size: 0.925rem;
+  font-family: var(--tisane-font-definitions-family);
+  font-size: var(--tisane-font-definitions-size);
 }
 
 .tisane-def p {

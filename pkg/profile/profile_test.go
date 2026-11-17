@@ -38,6 +38,12 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 	cfg.WebProviders = []lookup.WebProvider{
 		{ID: "custom", Name: "Custom Dict", URLTemplate: "https://example.com/q?w={entry}#top"},
 	}
+	cfg.Fonts.Results = profile.ElementFont{Family: "JetBrains Mono", Size: 16}
+	cfg.Fonts.Definitions = profile.ElementFont{Family: "Georgia", Size: 18}
+	cfg.Fonts.PatternInput = profile.ElementFont{Family: "Consolas", Size: 15}
+	cfg.Fonts.DictionariesList = profile.ElementFont{Family: "Inter", Size: 13}
+	cfg.Fonts.StatusBar = profile.ElementFont{Family: "monospace", Size: 12}
+	cfg.Fonts.Toolbar = profile.ElementFont{Family: "sans-serif", Size: 14}
 
 	if err := profile.Save(cfgPath, cfg); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -49,6 +55,9 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 	}
 	if loaded.AtMacro != cfg.AtMacro || loaded.MinLength != 3 || loaded.MaxLength != 15 || loaded.SortMode != "smart" || loaded.LayoutMode != "tiled" {
 		t.Fatalf("scalar round-trip mismatch: %+v", loaded)
+	}
+	if loaded.Fonts != cfg.Fonts {
+		t.Fatalf("fonts round-trip mismatch: got %+v, want %+v", loaded.Fonts, cfg.Fonts)
 	}
 	if !slices.Equal(loaded.RecentQueries, cfg.RecentQueries) || len(loaded.Dictionaries) != 2 || len(loaded.WebProviders) != 1 {
 		t.Fatalf("slice/table round-trip mismatch: %+v", loaded)

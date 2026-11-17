@@ -22,6 +22,7 @@ type ConfigPatch struct {
 	AutoWebFallback         *bool                `json:"autoWebFallback,omitempty"`
 	DefaultWebProvider      *string              `json:"defaultWebProvider,omitempty"`
 	WebProviders            []lookup.WebProvider `json:"webProviders,omitempty"`
+	Fonts                   *profile.FontConfig  `json:"fonts,omitempty"`
 }
 
 // ProfileService exposes persistent user settings (~/.config/tisane/config.toml) to Wails v3.
@@ -44,6 +45,7 @@ func (ps *ProfileService) GetConfig() profile.Config {
 	cfgCopy.EntryFilter = append([]string{}, ps.state.cfg.EntryFilter...)
 	cfgCopy.WebProviders = append([]lookup.WebProvider{}, ps.state.cfg.WebProviders...)
 	cfgCopy.RecentQueries = append([]string{}, ps.state.cfg.RecentQueries...)
+	cfgCopy.Fonts = profile.NormalizeFontConfig(ps.state.cfg.Fonts)
 	return cfgCopy
 }
 
@@ -95,6 +97,9 @@ func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error
 	}
 	if patch.WebProviders != nil {
 		cfg.WebProviders = append([]lookup.WebProvider(nil), patch.WebProviders...)
+	}
+	if patch.Fonts != nil {
+		cfg.Fonts = profile.NormalizeFontConfig(*patch.Fonts)
 	}
 
 	err := ps.state.saveConfigLocked()

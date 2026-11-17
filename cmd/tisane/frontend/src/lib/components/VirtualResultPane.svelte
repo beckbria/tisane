@@ -11,6 +11,7 @@
     showDictBadge: boolean;
     showBalances: boolean;
     showAnnotations: boolean;
+    fontSize?: number;
     testId: string;
     emptyMessage?: string;
     onSelect: (m: Match) => void;
@@ -25,19 +26,20 @@
     showDictBadge,
     showBalances,
     showAnnotations,
+    fontSize = 13,
     testId,
     emptyMessage = 'No matches',
     onSelect,
     onDoubleClick
   }: Props = $props();
 
-  const ROW_HEIGHT = 28;
+  const rowHeight = $derived(Math.max(24, Math.round(fontSize * 2.15)));
   let scrollEl: HTMLDivElement | null = $state(null);
 
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: 0,
     getScrollElement: () => scrollEl,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => 28,
     overscan: 10,
     initialRect: { width: 420, height: 480 }
   });
@@ -45,11 +47,14 @@
   $effect(() => {
     const count = items.length;
     const el = scrollEl;
+    const rh = rowHeight;
     untrack(() => {
       $virtualizer.setOptions({
         count,
-        getScrollElement: () => el
+        getScrollElement: () => el,
+        estimateSize: () => rh
       });
+      $virtualizer.measure();
     });
   });
 
@@ -90,9 +95,12 @@
   class="flex h-full min-h-0 min-w-[220px] flex-1 flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-950/90"
 >
   <!-- Pane Header -->
-  <div class="flex items-center justify-between gap-2 border-b border-slate-800/90 bg-slate-900/90 px-3 py-1.5 select-none">
+  <div
+    style="font-family: var(--tisane-font-toolbar-family); font-size: var(--tisane-font-toolbar-size);"
+    class="flex items-center justify-between gap-2 border-b border-slate-800/90 bg-slate-900/90 px-3 py-1.5 select-none"
+  >
     <div class="min-w-0">
-      <h3 class="truncate text-xs font-semibold text-slate-200">{title}</h3>
+      <h3 class="truncate font-semibold text-slate-200">{title}</h3>
       {#if subtitle}
         <p class="truncate text-[10px] text-slate-500">{subtitle}</p>
       {/if}
@@ -136,15 +144,18 @@
               data-testid="result-row"
               onclick={() => onSelect(match)}
               ondblclick={() => onDoubleClick(match)}
-              style="position: absolute; top: 0; left: 0; width: 100%; height: {vRow.size}px; transform: translateY({vRow.start}px);"
-              class="flex items-center justify-between gap-2 border-b border-slate-900/70 px-3 text-left text-xs transition-colors {isSelected
+              style="position: absolute; top: 0; left: 0; width: 100%; height: {vRow.size}px; transform: translateY({vRow.start}px); font-family: var(--tisane-font-results-family); font-size: var(--tisane-font-results-size);"
+              class="flex items-center justify-between gap-2 border-b border-slate-900/70 px-3 text-left transition-colors {isSelected
                 ? 'bg-amber-500/20 text-amber-100'
                 : 'text-slate-200 hover:bg-slate-900/90'}"
             >
               <div class="flex min-w-0 items-center gap-1.5">
-                <span class="truncate font-mono text-[13px] font-medium">{match.word}</span>
+                <span class="truncate font-medium">{match.word}</span>
                 {#if showAnnotations && match.annotation}
-                  <span class="truncate rounded bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-400">
+                  <span
+                    style="font-size: calc(var(--tisane-font-results-size) * 0.78);"
+                    class="truncate rounded bg-slate-800 px-1.5 py-0.2 text-slate-400"
+                  >
                     {match.annotation}
                   </span>
                 {/if}

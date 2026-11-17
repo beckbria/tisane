@@ -1,5 +1,12 @@
 <script lang="ts">
-  import type { Config, ConfigPatch, WebProvider } from '../types';
+  import {
+    DEFAULT_FONTS,
+    FONT_ELEMENTS,
+    formatFontSummary,
+    normalizeFontConfig
+  } from '../fonts';
+  import type { Config, ConfigPatch, FontConfig, WebProvider } from '../types';
+  import FontSettingsModal from './FontSettingsModal.svelte';
 
   interface Props {
     open: boolean;
@@ -15,6 +22,8 @@
   let autoWebFallback = $state(false);
   let defaultWebProvider = $state('onelook');
   let providers: WebProvider[] = $state([]);
+  let fonts: FontConfig = $state(normalizeFontConfig(DEFAULT_FONTS));
+  let showFontDialog = $state(false);
 
   let newId = $state('');
   let newName = $state('');
@@ -27,6 +36,9 @@
       autoWebFallback = config.autoWebFallback;
       defaultWebProvider = config.defaultWebProvider;
       providers = (config.webProviders ?? []).map((p) => ({ ...p }));
+      fonts = normalizeFontConfig(config.fonts);
+    } else {
+      showFontDialog = false;
     }
   });
 
@@ -51,6 +63,11 @@
     }
   }
 
+  function handleSaveFonts(nextFonts: FontConfig) {
+    fonts = normalizeFontConfig(nextFonts);
+    onSave({ fonts });
+  }
+
   function handleSubmit(e: Event) {
     e.preventDefault();
     onSave({
@@ -58,7 +75,8 @@
       hashMacro,
       autoWebFallback,
       defaultWebProvider,
-      webProviders: providers
+      webProviders: providers,
+      fonts
     });
     onClose();
   }
@@ -88,8 +106,42 @@
       </div>
 
       <div class="space-y-5 overflow-y-auto px-5 py-4 text-xs">
-        <!-- Macro Configuration -->
+        <!-- Appearance & Typography -->
         <section class="space-y-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <h3 class="font-semibold tracking-wider text-slate-300 uppercase">
+                Appearance & Typography
+              </h3>
+              <p class="text-[11px] text-slate-400">
+                Customize fonts and font sizes for results, definitions, pattern bar, sidebar, and status bar
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="open-font-settings-btn"
+              onclick={() => (showFontDialog = true)}
+              class="shrink-0 rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-300 ring-1 ring-amber-500/40 transition hover:bg-amber-500/30"
+            >
+              Customize Fonts…
+            </button>
+          </div>
+
+          <div
+            data-testid="settings-font-summary"
+            class="grid grid-cols-2 gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-[11px] sm:grid-cols-3"
+          >
+            {#each FONT_ELEMENTS as item (item.key)}
+              <div class="truncate">
+                <span class="text-slate-400">{item.label}:</span>
+                <span class="ml-1 font-mono text-slate-200">{formatFontSummary(fonts[item.key])}</span>
+              </div>
+            {/each}
+          </div>
+        </section>
+
+        <!-- Macro Configuration -->
+        <section class="space-y-2.5 border-t border-slate-800 pt-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold tracking-wider text-slate-300 uppercase">Pattern Macros</h3>
             <div class="flex gap-2">
@@ -233,4 +285,11 @@
       </div>
     </form>
   </div>
+
+  <FontSettingsModal
+    open={showFontDialog}
+    {fonts}
+    onClose={() => (showFontDialog = false)}
+    onSave={handleSaveFonts}
+  />
 {/if}

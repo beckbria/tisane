@@ -32,6 +32,21 @@ func MarshalTOML(cfg *Config) []byte {
 	fmt.Fprintf(&sb, "dict_dirs = %s\n", formatStringArray(cfg.DictDirs))
 	fmt.Fprintf(&sb, "recent_queries = %s\n", formatStringArray(cfg.RecentQueries))
 
+	fonts := NormalizeFontConfig(cfg.Fonts)
+	sb.WriteString("\n[fonts]\n")
+	fmt.Fprintf(&sb, "results_family = %s\n", strconv.Quote(fonts.Results.Family))
+	fmt.Fprintf(&sb, "results_size = %d\n", fonts.Results.Size)
+	fmt.Fprintf(&sb, "definitions_family = %s\n", strconv.Quote(fonts.Definitions.Family))
+	fmt.Fprintf(&sb, "definitions_size = %d\n", fonts.Definitions.Size)
+	fmt.Fprintf(&sb, "pattern_input_family = %s\n", strconv.Quote(fonts.PatternInput.Family))
+	fmt.Fprintf(&sb, "pattern_input_size = %d\n", fonts.PatternInput.Size)
+	fmt.Fprintf(&sb, "dictionaries_list_family = %s\n", strconv.Quote(fonts.DictionariesList.Family))
+	fmt.Fprintf(&sb, "dictionaries_list_size = %d\n", fonts.DictionariesList.Size)
+	fmt.Fprintf(&sb, "status_bar_family = %s\n", strconv.Quote(fonts.StatusBar.Family))
+	fmt.Fprintf(&sb, "status_bar_size = %d\n", fonts.StatusBar.Size)
+	fmt.Fprintf(&sb, "toolbar_family = %s\n", strconv.Quote(fonts.Toolbar.Family))
+	fmt.Fprintf(&sb, "toolbar_size = %d\n", fonts.Toolbar.Size)
+
 	for _, dc := range cfg.Dictionaries {
 		sb.WriteString("\n[[dictionaries]]\n")
 		fmt.Fprintf(&sb, "path = %s\n", strconv.Quote(dc.Path))
@@ -152,13 +167,96 @@ func ParseTOML(data []byte) (*Config, error) {
 				}
 				wp.URLTemplate = s
 			}
+		case "fonts":
+			if err := applyFontKey(&cfg.Fonts, key, val, lineIdx+1); err != nil {
+				return nil, err
+			}
 		}
 	}
 
+	cfg.Fonts = NormalizeFontConfig(cfg.Fonts)
 	if sawWebProviders {
 		cfg.WebProviders = parsedWeb
 	}
 	return cfg, nil
+}
+
+func applyFontKey(fc *FontConfig, key, val string, lineNum int) error {
+	switch key {
+	case "results_family":
+		s, err := parseTOMLString(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.Results.Family = s
+	case "results_size":
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.Results.Size = v
+	case "definitions_family":
+		s, err := parseTOMLString(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.Definitions.Family = s
+	case "definitions_size":
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.Definitions.Size = v
+	case "pattern_input_family":
+		s, err := parseTOMLString(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.PatternInput.Family = s
+	case "pattern_input_size":
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.PatternInput.Size = v
+	case "dictionaries_list_family":
+		s, err := parseTOMLString(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.DictionariesList.Family = s
+	case "dictionaries_list_size":
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.DictionariesList.Size = v
+	case "status_bar_family":
+		s, err := parseTOMLString(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.StatusBar.Family = s
+	case "status_bar_size":
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.StatusBar.Size = v
+	case "toolbar_family":
+		s, err := parseTOMLString(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.Toolbar.Family = s
+	case "toolbar_size":
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		fc.Toolbar.Size = v
+	}
+	return nil
 }
 
 func applyTopKey(cfg *Config, key, val string, lineNum int) error {

@@ -3,6 +3,7 @@ import { tick } from 'svelte';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import App from './App.svelte';
 import { setBackendForTesting, type TisaneBackend } from './lib/bindings';
+import { DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
 import type {
   Config,
   ConfigPatch,
@@ -64,7 +65,8 @@ function createMockHarness() {
       { id: 'onelook', name: 'OneLook', urlTemplate: 'https://www.onelook.com/?w={entry}' },
       { id: 'wiktionary', name: 'Wiktionary', urlTemplate: 'https://en.wiktionary.org/wiki/{entry}' }
     ],
-    recentQueries: []
+    recentQueries: [],
+    fonts: normalizeFontConfig(DEFAULT_FONTS)
   };
 
   let searchSeq = 0;
@@ -380,7 +382,8 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       autoWebFallback: false,
       defaultWebProvider: 'onelook',
       webProviders: null as unknown as Config['webProviders'],
-      recentQueries: null as unknown as string[]
+      recentQueries: null as unknown as string[],
+      fonts: null as unknown as Config['fonts']
     }));
     setBackendForTesting(h.backend);
 
@@ -395,5 +398,94 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       expect(h.searchRequests.length).toBe(1);
     });
     expect(screen.getByTestId('status-bar')).not.toHaveTextContent('Error:');
+  });
+
+  it('opens the Font Customization dialog through Settings and customizes fonts and sizes across UI elements', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+    // Open Settings modal -> click "Customize Fonts…" button
+    await fireEvent.click(screen.getByTestId('open-settings-btn'));
+    expect(screen.getByTestId('settings-modal')).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByTestId('open-font-settings-btn'));
+    expect(screen.getByTestId('font-settings-modal')).toBeInTheDocument();
+
+    // Customize Results Text: JetBrains Mono, 18px
+    await fireEvent.change(screen.getByTestId('font-family-select-results'), {
+      target: { value: 'JetBrains Mono' }
+    });
+    await fireEvent.change(screen.getByTestId('font-size-input-results'), {
+      target: { value: '18' }
+    });
+
+    // Customize Definitions Text: Georgia, 19px
+    await fireEvent.change(screen.getByTestId('font-family-select-definitions'), {
+      target: { value: 'Georgia' }
+    });
+    await fireEvent.change(screen.getByTestId('font-size-input-definitions'), {
+      target: { value: '19' }
+    });
+
+    // Customize Pattern Input Text with a custom font family ("Iosevka") and 16px
+    await fireEvent.change(screen.getByTestId('font-family-select-patternInput'), {
+      target: { value: '__custom__' }
+    });
+    await fireEvent.input(screen.getByTestId('font-family-custom-patternInput'), {
+      target: { value: 'Iosevka' }
+    });
+    await fireEvent.click(screen.getByTestId('font-size-inc-patternInput')); // 14 -> 15
+    await fireEvent.click(screen.getByTestId('font-size-inc-patternInput')); // 15 -> 16
+
+    // Customize Dictionaries List & Status Bar sizes
+    await fireEvent.change(screen.getByTestId('font-size-input-dictionariesList'), {
+      target: { value: '14' }
+    });
+    await fireEvent.change(screen.getByTestId('font-size-input-statusBar'), {
+      target: { value: '13' }
+    });
+    await fireEvent.change(screen.getByTestId('font-size-input-toolbar'), {
+      target: { value: '14' }
+    });
+
+    // Live preview reflects updated font & size
+    const resultsPreview = screen.getByTestId('font-preview-results');
+    expect(resultsPreview.getAttribute('style')).toContain('18px');
+    expect(resultsPreview.getAttribute('style')).toContain('JetBrains Mono');
+
+    // Apply Fonts
+    await fireEvent.click(screen.getByTestId('save-font-settings-btn'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('font-settings-modal')).not.toBeInTheDocument();
+    });
+
+    // Verify backend updateConfig received the customized font settings
+    expect(h.backend.updateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fonts: {
+          results: { family: 'JetBrains Mono', size: 18 },
+          definitions: { family: 'Georgia', size: 19 },
+          patternInput: { family: 'Iosevka', size: 16 },
+          dictionariesList: { family: 'sans-serif', size: 14 },
+          statusBar: { family: 'sans-serif', size: 13 },
+          toolbar: { family: 'sans-serif', size: 14 }
+        }
+      })
+    );
+
+    // Verify root CSS variables on app-root reflect the customized fonts & sizes
+    const appRoot = screen.getByTestId('app-root');
+    const rootStyle = appRoot.getAttribute('style') ?? '';
+    expect(rootStyle).toContain('--tisane-font-results-size: 18px');
+    expect(rootStyle).toContain('--tisane-font-definitions-size: 19px');
+    expect(rootStyle).toContain('--tisane-font-pattern-size: 16px');
+    expect(rootStyle).toContain('--tisane-font-dicts-size: 14px');
+    expect(rootStyle).toContain('--tisane-font-status-size: 13px');
+    expect(rootStyle).toContain('--tisane-font-toolbar-size: 14px');
+    expect(rootStyle).toContain('Iosevka');
   });
 });

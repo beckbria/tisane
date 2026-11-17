@@ -144,7 +144,8 @@
           data-testid="pattern-input"
           spellcheck="false"
           autocomplete="off"
-          class="w-full bg-transparent px-3 py-1.5 font-mono text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
+          style="font-family: var(--tisane-font-pattern-family); font-size: var(--tisane-font-pattern-size);"
+          class="w-full bg-transparent px-3 py-1.5 text-slate-100 placeholder-slate-500 focus:outline-none"
         />
 
         {#if query}
@@ -186,7 +187,8 @@
           {#each recentQueries as rq}
             <button
               type="button"
-              class="flex w-full items-center justify-between px-3 py-1.5 text-left font-mono text-xs text-slate-200 hover:bg-slate-800"
+              style="font-family: var(--tisane-font-pattern-family); font-size: var(--tisane-font-pattern-size);"
+              class="flex w-full items-center justify-between px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800"
               onclick={() => {
                 onQueryChange(rq);
                 showHistory = false;
@@ -217,7 +219,8 @@
           placeholder="e.g. 4,3"
           aria-label="Enumeration"
           data-testid="enum-input"
-          class="w-20 bg-transparent font-mono text-xs text-slate-100 placeholder-slate-600 focus:outline-none"
+          style="font-family: var(--tisane-font-pattern-family); font-size: var(--tisane-font-pattern-size);"
+          class="w-20 bg-transparent text-slate-100 placeholder-slate-600 focus:outline-none"
         />
       </div>
     {/if}

@@ -90,9 +90,13 @@
   </div>
 
   <!-- Ordered Dictionary List -->
-  <div class="flex-1 overflow-y-auto p-2" data-testid="dictionary-list">
+  <div
+    class="flex-1 overflow-y-auto p-2"
+    style="font-family: var(--tisane-font-dicts-family); font-size: var(--tisane-font-dicts-size);"
+    data-testid="dictionary-list"
+  >
     {#if dictionaries.length === 0}
-      <div class="rounded-lg border border-dashed border-slate-800 p-4 text-center text-xs text-slate-400">
+      <div class="rounded-lg border border-dashed border-slate-800 p-4 text-center text-slate-400">
         <p>No <code class="text-slate-300">.tsd</code> dictionaries configured.</p>
         <button
           type="button"
@@ -124,7 +128,8 @@
               dropTargetIndex = null;
             }}
             data-testid={`dict-item-${idx}`}
-            class="group flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition {dropTargetIndex === idx
+            style="font-family: var(--tisane-font-dicts-family); font-size: var(--tisane-font-dicts-size);"
+            class="group flex items-center gap-1.5 rounded-lg border px-2 py-1.5 transition {dropTargetIndex === idx
               ? 'border-amber-400 bg-amber-500/10'
               : dict.enabled
                 ? 'border-slate-800 bg-slate-950/75 text-slate-100'
@@ -203,11 +208,14 @@
   </div>
 
   <!-- Search & Output Options Footer -->
-  <div class="border-t border-slate-800 bg-slate-950/60 px-3 py-2.5 text-xs">
+  <div
+    style="font-family: var(--tisane-font-dicts-family); font-size: var(--tisane-font-dicts-size);"
+    class="border-t border-slate-800 bg-slate-950/60 px-3 py-2.5"
+  >
     <div class="mb-1.5 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
       Pattern & Output Options
     </div>
-    <div class="space-y-1.5 text-[11px] text-slate-300">
+    <div class="space-y-1.5 text-slate-300">
       <label class="flex cursor-pointer items-center gap-2">
         <input
           type="checkbox"

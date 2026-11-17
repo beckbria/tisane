@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getBackend } from './lib/bindings';
+  import { buildFontCssVars, DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
   import type {
     Config,
     ConfigPatch,
@@ -24,6 +25,7 @@
   import VirtualResultPane from './lib/components/VirtualResultPane.svelte';
   import DefinitionPane from './lib/components/DefinitionPane.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
+  import FontSettingsModal from './lib/components/FontSettingsModal.svelte';
 
   const DEFAULT_CONFIG: Config = {
     dictDirs: [],
@@ -49,11 +51,12 @@
       { id: 'google', name: 'Google Define', urlTemplate: 'https://www.google.com/search?q=define+{entry}' },
       { id: 'merriam-webster', name: 'Merriam-Webster', urlTemplate: 'https://www.merriam-webster.com/dictionary/{entry}' }
     ],
-    recentQueries: []
+    recentQueries: [],
+    fonts: normalizeFontConfig(DEFAULT_FONTS)
   };
 
   function normalizeConfig(raw: Partial<Config> | null | undefined): Config {
-    if (!raw) return { ...DEFAULT_CONFIG };
+    if (!raw) return { ...DEFAULT_CONFIG, fonts: normalizeFontConfig(DEFAULT_FONTS) };
     return {
       ...DEFAULT_CONFIG,
       ...raw,
@@ -61,7 +64,8 @@
       dictionaries: Array.isArray(raw.dictionaries) ? raw.dictionaries : DEFAULT_CONFIG.dictionaries,
       entryFilter: Array.isArray(raw.entryFilter) ? raw.entryFilter : DEFAULT_CONFIG.entryFilter,
       webProviders: Array.isArray(raw.webProviders) ? raw.webProviders : DEFAULT_CONFIG.webProviders,
-      recentQueries: Array.isArray(raw.recentQueries) ? raw.recentQueries : DEFAULT_CONFIG.recentQueries
+      recentQueries: Array.isArray(raw.recentQueries) ? raw.recentQueries : DEFAULT_CONFIG.recentQueries,
+      fonts: normalizeFontConfig(raw.fonts)
     };
   }
 
@@ -76,6 +80,9 @@
 
   let showCheatsheet = $state(false);
   let showSettings = $state(false);
+  let showFontSettings = $state(false);
+
+  const rootFontVars = $derived(buildFontCssVars(config.fonts));
 
   // Active search & streaming results state
   let currentSearchId = $state(0);
@@ -356,7 +363,9 @@
       e.preventDefault();
       showCheatsheet = !showCheatsheet;
     } else if (e.key === 'Escape') {
-      if (showSettings) {
+      if (showFontSettings) {
+        showFontSettings = false;
+      } else if (showSettings) {
         showSettings = false;
       } else if (showCheatsheet) {
         showCheatsheet = false;
@@ -457,6 +466,11 @@
       })
     );
     unsubs.push(
+      backend.onEvent('ui:open-font-settings', () => {
+        showFontSettings = true;
+      })
+    );
+    unsubs.push(
       backend.onEvent<SearchMode>('ui:set-mode', (nextMode) => {
         if (nextMode === 'word' || nextMode === 'fts') {
           mode = nextMode;
@@ -507,7 +521,11 @@
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-<div class="flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
+<div
+  data-testid="app-root"
+  style={rootFontVars}
+  class="flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-slate-100"
+>
   <!-- Top Pattern Bar -->
   <PatternBar
     bind:this={patternBarRef}
@@ -589,6 +607,7 @@
                   showDictBadge={false}
                   showBalances={config.showBalances}
                   showAnnotations={config.showAnnotations}
+                  fontSize={config.fonts.results.size}
                   testId={`tiled-pane-${paneIdx}`}
                   emptyMessage={hasCompletedSearch
                     ? `No matches in ${dict.name}`
@@ -608,6 +627,7 @@
             showDictBadge={true}
             showBalances={config.showBalances}
             showAnnotations={config.showAnnotations}
+            fontSize={config.fonts.results.size}
             testId="unified-pane"
             emptyMessage={hasCompletedSearch
               ? 'No matching entries found across active dictionaries'
@@ -649,7 +669,8 @@
   <!-- Bottom Status Bar -->
   <footer
     data-testid="status-bar"
-    class="flex items-center justify-between border-t border-slate-800 bg-slate-950 px-4 py-1 text-[11px] text-slate-400 select-none"
+    style="font-family: var(--tisane-font-status-family); font-size: var(--tisane-font-status-size);"
+    class="flex items-center justify-between border-t border-slate-800 bg-slate-950 px-4 py-1 text-slate-400 select-none"
   >
     <div class="flex items-center gap-3 truncate">
       {#if errorMessage}
@@ -680,7 +701,10 @@
       {/if}
     </div>
 
-    <div class="flex items-center gap-3 font-mono text-[10px] text-slate-500">
+    <div
+      style="font-family: var(--tisane-font-status-family); font-size: var(--tisane-font-status-size);"
+      class="flex items-center gap-3 text-slate-500"
+    >
       <span>@={config.atMacro}</span>
       <span>#={config.hashMacro}</span>
       <span>Len {config.minLength}–{config.maxLength}</span>
@@ -694,5 +718,13 @@
     {config}
     onClose={() => (showSettings = false)}
     onSave={(patch) => applyConfigPatch(patch, false)}
+  />
+
+  <!-- Direct Font Settings Modal (when opened via View menu) -->
+  <FontSettingsModal
+    open={showFontSettings}
+    fonts={config.fonts}
+    onClose={() => (showFontSettings = false)}
+    onSave={(nextFonts) => applyConfigPatch({ fonts: nextFonts }, false)}
   />
 </div>

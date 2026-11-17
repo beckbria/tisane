@@ -133,6 +133,10 @@ func buildAppMenu(
 		OnClick(func(*application.Context) {
 			wailsApp.Event.Emit("ui:toggle-cheatsheet", nil)
 		})
+	viewMenu.Add("Customize Fonts...").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit("ui:open-font-settings", nil)
+		})
 
 	return menu
 }

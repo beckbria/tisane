@@ -69,7 +69,11 @@
   ];
 </script>
 
-<div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/90 bg-slate-900/60 px-4 py-1.5 text-xs">
+<div
+  data-testid="filter-toolbar"
+  style="font-family: var(--tisane-font-toolbar-family); font-size: var(--tisane-font-toolbar-size);"
+  class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/90 bg-slate-900/60 px-4 py-1.5"
+>
   <!-- Left group: Min/Max Word Length + Entry Categories -->
   <div class="flex flex-wrap items-center gap-3">
     <!-- Min / Max Word Length Filter -->

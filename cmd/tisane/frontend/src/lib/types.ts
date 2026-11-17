@@ -146,6 +146,22 @@ export interface DictConfig {
   enabled: boolean;
 }
 
+export interface ElementFont {
+  family: string;
+  size: number;
+}
+
+export interface FontConfig {
+  results: ElementFont;
+  definitions: ElementFont;
+  patternInput: ElementFont;
+  dictionariesList: ElementFont;
+  statusBar: ElementFont;
+  toolbar: ElementFont;
+}
+
+export type FontElementKey = keyof FontConfig;
+
 export interface Config {
   dictDirs: string[];
   dictionaries: DictConfig[];
@@ -165,6 +181,7 @@ export interface Config {
   defaultWebProvider: string;
   webProviders: WebProvider[];
   recentQueries: string[];
+  fonts: FontConfig;
 }
 
 export interface ConfigPatch {
@@ -183,4 +200,5 @@ export interface ConfigPatch {
   autoWebFallback?: boolean;
   defaultWebProvider?: string;
   webProviders?: WebProvider[];
+  fonts?: FontConfig;
 }
