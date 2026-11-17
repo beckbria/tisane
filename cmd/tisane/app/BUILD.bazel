@@ -1,0 +1,30 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "app",
+    srcs = [
+        "dict_service.go",
+        "lookup_service.go",
+        "profile_service.go",
+        "search_service.go",
+        "state.go",
+    ],
+    importpath = "tisane/cmd/tisane/app",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/lookup",
+        "//pkg/pattern",
+        "//pkg/profile",
+        "//pkg/search",
+        "//pkg/tsd",
+    ],
+)
+
+go_test(
+    name = "app_test",
+    srcs = ["services_test.go"],
+    deps = [
+        ":app",
+        "//pkg/search",
+    ],
+)

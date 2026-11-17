@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "lookup",
+    srcs = [
+        "lookup.go",
+        "rtf.go",
+    ],
+    importpath = "tisane/pkg/lookup",
+    visibility = ["//visibility:public"],
+    deps = ["//pkg/tsd"],
+)
+
+go_test(
+    name = "lookup_test",
+    srcs = ["lookup_test.go"],
+    deps = [
+        ":lookup",
+        "//pkg/tsd",
+    ],
+)

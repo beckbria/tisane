@@ -1,5 +1,4 @@
 binary
-tea*
 /tisane
 /tisane-cli
 /tisane-build
@@ -7,3 +6,4 @@ tea*
 *.exe
 cmd/tisane/frontend/node_modules/
 cmd/tisane/frontend/dist/
+/bazel-*

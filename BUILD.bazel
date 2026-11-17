@@ -1,0 +1,90 @@
+load("@gazelle//:def.bzl", "gazelle")
+
+# gazelle:prefix tisane
+gazelle(name = "gazelle")
+
+platform(
+    name = "linux_amd64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+platform(
+    name = "windows_amd64",
+    constraint_values = [
+        "@platforms//os:windows",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+alias(
+    name = "tisane",
+    actual = "//cmd/tisane:tisane",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "tisane-cli",
+    actual = "//cmd/tisane-cli:tisane-cli",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "tisane-build",
+    actual = "//cmd/tisane-build:tisane-build",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "tisane-extract",
+    actual = "//cmd/tisane-extract:tisane-extract",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "tisane-windows",
+    actual = "//cmd/tisane:tisane-windows",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "tisane-cli-windows",
+    actual = "//cmd/tisane-cli:tisane-cli-windows",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "tisane-build-windows",
+    actual = "//cmd/tisane-build:tisane-build-windows",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "tisane-extract-windows",
+    actual = "//cmd/tisane-extract:tisane-extract-windows",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "linux",
+    srcs = [
+        ":tisane",
+        ":tisane-build",
+        ":tisane-cli",
+        ":tisane-extract",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "windows",
+    srcs = [
+        ":tisane-build-windows",
+        ":tisane-cli-windows",
+        ":tisane-extract-windows",
+        ":tisane-windows",
+    ],
+    visibility = ["//visibility:public"],
+)

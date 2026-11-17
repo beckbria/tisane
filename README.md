@@ -313,6 +313,27 @@ CGO_ENABLED=0 go build -o tisane-build ./cmd/tisane-build
 CGO_ENABLED=0 go build -o tisane-extract ./cmd/tisane-extract
 ```
 
+### Building with Bazel (Linux & Windows Cross-Compilation)
+
+The repository includes Bzlmod (`MODULE.bazel`) and `rules_go` targets to build Linux binaries, cross-compile Windows `.exe` binaries from inside Linux, and run all tests:
+
+```bash
+# Build native Linux binaries (tisane, tisane-cli, tisane-build, tisane-extract)
+bazel build //:tisane //:tisane-cli //:tisane-build
+# Or build the entire Linux binary group:
+bazel build //:linux
+
+# Cross-compile Windows (.exe) binaries from inside Linux
+bazel build //:tisane-windows //:tisane-cli-windows //:tisane-build-windows
+# Or build the entire Windows binary group:
+bazel build //:windows
+# Or cross-compile any target via the windows config / platform flag:
+bazel build --config=windows //:tisane //:tisane-cli //:tisane-build
+
+# Run all Go unit and integration tests via Bazel
+bazel test //...
+```
+
 ### Running Tests & Verification
 
 #### Go Unit, Integration & Race Tests

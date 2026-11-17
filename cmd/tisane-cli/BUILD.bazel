@@ -1,0 +1,55 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "tisane-cli_lib",
+    srcs = [
+        "flags.go",
+        "format.go",
+        "main.go",
+        "repl.go",
+    ],
+    importpath = "tisane/cmd/tisane-cli",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/lookup",
+        "//pkg/pattern",
+        "//pkg/profile",
+        "//pkg/search",
+        "//pkg/tsd",
+    ],
+)
+
+go_binary(
+    name = "tisane-cli",
+    embed = [":tisane-cli_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_binary(
+    name = "tisane-cli_windows_bin",
+    embed = [":tisane-cli_lib"],
+    goarch = "amd64",
+    goos = "windows",
+    pure = "on",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+)
+
+genrule(
+    name = "tisane-cli-windows",
+    srcs = [":tisane-cli_windows_bin"],
+    outs = ["tisane-cli.exe"],
+    cmd = "cp $< $@",
+    executable = True,
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "tisane-cli_test",
+    srcs = ["main_test.go"],
+    embed = [":tisane-cli_lib"],
+    deps = [
+        "//pkg/search",
+        "//pkg/tsd",
+    ],
+)

@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "search",
+    srcs = [
+        "engine.go",
+        "fts.go",
+        "sort_filter.go",
+        "types.go",
+    ],
+    importpath = "tisane/pkg/search",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/pattern",
+        "//pkg/tsd",
+    ],
+)
+
+go_test(
+    name = "search_test",
+    srcs = ["search_test.go"],
+    deps = [
+        ":search",
+        "//pkg/pattern",
+        "//pkg/tsd",
+    ],
+)

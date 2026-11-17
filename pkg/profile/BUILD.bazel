@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "profile",
+    srcs = [
+        "profile.go",
+        "toml.go",
+    ],
+    importpath = "tisane/pkg/profile",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/lookup",
+        "//pkg/pattern",
+        "//pkg/tsd",
+    ],
+)
+
+go_test(
+    name = "profile_test",
+    srcs = ["profile_test.go"],
+    deps = [
+        ":profile",
+        "//pkg/lookup",
+    ],
+)

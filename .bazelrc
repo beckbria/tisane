@@ -1,0 +1,6 @@
+# Default to PureGo + GTK3 so Linux desktop builds require no C compiler or GTK -dev headers.
+common --@rules_go//go/config:pure
+common --@rules_go//go/config:tags=purego,gtk3
+
+# Allow cross-compiling any target for Windows via: bazel build --config=windows //...
+build:windows --platforms=@rules_go//go/toolchain:windows_amd64

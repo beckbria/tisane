@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "tsd",
+    srcs = [
+        "builder.go",
+        "definitions.go",
+        "encoding.go",
+        "export.go",
+        "huffman.go",
+        "stream.go",
+        "tsd.go",
+        "tsm.go",
+    ],
+    importpath = "tisane/pkg/tsd",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "tsd_test",
+    srcs = [
+        "builder_test.go",
+        "export_test.go",
+        "tsd_test.go",
+    ],
+    deps = [":tsd"],
+)

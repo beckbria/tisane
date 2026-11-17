@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "pattern",
+    srcs = [
+        "ast.go",
+        "compile.go",
+        "errors.go",
+        "macro.go",
+        "parser.go",
+        "vm.go",
+    ],
+    importpath = "tisane/pkg/pattern",
+    visibility = ["//visibility:public"],
+    deps = ["//pkg/tsd"],
+)
+
+go_test(
+    name = "pattern_test",
+    srcs = ["pattern_test.go"],
+    deps = [
+        ":pattern",
+        "//pkg/tsd",
+    ],
+)
