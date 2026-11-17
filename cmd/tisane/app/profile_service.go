@@ -106,3 +106,17 @@ func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error
 	ps.state.mu.Unlock()
 	return ps.GetConfig(), err
 }
+
+// ResetConfig clears all persisted user settings back to defaults and triggers first-run behavior.
+// When resetDictionaries is true, all currently loaded dictionaries are closed and cleared before
+// re-discovering default dictionaries from the executable directory and dictionaries subdirectory.
+func (ps *ProfileService) ResetConfig(resetDictionaries bool) (profile.Config, error) {
+	ps.state.mu.Lock()
+	err := ps.state.resetLocked(resetDictionaries)
+	infos := ps.state.listInfosLocked()
+	bridge := ps.state.bridge
+	ps.state.mu.Unlock()
+
+	bridge.EmitEvent("dicts:updated", infos)
+	return ps.GetConfig(), err
+}

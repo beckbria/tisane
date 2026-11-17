@@ -184,6 +184,62 @@ function createMockHarness() {
       config = { ...config, ...patch };
       return { ...config };
     }),
+    resetConfig: vi.fn(async (resetDictionaries: boolean) => {
+      if (resetDictionaries) {
+        dicts = [
+          {
+            id: '/dicts/core.tsd',
+            path: '/dicts/core.tsd',
+            name: 'Core English',
+            description: 'Core word list',
+            version: '1.2.0',
+            wordCount: 241350,
+            maxWordLength: 28,
+            hasDefinitions: false,
+            hasFTS: false,
+            enabled: true
+          },
+          {
+            id: '/dicts/devils.tsd',
+            path: '/dicts/devils.tsd',
+            name: "The Devil's Dictionary",
+            description: 'Ambrose Bierce definitions',
+            version: '1.2.0',
+            wordCount: 1580,
+            maxWordLength: 24,
+            hasDefinitions: true,
+            hasFTS: true,
+            enabled: true
+          }
+        ];
+      }
+      config = {
+        dictDirs: [],
+        dictionaries: dicts.map((d) => ({ path: d.path, name: d.name, enabled: d.enabled })),
+        atMacro: '[aeiou]',
+        hashMacro: '[^aeiou]',
+        minLength: 1,
+        maxLength: 100,
+        exclusiveVars: false,
+        ignoreUnusedPunctuation: true,
+        showBalances: true,
+        showAnnotations: true,
+        suppressDuplicates: true,
+        entryFilter: ['lowercase', 'capitalized', 'punctuated', 'phrase'],
+        sortMode: 'dict',
+        layoutMode: 'tiled',
+        autoWebFallback: false,
+        defaultWebProvider: 'onelook',
+        webProviders: [
+          { id: 'onelook', name: 'OneLook', urlTemplate: 'https://www.onelook.com/?w={entry}' },
+          { id: 'wiktionary', name: 'Wiktionary', urlTemplate: 'https://en.wiktionary.org/wiki/{entry}' }
+        ],
+        recentQueries: [],
+        fonts: normalizeFontConfig(DEFAULT_FONTS)
+      };
+      emit('dicts:updated', dicts.map((d) => ({ ...d })));
+      return { ...config };
+    }),
 
     onEvent: <T = unknown>(eventName: string, handler: (data: T) => void) => {
       if (!listeners.has(eventName)) {
@@ -603,5 +659,78 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     });
 
     expect(h.searchRequests.length).toBe(0);
+  });
+
+  it('prompts for confirmation when resetting all settings to defaults and supports keeping or resetting dictionaries', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+    // Switch layout to unified and unselect the first dictionary
+    await fireEvent.click(screen.getByTestId('layout-unified-btn'));
+    await waitFor(() => expect(screen.getByTestId('unified-pane')).toBeInTheDocument());
+
+    const toggle0 = screen.getByTestId('dict-toggle-0') as HTMLInputElement;
+    await fireEvent.click(toggle0);
+    await waitFor(() => expect(toggle0.checked).toBe(false));
+
+    // Open Settings and change @ macro to Include Y
+    await fireEvent.click(screen.getByTestId('open-settings-btn'));
+    expect(screen.getByTestId('settings-modal')).toBeInTheDocument();
+    await fireEvent.click(screen.getByText('Include Y'));
+    await fireEvent.click(screen.getByTestId('save-settings-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('status-bar')).toHaveTextContent('@=[aeiouy]');
+      expect(screen.getByTestId('status-bar')).toHaveTextContent('unified');
+    });
+
+    // Reopen Settings and click "Reset All Settings to Defaults"
+    await fireEvent.click(screen.getByTestId('open-settings-btn'));
+    await fireEvent.click(screen.getByTestId('reset-all-settings-btn'));
+
+    // Confirmation prompt appears; checkbox for resetting dictionaries defaults to unchecked
+    const confirmModal = screen.getByTestId('reset-settings-confirm-modal');
+    expect(confirmModal).toBeInTheDocument();
+    const resetDictsCheckbox = screen.getByTestId('reset-dicts-checkbox') as HTMLInputElement;
+    expect(resetDictsCheckbox.checked).toBe(false);
+
+    // Cancel confirmation -> keeps modal open without resetting
+    await fireEvent.click(screen.getByTestId('cancel-reset-settings-btn'));
+    expect(screen.queryByTestId('reset-settings-confirm-modal')).not.toBeInTheDocument();
+    expect(h.backend.resetConfig).not.toHaveBeenCalled();
+
+    // Click "Reset All Settings to Defaults" again and confirm WITHOUT resetting dictionaries
+    await fireEvent.click(screen.getByTestId('reset-all-settings-btn'));
+    await fireEvent.click(screen.getByTestId('confirm-reset-settings-btn'));
+
+    await waitFor(() => {
+      expect(h.backend.resetConfig).toHaveBeenCalledWith(false);
+      expect(screen.queryByTestId('settings-modal')).not.toBeInTheDocument();
+      expect(screen.getByTestId('status-bar')).toHaveTextContent('@=[aeiou]');
+      expect(screen.getByTestId('status-bar')).toHaveTextContent('tiled');
+    });
+
+    // Dictionary selection was preserved (Core English remains unselected)
+    expect((screen.getByTestId('dict-toggle-0') as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByTestId('tiled-pane-0')).toHaveTextContent("The Devil's Dictionary");
+    expect(screen.queryByTestId('tiled-pane-1')).not.toBeInTheDocument();
+
+    // Now reopen Settings, click "Reset All Settings to Defaults", check "Also reset loaded and selected dictionaries", and confirm
+    await fireEvent.click(screen.getByTestId('open-settings-btn'));
+    await fireEvent.click(screen.getByTestId('reset-all-settings-btn'));
+    await fireEvent.click(screen.getByTestId('reset-dicts-checkbox'));
+    expect((screen.getByTestId('reset-dicts-checkbox') as HTMLInputElement).checked).toBe(true);
+    await fireEvent.click(screen.getByTestId('confirm-reset-settings-btn'));
+
+    await waitFor(() => {
+      expect(h.backend.resetConfig).toHaveBeenCalledWith(true);
+      expect((screen.getByTestId('dict-toggle-0') as HTMLInputElement).checked).toBe(true);
+      expect((screen.getByTestId('dict-toggle-1') as HTMLInputElement).checked).toBe(true);
+      expect(screen.getByTestId('tiled-pane-0')).toHaveTextContent('Core English');
+      expect(screen.getByTestId('tiled-pane-1')).toHaveTextContent("The Devil's Dictionary");
+    });
   });
 });

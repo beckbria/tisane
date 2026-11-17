@@ -31,6 +31,7 @@ export interface TisaneBackend {
 
   getConfig(): Promise<Config>;
   updateConfig(patch: ConfigPatch): Promise<Config>;
+  resetConfig(resetDictionaries: boolean): Promise<Config>;
 
   onEvent<T = unknown>(eventName: string, handler: (data: T) => void): UnsubscribeFn;
 }
@@ -54,7 +55,8 @@ const FQN = {
   openExternalURL: 'tisane/cmd/tisane/app.LookupService.OpenExternalURL',
 
   getConfig: 'tisane/cmd/tisane/app.ProfileService.GetConfig',
-  updateConfig: 'tisane/cmd/tisane/app.ProfileService.UpdateConfig'
+  updateConfig: 'tisane/cmd/tisane/app.ProfileService.UpdateConfig',
+  resetConfig: 'tisane/cmd/tisane/app.ProfileService.ResetConfig'
 } as const;
 
 const wailsBackend: TisaneBackend = {
@@ -77,6 +79,7 @@ const wailsBackend: TisaneBackend = {
 
   getConfig: () => Call.ByName(FQN.getConfig),
   updateConfig: (patch) => Call.ByName(FQN.updateConfig, patch),
+  resetConfig: (resetDictionaries) => Call.ByName(FQN.resetConfig, resetDictionaries),
 
   onEvent: <T = unknown>(eventName: string, handler: (data: T) => void): UnsubscribeFn => {
     return Events.On(eventName, (ev: { data: T }) => {

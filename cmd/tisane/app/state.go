@@ -95,17 +95,40 @@ func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 		}
 	}
 	if len(s.dicts) == 0 {
-		// First-run discovery across TISANE_DICT_PATH, the executable directory,
-		// the current working directory, and the dictionaries subdirectory.
-		discovered, _ := profile.DiscoverDictionaries(profile.DefaultSearchDirs(cfg)...)
-		for _, p := range discovered {
-			_, _ = s.openAndAppendLocked(p, "", true)
-		}
-		s.syncConfigDictionariesLocked()
-		_ = s.saveConfigLocked()
+		s.runFirstRunLocked(true)
 	}
 
 	return s, nil
+}
+
+func (s *State) runFirstRunLocked(resetDictionaries bool) {
+	if resetDictionaries {
+		// First-run discovery across TISANE_DICT_PATH, the executable directory,
+		// the current working directory, and the dictionaries subdirectory.
+		discovered, _ := profile.DiscoverDictionaries(profile.DefaultSearchDirs(s.cfg)...)
+		for _, p := range discovered {
+			_, _ = s.openAndAppendLocked(p, "", true)
+		}
+	}
+	s.syncConfigDictionariesLocked()
+	_ = s.saveConfigLocked()
+}
+
+func (s *State) resetLocked(resetDictionaries bool) error {
+	s.cfg = profile.DefaultConfig()
+	if resetDictionaries {
+		for _, ld := range s.dicts {
+			if ld.dict != nil {
+				_ = ld.dict.Close()
+			}
+		}
+		s.dicts = nil
+	}
+	if s.cfgPath != "" {
+		_ = os.Remove(s.cfgPath)
+	}
+	s.runFirstRunLocked(resetDictionaries)
+	return s.saveConfigLocked()
 }
 
 // SetBridge attaches the live Wails HostBridge once the application instance is created.

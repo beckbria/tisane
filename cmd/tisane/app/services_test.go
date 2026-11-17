@@ -284,3 +284,156 @@ func TestFirstRunDiscoversExecutableDirAndDictionariesSubdir(t *testing.T) {
 		t.Fatalf("expected 2 dictionaries in saved config.toml, got %+v", savedCfg.Dictionaries)
 	}
 }
+
+func TestResetConfigPreservesOrResetsDictionaries(t *testing.T) {
+	exeDir := t.TempDir()
+	dictsSubdir := filepath.Join(exeDir, "dictionaries")
+	if err := os.MkdirAll(dictsSubdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	topBytes, _, err := tsd.BuildBytes([]byte("alpha\nbeta\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	subBytes, _, err := tsd.BuildBytes([]byte("gamma\ndelta\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	extraBytes, _, err := tsd.BuildBytes([]byte("epsilon\nzeta\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	topPath := filepath.Join(exeDir, "root-dict.tsd")
+	subPath := filepath.Join(dictsSubdir, "bundled-dict.tsd")
+	extraDir := t.TempDir()
+	extraPath := filepath.Join(extraDir, "custom-extra.tsd")
+	if err := os.WriteFile(topPath, topBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(subPath, subBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(extraPath, extraBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origExeFunc := profile.ExecutablePathFunc
+	profile.ExecutablePathFunc = func() (string, error) {
+		return filepath.Join(exeDir, "tisane"), nil
+	}
+	defer func() {
+		profile.ExecutablePathFunc = origExeFunc
+	}()
+
+	t.Chdir(t.TempDir())
+
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	bridge := newMockBridge()
+	state, err := app.NewState(cfgPath, bridge)
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+	defer state.Close()
+
+	dictSvc := app.NewDictionaryService(state)
+	profSvc := app.NewProfileService(state)
+
+	// Customize dictionaries: add extraPath, disable topPath, and remove subPath.
+	if _, err := dictSvc.AddDictionaryPaths([]string{extraPath}); err != nil {
+		t.Fatalf("AddDictionaryPaths: %v", err)
+	}
+	if _, err := dictSvc.SetEnabled(topPath, false); err != nil {
+		t.Fatalf("SetEnabled: %v", err)
+	}
+	if _, err := dictSvc.RemoveDictionary(subPath); err != nil {
+		t.Fatalf("RemoveDictionary: %v", err)
+	}
+
+	// Customize settings and record a recent query.
+	state.RecordRecentQuery("c.o..w.rd")
+	customAt := "[aeiouy]"
+	customHash := "[^aeiouy]"
+	minLen := 5
+	maxLen := 12
+	unified := "unified"
+	sortAlpha := "alpha"
+	tr := true
+	fl := false
+	customFonts := profile.DefaultFontConfig()
+	customFonts.Results.Family = "Iosevka"
+	customFonts.Results.Size = 20
+	if _, err := profSvc.UpdateConfig(app.ConfigPatch{
+		AtMacro:            &customAt,
+		HashMacro:          &customHash,
+		MinLength:          &minLen,
+		MaxLength:          &maxLen,
+		LayoutMode:         &unified,
+		SortMode:           &sortAlpha,
+		ExclusiveVars:      &tr,
+		ShowBalances:       &fl,
+		SuppressDuplicates: &fl,
+		AutoWebFallback:    &tr,
+		EntryFilter:        []string{"lowercase"},
+		Fonts:              &customFonts,
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+
+	// 1. Reset settings WITHOUT resetting dictionaries (resetDictionaries = false).
+	resetCfgKeepDicts, err := profSvc.ResetConfig(false)
+	if err != nil {
+		t.Fatalf("ResetConfig(false): %v", err)
+	}
+	defCfg := profile.DefaultConfig()
+	if resetCfgKeepDicts.AtMacro != defCfg.AtMacro ||
+		resetCfgKeepDicts.HashMacro != defCfg.HashMacro ||
+		resetCfgKeepDicts.MinLength != defCfg.MinLength ||
+		resetCfgKeepDicts.MaxLength != defCfg.MaxLength ||
+		resetCfgKeepDicts.LayoutMode != defCfg.LayoutMode ||
+		resetCfgKeepDicts.SortMode != defCfg.SortMode ||
+		resetCfgKeepDicts.ExclusiveVars != defCfg.ExclusiveVars ||
+		resetCfgKeepDicts.ShowBalances != defCfg.ShowBalances ||
+		resetCfgKeepDicts.SuppressDuplicates != defCfg.SuppressDuplicates ||
+		resetCfgKeepDicts.AutoWebFallback != defCfg.AutoWebFallback ||
+		len(resetCfgKeepDicts.EntryFilter) != len(defCfg.EntryFilter) ||
+		len(resetCfgKeepDicts.RecentQueries) != 0 ||
+		resetCfgKeepDicts.Fonts != defCfg.Fonts {
+		t.Fatalf("expected all settings reset to defaults, got %+v", resetCfgKeepDicts)
+	}
+
+	// Verify loaded & selected dictionaries were preserved when resetDictionaries = false.
+	infosKeep := dictSvc.ListDictionaries()
+	if len(infosKeep) != 2 || infosKeep[0].Path != topPath || infosKeep[0].Enabled || infosKeep[1].Path != extraPath || !infosKeep[1].Enabled {
+		t.Fatalf("expected custom dictionaries to be preserved on ResetConfig(false), got %+v", infosKeep)
+	}
+
+	// 2. Reset settings WITH resetting dictionaries (resetDictionaries = true).
+	resetCfgWithDicts, err := profSvc.ResetConfig(true)
+	if err != nil {
+		t.Fatalf("ResetConfig(true): %v", err)
+	}
+	infosReset := dictSvc.ListDictionaries()
+	if len(infosReset) != 2 {
+		t.Fatalf("expected 2 first-run dictionaries after ResetConfig(true), got %+v", infosReset)
+	}
+	if infosReset[0].Path != topPath || !infosReset[0].Enabled {
+		t.Fatalf("expected first dictionary %q enabled=true, got %+v", topPath, infosReset[0])
+	}
+	if infosReset[1].Path != subPath || !infosReset[1].Enabled {
+		t.Fatalf("expected second dictionary %q enabled=true, got %+v", subPath, infosReset[1])
+	}
+	if len(resetCfgWithDicts.Dictionaries) != 2 {
+		t.Fatalf("expected config.Dictionaries synced with 2 dictionaries, got %+v", resetCfgWithDicts.Dictionaries)
+	}
+
+	// Verify disk persistence after ResetConfig(true).
+	diskCfg, err := profile.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load(cfgPath) after ResetConfig(true): %v", err)
+	}
+	if diskCfg.AtMacro != defCfg.AtMacro || len(diskCfg.Dictionaries) != 2 || !diskCfg.Dictionaries[0].Enabled || !diskCfg.Dictionaries[1].Enabled {
+		t.Fatalf("unexpected persisted config after ResetConfig(true): %+v", diskCfg)
+	}
+}

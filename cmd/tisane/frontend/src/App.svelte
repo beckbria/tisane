@@ -300,6 +300,36 @@
     }
   }
 
+  async function handleResetSettings(resetDictionaries: boolean) {
+    config = normalizeConfig({
+      ...DEFAULT_CONFIG,
+      dictionaries: resetDictionaries ? [] : config.dictionaries
+    });
+    let syncedDicts = false;
+    try {
+      const updated = await getBackend().resetConfig(resetDictionaries);
+      if (updated) {
+        config = normalizeConfig(updated);
+      }
+      const nextDicts = await getBackend().listDictionaries();
+      if (Array.isArray(nextDicts)) {
+        syncUpdatedDictionaries(nextDicts);
+        syncedDicts = true;
+      }
+    } catch {
+      // Keep optimistic state if headless
+    }
+    if (!syncedDicts) {
+      scheduleValidation(true);
+      if (query.trim() !== '' && (hasCompletedSearch || isSearching)) {
+        void executeSearch();
+      }
+    }
+    if (selectedWord) {
+      void loadDefinition(selectedWord, false);
+    }
+  }
+
   function syncUpdatedDictionaries(next: DictionaryInfo[]) {
     dictionaries = next;
     const active = next.filter((d) => d.enabled);
@@ -756,6 +786,7 @@
     {config}
     onClose={() => (showSettings = false)}
     onSave={(patch) => applyConfigPatch(patch, false)}
+    onReset={(resetDicts) => void handleResetSettings(resetDicts)}
   />
 
   <!-- Direct Font Settings Modal (when opened via View menu) -->

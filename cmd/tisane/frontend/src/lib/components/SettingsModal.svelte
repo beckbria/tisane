@@ -13,9 +13,10 @@
     config: Config;
     onClose: () => void;
     onSave: (patch: ConfigPatch) => void;
+    onReset?: (resetDictionaries: boolean) => void;
   }
 
-  let { open, config, onClose, onSave }: Props = $props();
+  let { open, config, onClose, onSave, onReset }: Props = $props();
 
   let atMacro = $state('');
   let hashMacro = $state('');
@@ -24,6 +25,8 @@
   let providers: WebProvider[] = $state([]);
   let fonts: FontConfig = $state(normalizeFontConfig(DEFAULT_FONTS));
   let showFontDialog = $state(false);
+  let showResetConfirm = $state(false);
+  let resetIncludeDicts = $state(false);
 
   let newId = $state('');
   let newName = $state('');
@@ -39,6 +42,8 @@
       fonts = normalizeFontConfig(config.fonts);
     } else {
       showFontDialog = false;
+      showResetConfirm = false;
+      resetIncludeDicts = false;
     }
   });
 
@@ -66,6 +71,14 @@
   function handleSaveFonts(nextFonts: FontConfig) {
     fonts = normalizeFontConfig(nextFonts);
     onSave({ fonts });
+  }
+
+  function handleConfirmReset() {
+    const includeDicts = resetIncludeDicts;
+    showResetConfirm = false;
+    resetIncludeDicts = false;
+    onReset?.(includeDicts);
+    onClose();
   }
 
   function handleSubmit(e: Event) {
@@ -267,24 +280,108 @@
         </section>
       </div>
 
-      <div class="flex items-center justify-end gap-2 border-t border-slate-800 bg-slate-950/60 px-5 py-3">
+      <div class="flex items-center justify-between gap-2 border-t border-slate-800 bg-slate-950/60 px-5 py-3">
         <button
           type="button"
-          onclick={onClose}
-          class="rounded-lg border border-slate-700 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+          data-testid="reset-all-settings-btn"
+          onclick={() => {
+            resetIncludeDicts = false;
+            showResetConfirm = true;
+          }}
+          class="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-300"
         >
-          Cancel
+          Reset All Settings to Defaults
         </button>
-        <button
-          type="submit"
-          data-testid="save-settings-btn"
-          class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400"
-        >
-          Save Settings
-        </button>
+
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onclick={onClose}
+            class="rounded-lg border border-slate-700 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            data-testid="save-settings-btn"
+            class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400"
+          >
+            Save Settings
+          </button>
+        </div>
       </div>
     </form>
   </div>
+
+  {#if showResetConfirm}
+    <div
+      class="fixed inset-0 z-60 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reset All Settings to Defaults"
+      data-testid="reset-settings-confirm-modal"
+    >
+      <div
+        class="flex w-full max-w-md flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+      >
+        <div class="flex items-center justify-between border-b border-slate-800 px-5 py-3.5">
+          <h3 class="text-sm font-semibold text-slate-100">Reset All Settings to Defaults?</h3>
+          <button
+            type="button"
+            onclick={() => (showResetConfirm = false)}
+            aria-label="Close confirmation dialog"
+            class="text-xs text-slate-400 hover:text-white"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="space-y-3.5 px-5 py-4 text-xs text-slate-300">
+          <p>
+            This will clear all persisted settings (macros, filters, sort &amp; layout modes, custom fonts, web providers, and recent queries) and restore Tisane's factory defaults.
+          </p>
+
+          <label
+            class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-slate-200 transition hover:border-slate-700"
+          >
+            <input
+              type="checkbox"
+              bind:checked={resetIncludeDicts}
+              data-testid="reset-dicts-checkbox"
+              class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded accent-amber-500"
+            />
+            <div class="space-y-0.5">
+              <span class="block font-medium text-slate-100">
+                Also reset loaded and selected dictionaries
+              </span>
+              <span class="block text-[11px] text-slate-400">
+                Clears your current dictionary list and re-adds all dictionaries found in the executable's directory and the <code class="text-amber-300">dictionaries</code> subdirectory.
+              </span>
+            </div>
+          </label>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 border-t border-slate-800 bg-slate-950/60 px-5 py-3">
+          <button
+            type="button"
+            data-testid="cancel-reset-settings-btn"
+            onclick={() => (showResetConfirm = false)}
+            class="rounded-lg border border-slate-700 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            data-testid="confirm-reset-settings-btn"
+            onclick={handleConfirmReset}
+            class="rounded-lg bg-rose-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-rose-500"
+          >
+            Reset to Defaults
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <FontSettingsModal
     open={showFontDialog}

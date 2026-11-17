@@ -59,6 +59,7 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 		"tisane/cmd/tisane/app.LookupService.OpenExternalURL",
 		"tisane/cmd/tisane/app.ProfileService.GetConfig",
 		"tisane/cmd/tisane/app.ProfileService.UpdateConfig",
+		"tisane/cmd/tisane/app.ProfileService.ResetConfig",
 	}
 
 	for _, fqn := range expectedFQNs {

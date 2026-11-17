@@ -31,6 +31,12 @@
 
   let exactPin = $state(false);
 
+  $effect(() => {
+    if (minLength !== maxLength) {
+      exactPin = false;
+    }
+  });
+
   function clampLen(v: number): number {
     if (Number.isNaN(v)) return 1;
     return Math.max(1, Math.min(100, Math.trunc(v)));
