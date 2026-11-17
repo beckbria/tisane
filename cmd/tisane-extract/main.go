@@ -13,7 +13,7 @@ import (
 	"tisane/pkg/tsd"
 )
 
-const version = "0.1.0"
+const version = "0.3.0"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))

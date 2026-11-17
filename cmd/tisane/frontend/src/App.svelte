@@ -26,6 +26,7 @@
   import DefinitionPane from './lib/components/DefinitionPane.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
   import FontSettingsModal from './lib/components/FontSettingsModal.svelte';
+  import AboutModal from './lib/components/AboutModal.svelte';
 
   const DEFAULT_CONFIG: Config = {
     dictDirs: [],
@@ -81,6 +82,7 @@
   let showCheatsheet = $state(false);
   let showSettings = $state(false);
   let showFontSettings = $state(false);
+  let showAbout = $state(false);
 
   const rootFontVars = $derived(buildFontCssVars(config.fonts));
 
@@ -363,7 +365,9 @@
       e.preventDefault();
       showCheatsheet = !showCheatsheet;
     } else if (e.key === 'Escape') {
-      if (showFontSettings) {
+      if (showAbout) {
+        showAbout = false;
+      } else if (showFontSettings) {
         showFontSettings = false;
       } else if (showSettings) {
         showSettings = false;
@@ -471,6 +475,11 @@
       })
     );
     unsubs.push(
+      backend.onEvent('ui:open-about', () => {
+        showAbout = true;
+      })
+    );
+    unsubs.push(
       backend.onEvent<SearchMode>('ui:set-mode', (nextMode) => {
         if (nextMode === 'word' || nextMode === 'fts') {
           mode = nextMode;
@@ -552,6 +561,7 @@
     onCancel={cancelActiveSearch}
     onToggleCheatsheet={() => (showCheatsheet = !showCheatsheet)}
     onOpenSettings={() => (showSettings = true)}
+    onOpenAbout={() => (showAbout = true)}
   />
 
   <!-- Filter, Length, Sort & Tiled/Unified Layout Toolbar -->
@@ -726,5 +736,14 @@
     fonts={config.fonts}
     onClose={() => (showFontSettings = false)}
     onSave={(nextFonts) => applyConfigPatch({ fonts: nextFonts }, false)}
+  />
+
+  <!-- About Tisane Modal (opened by clicking app icon in upper-left corner) -->
+  <AboutModal
+    open={showAbout}
+    onClose={() => (showAbout = false)}
+    onOpenExternalURL={(u) => {
+      void getBackend().openExternalURL(u);
+    }}
   />
 </div>

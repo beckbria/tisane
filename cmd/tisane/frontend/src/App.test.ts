@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import App from './App.svelte';
 import { setBackendForTesting, type TisaneBackend } from './lib/bindings';
 import { DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
+import { APP_VERSION } from './lib/version';
 import type {
   Config,
   ConfigPatch,
@@ -487,5 +488,43 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(rootStyle).toContain('--tisane-font-status-size: 13px');
     expect(rootStyle).toContain('--tisane-font-toolbar-size: 14px');
     expect(rootStyle).toContain('Iosevka');
+  });
+
+  it('opens the About dialog with version 0.3.0 when clicking the app icon in the upper left corner', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+    expect(APP_VERSION).toBe('0.3.0');
+    expect(screen.queryByTestId('about-modal')).not.toBeInTheDocument();
+
+    // Click the app icon in the upper-left corner
+    const logo = screen.getByTestId('app-logo');
+    await fireEvent.click(logo);
+
+    const modal = screen.getByTestId('about-modal');
+    expect(modal).toBeInTheDocument();
+
+    const aboutIcon = screen.getByTestId('about-icon') as HTMLImageElement;
+    expect(aboutIcon).toBeInTheDocument();
+    expect(aboutIcon.getAttribute('src')).toBe('/icon.png');
+
+    expect(modal).toHaveTextContent('Tisane');
+    expect(modal).toHaveTextContent('0.3.0');
+    expect(modal).toHaveTextContent('by Brian Beck');
+    expect(modal).toHaveTextContent('Copyright 2026');
+    expect(modal).toHaveTextContent('github.com/beckbria/tisane');
+    expect(modal).not.toHaveTextContent('https://github.com/beckbria/tisane');
+
+    // Clicking the GitHub repository link opens it via openExternalURL
+    const repoLink = screen.getByTestId('about-github-link');
+    await fireEvent.click(repoLink);
+    expect(h.externalURLs).toEqual(['https://github.com/beckbria/tisane']);
+
+    // Close the About dialog
+    await fireEvent.click(screen.getByTestId('close-about-btn'));
+    expect(screen.queryByTestId('about-modal')).not.toBeInTheDocument();
   });
 });

@@ -1,3 +1,5 @@
+export { APP_VERSION, VERSION } from './version';
+
 export interface DictionaryInfo {
   id: string;
   path: string;

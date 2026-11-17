@@ -17,6 +17,8 @@ var assets embed.FS
 //go:embed icon.png
 var appIcon []byte
 
+const appVersion = app.Version
+
 // wailsHostBridge connects the testable app.State services to the live Wails v3 runtime.
 type wailsHostBridge struct {
 	wailsApp *application.App
@@ -136,6 +138,12 @@ func buildAppMenu(
 	viewMenu.Add("Customize Fonts...").
 		OnClick(func(*application.Context) {
 			wailsApp.Event.Emit("ui:open-font-settings", nil)
+		})
+
+	helpMenu := menu.AddSubmenu("Help")
+	helpMenu.Add("About Tisane").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit("ui:open-about", nil)
 		})
 
 	return menu

@@ -16,6 +16,7 @@
     onCancel: () => void;
     onToggleCheatsheet: () => void;
     onOpenSettings: () => void;
+    onOpenAbout?: () => void;
   }
 
   let {
@@ -32,7 +33,8 @@
     onSubmit,
     onCancel,
     onToggleCheatsheet,
-    onOpenSettings
+    onOpenSettings,
+    onOpenAbout
   }: Props = $props();
 
   let showHistory = $state(false);
@@ -86,7 +88,14 @@
 <header class="relative z-20 border-b border-slate-800 bg-slate-900/95 px-4 py-2.5 shadow-sm">
   <div class="flex flex-wrap items-center gap-2.5">
     <!-- App Brand -->
-    <div class="mr-1 flex items-center gap-2 select-none">
+    <button
+      type="button"
+      onclick={() => onOpenAbout?.()}
+      data-testid="app-brand-btn"
+      title="About Tisane"
+      aria-label="About Tisane"
+      class="mr-1 flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-left transition select-none hover:bg-slate-800/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/80"
+    >
       <img
         src="/icon.png"
         alt="Tisane logo"
@@ -94,7 +103,7 @@
         class="h-7 w-7 rounded-md object-contain shadow-xs ring-1 ring-slate-700/60"
       />
       <span class="text-sm font-semibold tracking-wide text-slate-100">Tisane</span>
-    </div>
+    </button>
 
     <!-- Search Mode Segmented Switch -->
     <div
