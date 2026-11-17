@@ -2,6 +2,8 @@
 
 **Tisane** is a pattern matching/regex tool. It provides high-speed crossword, cryptic, anagram, and dictionary search. 
 
+![Screenshot of Tisane UI](./img/tisane_ui.png)
+
 ## Pattern Matching Tools
 
 ### Comparison to TEA
@@ -18,11 +20,9 @@ Tisane contains features and performance improvements not included in TEA, descr
 
 ### Comparison to Nutrimatic
 
-TODO
+[Nutrimatic](https://nutrimatic.org) is another excellent modern pattern searching engine which makes a different tradeoff between exhaustive search and ranking.
 
-[Nutrimatic](https://nutrimatic.org) is another excellent modern pattern searching engine.
-
---
+Nutrimatic ranks likely words and multi-word phrases utilizing usage frequency data, but does a best-first search which may not enumerate all possible results. It also filters out many punctuation and diacritic combinations which Tisane preserves.
 
 ## Using Tisane
 
@@ -43,8 +43,6 @@ TODO
 | `\` | Escape special character literally | `\-\'` |
 
 ### Desktop UI Guide & Keyboard Shortcuts
-
-TODO: Screenshot, Screencast
 
 - **Dictionary Sidebar (Left)**:
   - Click **+ Add** (`Ctrl+O`) to register `.tsd` dictionary files via the native file picker.
@@ -164,6 +162,10 @@ Run `./tisane-extract --help` for all extractor options (`--no-header`, `--no-de
 ## Development
 
 ### Prerequisites
+
+Installing `bazel` (or [Bazelisk](https://github.com/bazelbuild/bazelisk) on Windows) will manage dependencies.  `bazel build ...` will install the necessary tools.
+
+#### Frameworks used in Tisane
 
 1. **Go 1.24+** (`go version`)
 2. **Node.js 20+ and npm** (required when building or developing the `cmd/tisane` Svelte 5 frontend bundle)

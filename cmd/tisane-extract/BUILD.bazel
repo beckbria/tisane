@@ -29,6 +29,7 @@ genrule(
     srcs = [":tisane-extract_windows_bin"],
     outs = ["tisane-extract.exe"],
     cmd = "cp $< $@",
+    cmd_ps = "Copy-Item -LiteralPath '$<' -Destination '$@' -Force",
     executable = True,
     visibility = ["//visibility:public"],
 )

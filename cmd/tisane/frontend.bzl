@@ -3,27 +3,11 @@
 def _frontend_dist_impl(ctx):
     out_dir = ctx.actions.declare_directory("frontend/dist")
     pkg_json = ctx.file.package_json
-    ctx.actions.run_shell(
+    ctx.actions.run(
+        executable = ctx.executable._builder,
+        arguments = [pkg_json.path, out_dir.path],
         inputs = ctx.files.srcs,
         outputs = [out_dir],
-        command = """
-            set -e
-            REAL_FRONTEND_DIR="$(dirname "$(readlink -f "{pkg_json}")")"
-            FRONTEND_SRC="$(cd "$(dirname "{pkg_json}")" && pwd)"
-            OUT_DIST="$(pwd)/{out_dir}"
-            TMP_DIR="$(mktemp -d)"
-            trap 'rm -rf "$TMP_DIR"' EXIT
-            cp -R "$FRONTEND_SRC/." "$TMP_DIR/"
-            if [ -d "$REAL_FRONTEND_DIR/node_modules" ]; then
-                ln -s "$REAL_FRONTEND_DIR/node_modules" "$TMP_DIR/node_modules"
-            else
-                (cd "$TMP_DIR" && npm ci --no-audit --no-fund)
-            fi
-            (cd "$TMP_DIR" && ./node_modules/.bin/vite build --outDir "$OUT_DIST" --emptyOutDir)
-        """.format(
-            pkg_json = pkg_json.path,
-            out_dir = out_dir.path,
-        ),
         execution_requirements = {
             "no-sandbox": "1",
         },
@@ -43,6 +27,11 @@ frontend_dist = rule(
         "srcs": attr.label_list(
             allow_files = True,
             mandatory = True,
+        ),
+        "_builder": attr.label(
+            default = "//cmd/tisane/internal/vitebuild",
+            executable = True,
+            cfg = "exec",
         ),
     },
 )
