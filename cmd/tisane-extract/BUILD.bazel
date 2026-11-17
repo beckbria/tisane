@@ -15,6 +15,17 @@ go_binary(
 )
 
 go_binary(
+    name = "tisane-extract_linux_bin",
+    out = "tisane-extract",
+    embed = [":tisane-extract_lib"],
+    goarch = "amd64",
+    goos = "linux",
+    pure = "on",
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+go_binary(
     name = "tisane-extract_windows_bin",
     embed = [":tisane-extract_lib"],
     goarch = "amd64",

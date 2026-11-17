@@ -92,7 +92,7 @@ func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 		var dirs []string
 		dirs = append(dirs, profile.SplitDictPathEnv("")...)
 		dirs = append(dirs, cfg.DictDirs...)
-		dirs = append(dirs, "Dictionaries", "binary/Dictionaries", "binary", ".")
+		dirs = append(dirs, "Dictionaries", "dictionaries", "binary/Dictionaries", "binary", ".")
 		discovered, _ := profile.DiscoverDictionaries(dirs...)
 		enabledCount := 0
 		for _, p := range discovered {

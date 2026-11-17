@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "releasepkg_lib",
+    srcs = ["main.go"],
+    importpath = "tisane/internal/releasepkg",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "releasepkg",
+    embed = [":releasepkg_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "releasepkg_test",
+    srcs = ["main_test.go"],
+    embed = [":releasepkg_lib"],
+)

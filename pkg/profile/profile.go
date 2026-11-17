@@ -283,7 +283,7 @@ func ResolveDictionaryPaths(specs []string, cfg *Config) ([]string, error) {
 	var searchDirs []string
 	searchDirs = append(searchDirs, SplitDictPathEnv(os.Getenv(EnvDictPath))...)
 	searchDirs = append(searchDirs, cfg.DictDirs...)
-	searchDirs = append(searchDirs, ".")
+	searchDirs = append(searchDirs, "Dictionaries", "dictionaries", ".")
 
 	out := make([]string, 0, len(flatSpecs))
 	for _, spec := range flatSpecs {

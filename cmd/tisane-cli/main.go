@@ -93,7 +93,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	// discover *.tsd in TISANE_DICT_PATH or ./Dictionaries.
 	if len(dictPaths) == 0 && len(opts.DictSpecs) == 0 {
 		searchDirs := append(profile.SplitDictPathEnv(os.Getenv(profile.EnvDictPath)), cfg.DictDirs...)
-		searchDirs = append(searchDirs, "Dictionaries", "binary/Dictionaries", ".")
+		searchDirs = append(searchDirs, "Dictionaries", "dictionaries", "binary/Dictionaries", ".")
 		discovered, _ := profile.DiscoverDictionaries(searchDirs...)
 		dictPaths = discovered
 	}

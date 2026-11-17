@@ -4,11 +4,15 @@
 
 ![Screenshot of Tisane UI](./img/tisane_ui.png)
 
+## Installing
+
+Installing Tisane is done by downloading the latest release from the [releases page](https://github.com/beckbria/tisane/releases) and extracting the archive to a location on your computer.
+
 ## Using Tisane
 
 ### Dictionaries
 
-A limited number of publicly available dictionaries are included in the releases. If you own a copy of TEA, dictionaries that came with it can be used with Tisane. Some other dictionaries can be found in the [tisane-dictionaries repository](https://github.com/beckbria/tisane-dictionaries).
+A limited number of publicly available dictionaries are included in the releases. If you own a copy of TEA, dictionaries that came with it (found in `C:\Program Files (x86)\Crossword Man\TEA Crossword Helper 2.11\Dictionaries\`) can be used with Tisane. Some other dictionaries can be found in the [tisane-dictionaries repository](https://github.com/beckbria/tisane-dictionaries).
 
 ### Pattern Syntax Summary
 
@@ -333,6 +337,11 @@ bazel build //:tisane-windows //:tisane-cli-windows //:tisane-build-windows
 bazel build //:windows
 # Or cross-compile any target via the windows config / platform flag:
 bazel build --config=windows //:tisane //:tisane-cli //:tisane-build
+
+# Build distributable release archives (all binaries + bundled dictionaries):
+# - bazel-bin/linux-release.tar.gz (Linux binaries + dictionaries/)
+# - bazel-bin/windows-release.zip  (Windows .exe binaries + dictionaries/)
+bazel build //:linux-release //:windows-release
 
 # Run all Go unit and integration tests via Bazel
 bazel test //...

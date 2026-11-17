@@ -26,6 +26,17 @@ go_binary(
 )
 
 go_binary(
+    name = "tisane-cli_linux_bin",
+    out = "tisane-cli",
+    embed = [":tisane-cli_lib"],
+    goarch = "amd64",
+    goos = "linux",
+    pure = "on",
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+go_binary(
     name = "tisane-cli_windows_bin",
     embed = [":tisane-cli_lib"],
     goarch = "amd64",

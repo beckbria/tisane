@@ -1,4 +1,5 @@
 load("@gazelle//:def.bzl", "gazelle")
+load(":release.bzl", "release_archive")
 
 # gazelle:prefix tisane
 gazelle(name = "gazelle")
@@ -68,13 +69,30 @@ alias(
 )
 
 filegroup(
+    name = "dictionaries",
+    srcs = glob(
+        ["dictionaries/**"],
+        exclude = ["**/.*"],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
     name = "linux",
-    srcs = [
-        ":tisane",
-        ":tisane-build",
-        ":tisane-cli",
-        ":tisane-extract",
-    ],
+    srcs = select({
+        "@platforms//os:linux": [
+            ":tisane",
+            ":tisane-build",
+            ":tisane-cli",
+            ":tisane-extract",
+        ],
+        "//conditions:default": [
+            "//cmd/tisane:tisane_linux_bin",
+            "//cmd/tisane-build:tisane-build_linux_bin",
+            "//cmd/tisane-cli:tisane-cli_linux_bin",
+            "//cmd/tisane-extract:tisane-extract_linux_bin",
+        ],
+    }),
     visibility = ["//visibility:public"],
 )
 
@@ -86,5 +104,23 @@ filegroup(
         ":tisane-extract-windows",
         ":tisane-windows",
     ],
+    visibility = ["//visibility:public"],
+)
+
+release_archive(
+    name = "linux-release",
+    binaries = [":linux"],
+    dictionaries = [":dictionaries"],
+    format = "tar.gz",
+    out = "linux-release.tar.gz",
+    visibility = ["//visibility:public"],
+)
+
+release_archive(
+    name = "windows-release",
+    binaries = [":windows"],
+    dictionaries = [":dictionaries"],
+    format = "zip",
+    out = "windows-release.zip",
     visibility = ["//visibility:public"],
 )
