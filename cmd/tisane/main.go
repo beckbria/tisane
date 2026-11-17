@@ -52,6 +52,20 @@ func (b *wailsHostBridge) PickDictionaryFiles() ([]string, error) {
 	return dlg.PromptForMultipleSelection()
 }
 
+func (b *wailsHostBridge) PickDictionaryDirectory() (string, error) {
+	if b.wailsApp == nil || b.wailsApp.Dialog == nil {
+		return "", nil
+	}
+	dlg := b.wailsApp.Dialog.OpenFile().
+		SetTitle("Add All Dictionaries from Directory").
+		CanChooseDirectories(true).
+		CanChooseFiles(false)
+	if b.mainWin != nil {
+		dlg.AttachToWindow(b.mainWin)
+	}
+	return dlg.PromptForSingleSelection()
+}
+
 func newServices(state *app.State) (
 	*app.DictionaryService,
 	*app.SearchService,
@@ -85,6 +99,10 @@ func buildAppMenu(
 		SetAccelerator("CmdOrCtrl+O").
 		OnClick(func(*application.Context) {
 			_, _ = dictSvc.BrowseAndAddDictionaries()
+		})
+	fileMenu.Add("Add All from Directory...").
+		OnClick(func(*application.Context) {
+			_, _ = dictSvc.BrowseAndAddDirectory()
 		})
 	fileMenu.Add("Settings...").
 		SetAccelerator("CmdOrCtrl+,").

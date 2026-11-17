@@ -98,6 +98,18 @@ func (ds *DictionaryService) BrowseAndAddDictionaries() ([]DictionaryInfo, error
 	return ds.AddDictionaryPaths(paths)
 }
 
+// BrowseAndAddDirectory opens the native OS directory picker and registers all *.tsd files in that directory.
+func (ds *DictionaryService) BrowseAndAddDirectory() ([]DictionaryInfo, error) {
+	dir, err := ds.state.Bridge().PickDictionaryDirectory()
+	if err != nil {
+		return nil, err
+	}
+	if dir == "" {
+		return ds.ListDictionaries(), nil
+	}
+	return ds.ScanDirectory(dir)
+}
+
 // ScanDirectory discovers all *.tsd files inside dir and registers any new ones.
 func (ds *DictionaryService) ScanDirectory(dir string) ([]DictionaryInfo, error) {
 	found, err := profile.DiscoverDictionaries(dir)

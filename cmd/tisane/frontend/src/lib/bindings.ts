@@ -17,6 +17,7 @@ export interface TisaneBackend {
   reorderDictionaries(orderedIds: string[]): Promise<DictionaryInfo[]>;
   addDictionaryPaths(paths: string[]): Promise<DictionaryInfo[]>;
   browseAndAddDictionaries(): Promise<DictionaryInfo[]>;
+  browseAndAddDirectory(): Promise<DictionaryInfo[]>;
   scanDirectory(dir: string): Promise<DictionaryInfo[]>;
   removeDictionary(id: string): Promise<DictionaryInfo[]>;
 
@@ -40,6 +41,7 @@ const FQN = {
   reorderDictionaries: 'tisane/cmd/tisane/app.DictionaryService.ReorderDictionaries',
   addDictionaryPaths: 'tisane/cmd/tisane/app.DictionaryService.AddDictionaryPaths',
   browseAndAddDictionaries: 'tisane/cmd/tisane/app.DictionaryService.BrowseAndAddDictionaries',
+  browseAndAddDirectory: 'tisane/cmd/tisane/app.DictionaryService.BrowseAndAddDirectory',
   scanDirectory: 'tisane/cmd/tisane/app.DictionaryService.ScanDirectory',
   removeDictionary: 'tisane/cmd/tisane/app.DictionaryService.RemoveDictionary',
 
@@ -61,6 +63,7 @@ const wailsBackend: TisaneBackend = {
   reorderDictionaries: (orderedIds) => Call.ByName(FQN.reorderDictionaries, orderedIds),
   addDictionaryPaths: (paths) => Call.ByName(FQN.addDictionaryPaths, paths),
   browseAndAddDictionaries: () => Call.ByName(FQN.browseAndAddDictionaries),
+  browseAndAddDirectory: () => Call.ByName(FQN.browseAndAddDirectory),
   scanDirectory: (dir) => Call.ByName(FQN.scanDirectory, dir),
   removeDictionary: (id) => Call.ByName(FQN.removeDictionary, id),
 

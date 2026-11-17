@@ -121,6 +121,7 @@ function createMockHarness() {
     }),
     addDictionaryPaths: vi.fn(async () => dicts),
     browseAndAddDictionaries: vi.fn(async () => dicts),
+    browseAndAddDirectory: vi.fn(async () => dicts),
     scanDirectory: vi.fn(async () => dicts),
     removeDictionary: vi.fn(async (id: string) => {
       dicts = dicts.filter((d) => d.id !== id);
@@ -526,5 +527,38 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     // Close the About dialog
     await fireEvent.click(screen.getByTestId('close-about-btn'));
     expect(screen.queryByTestId('about-modal')).not.toBeInTheDocument();
+  });
+
+  it('opens a dropdown from the + Add button with Add dictionary and Add all from directory options', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+    const addBtn = screen.getByTestId('add-dict-btn');
+    expect(screen.queryByTestId('add-dict-menu')).not.toBeInTheDocument();
+
+    // Click "+ Add" to open the dropdown
+    await fireEvent.click(addBtn);
+    const menu = screen.getByTestId('add-dict-menu');
+    expect(menu).toBeInTheDocument();
+
+    const addFileOption = screen.getByTestId('add-dict-file-option');
+    const addDirOption = screen.getByTestId('add-dict-dir-option');
+    expect(addFileOption).toHaveTextContent('Add dictionary');
+    expect(addDirOption).toHaveTextContent('Add all from directory');
+
+    // Click "Add dictionary" -> closes dropdown and calls browseAndAddDictionaries
+    await fireEvent.click(addFileOption);
+    expect(screen.queryByTestId('add-dict-menu')).not.toBeInTheDocument();
+    expect(h.backend.browseAndAddDictionaries).toHaveBeenCalledTimes(1);
+
+    // Reopen dropdown and click "Add all from directory" -> closes dropdown and calls browseAndAddDirectory
+    await fireEvent.click(addBtn);
+    expect(screen.getByTestId('add-dict-menu')).toBeInTheDocument();
+    await fireEvent.click(screen.getByTestId('add-dict-dir-option'));
+    expect(screen.queryByTestId('add-dict-menu')).not.toBeInTheDocument();
+    expect(h.backend.browseAndAddDirectory).toHaveBeenCalledTimes(1);
   });
 });

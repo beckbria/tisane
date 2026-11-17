@@ -20,14 +20,16 @@ type HostBridge interface {
 	EmitEvent(name string, data any)
 	OpenURL(url string) error
 	PickDictionaryFiles() ([]string, error)
+	PickDictionaryDirectory() (string, error)
 }
 
 // NoopBridge is a default safe HostBridge when running headless or before Wails startup.
 type NoopBridge struct{}
 
-func (NoopBridge) EmitEvent(string, any)                  {}
-func (NoopBridge) OpenURL(string) error                   { return nil }
-func (NoopBridge) PickDictionaryFiles() ([]string, error) { return nil, nil }
+func (NoopBridge) EmitEvent(string, any)                     {}
+func (NoopBridge) OpenURL(string) error                      { return nil }
+func (NoopBridge) PickDictionaryFiles() ([]string, error)    { return nil, nil }
+func (NoopBridge) PickDictionaryDirectory() (string, error)  { return "", nil }
 
 // DictionaryInfo describes a configured .tsd dictionary for the Svelte 5 UI.
 type DictionaryInfo struct {

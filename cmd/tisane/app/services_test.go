@@ -26,6 +26,7 @@ type mockBridge struct {
 	events     []recordedEvent
 	openedURLs []string
 	picked     []string
+	pickedDir  string
 	completeCh chan app.SearchCompleteEvent
 }
 
@@ -57,6 +58,12 @@ func (m *mockBridge) PickDictionaryFiles() ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.picked, nil
+}
+
+func (m *mockBridge) PickDictionaryDirectory() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pickedDir, nil
 }
 
 func TestDesktopServicesEndToEnd(t *testing.T) {
@@ -99,6 +106,16 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 
 	// Remove any auto-discovered dicts first so test order is exact.
 	for _, info := range dictSvc.ListDictionaries() {
+		_, _ = dictSvc.RemoveDictionary(info.ID)
+	}
+
+	// Verify BrowseAndAddDirectory scans a directory and adds all .tsd files in it.
+	bridge.pickedDir = filepath.Join(repoBinDir, "Dictionaries")
+	dirInfos, err := dictSvc.BrowseAndAddDirectory()
+	if err != nil || len(dirInfos) < 2 {
+		t.Fatalf("BrowseAndAddDirectory: len=%d err=%v", len(dirInfos), err)
+	}
+	for _, info := range dirInfos {
 		_, _ = dictSvc.RemoveDictionary(info.ID)
 	}
 

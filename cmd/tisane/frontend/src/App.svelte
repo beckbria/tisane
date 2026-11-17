@@ -321,6 +321,12 @@
     scheduleValidation(true);
   }
 
+  async function handleBrowseAddDirectory() {
+    const next = await getBackend().browseAndAddDirectory();
+    if (Array.isArray(next)) dictionaries = next;
+    scheduleValidation(true);
+  }
+
   async function handleRemoveDict(id: string) {
     const next = await getBackend().removeDictionary(id);
     if (Array.isArray(next)) dictionaries = next;
@@ -591,6 +597,7 @@
       onToggleEnabled={handleToggleDict}
       onReorder={handleReorderDicts}
       onBrowseAdd={handleBrowseAddDicts}
+      onBrowseAddDirectory={handleBrowseAddDirectory}
       onRemove={handleRemoveDict}
       onOptionChange={(patch) => applyConfigPatch(patch, true)}
     />

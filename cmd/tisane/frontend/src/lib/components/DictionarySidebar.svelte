@@ -10,6 +10,7 @@
     onToggleEnabled: (id: string, enabled: boolean) => void;
     onReorder: (orderedIds: string[]) => void;
     onBrowseAdd: () => void;
+    onBrowseAddDirectory?: () => void;
     onRemove: (id: string) => void;
     onOptionChange: (patch: {
       showBalances?: boolean;
@@ -28,12 +29,15 @@
     onToggleEnabled,
     onReorder,
     onBrowseAdd,
+    onBrowseAddDirectory,
     onRemove,
     onOptionChange
   }: Props = $props();
 
   let draggedIndex: number | null = $state(null);
   let dropTargetIndex: number | null = $state(null);
+  let addMenuOpen = $state(false);
+  let addMenuContainer: HTMLDivElement | undefined = $state();
 
   function formatCount(n: number): string {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -67,6 +71,19 @@
   const activeCount = $derived((dictionaries ?? []).filter((d) => d.enabled).length);
 </script>
 
+<svelte:window
+  onclick={(e) => {
+    if (addMenuOpen && addMenuContainer && !addMenuContainer.contains(e.target as Node)) {
+      addMenuOpen = false;
+    }
+  }}
+  onkeydown={(e) => {
+    if (addMenuOpen && e.key === 'Escape') {
+      addMenuOpen = false;
+    }
+  }}
+/>
+
 <aside class="flex h-full w-68 shrink-0 flex-col border-r border-slate-800 bg-slate-900/75 select-none">
   <!-- Header -->
   <div class="flex items-center justify-between border-b border-slate-800 px-3 py-2">
@@ -78,15 +95,53 @@
         {activeCount} of {dictionaries.length} active · priority order
       </p>
     </div>
-    <button
-      type="button"
-      data-testid="add-dict-btn"
-      onclick={onBrowseAdd}
-      class="rounded-md bg-slate-800 px-2 py-1 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700"
-      title="Add .tsd dictionary files (Ctrl+O)"
-    >
-      + Add
-    </button>
+    <div class="relative" bind:this={addMenuContainer}>
+      <button
+        type="button"
+        data-testid="add-dict-btn"
+        aria-haspopup="menu"
+        aria-expanded={addMenuOpen}
+        onclick={() => (addMenuOpen = !addMenuOpen)}
+        class="flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700"
+        title="Add .tsd dictionary files or directory (Ctrl+O)"
+      >
+        <span>+ Add</span>
+        <span class="text-[10px] text-amber-300/80">▾</span>
+      </button>
+
+      {#if addMenuOpen}
+        <div
+          role="menu"
+          data-testid="add-dict-menu"
+          class="absolute right-0 z-40 mt-1 w-44 rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="add-dict-file-option"
+            onclick={() => {
+              addMenuOpen = false;
+              onBrowseAdd();
+            }}
+            class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
+          >
+            Add dictionary
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="add-dict-dir-option"
+            onclick={() => {
+              addMenuOpen = false;
+              onBrowseAddDirectory?.();
+            }}
+            class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
+          >
+            Add all from directory
+          </button>
+        </div>
+      {/if}
+    </div>
   </div>
 
   <!-- Ordered Dictionary List -->
