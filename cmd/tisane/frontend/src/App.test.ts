@@ -561,4 +561,47 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(screen.queryByTestId('add-dict-menu')).not.toBeInTheDocument();
     expect(h.backend.browseAndAddDirectory).toHaveBeenCalledTimes(1);
   });
+
+  it('updates the results grid when selecting or unselecting dictionaries before any query is performed', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+
+    // Initially both dictionaries are enabled and shown in the tiled grid
+    await waitFor(() => {
+      expect(screen.getByTestId('tiled-pane-0')).toHaveTextContent('Core English');
+      expect(screen.getByTestId('tiled-pane-1')).toHaveTextContent("The Devil's Dictionary");
+    });
+
+    // Unselect the first dictionary ("Core English") while no query has been run
+    const toggle0 = screen.getByTestId('dict-toggle-0') as HTMLInputElement;
+    await fireEvent.click(toggle0);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tiled-pane-0')).toHaveTextContent("The Devil's Dictionary");
+      expect(screen.queryByTestId('tiled-pane-1')).not.toBeInTheDocument();
+    });
+
+    // Unselect the second dictionary ("The Devil's Dictionary") -> shows empty state prompt
+    const toggle1 = screen.getByTestId('dict-toggle-1') as HTMLInputElement;
+    await fireEvent.click(toggle1);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('tiled-pane-0')).not.toBeInTheDocument();
+      expect(screen.getByTestId('results-workspace')).toHaveTextContent(
+        'Enable at least one dictionary in the left sidebar to search.'
+      );
+    });
+
+    // Re-select "Core English" -> grid immediately shows Core English pane again
+    await fireEvent.click(toggle0);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tiled-pane-0')).toHaveTextContent('Core English');
+      expect(screen.queryByTestId('tiled-pane-1')).not.toBeInTheDocument();
+    });
+
+    expect(h.searchRequests.length).toBe(0);
+  });
 });

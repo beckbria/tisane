@@ -113,7 +113,9 @@
   let validateTimer: ReturnType<typeof setTimeout> | null = null;
 
   const displayedTiledDicts = $derived(
-    searchActiveDicts.length > 0 ? searchActiveDicts : (dictionaries ?? []).filter((d) => d.enabled)
+    (isSearching || hasCompletedSearch) && query.trim() !== '' && searchActiveDicts.length > 0
+      ? searchActiveDicts
+      : (dictionaries ?? []).filter((d) => d.enabled)
   );
 
   const tiledGridClass = $derived.by(() => {
@@ -298,39 +300,53 @@
     }
   }
 
-  async function handleToggleDict(id: string, enabled: boolean) {
-    const next = await getBackend().setEnabled(id, enabled);
-    if (Array.isArray(next)) dictionaries = next;
+  function syncUpdatedDictionaries(next: DictionaryInfo[]) {
+    dictionaries = next;
+    const active = next.filter((d) => d.enabled);
+    searchActiveDicts = active;
     scheduleValidation(true);
     if (query.trim() !== '' && (hasCompletedSearch || isSearching)) {
       void executeSearch();
+    } else {
+      allMatches = [];
+      matchesByDict = active.map(() => []);
+      hasCompletedSearch = false;
+    }
+  }
+
+  async function handleToggleDict(id: string, enabled: boolean) {
+    const next = await getBackend().setEnabled(id, enabled);
+    if (Array.isArray(next)) {
+      syncUpdatedDictionaries(next);
     }
   }
 
   async function handleReorderDicts(orderedIds: string[]) {
     const next = await getBackend().reorderDictionaries(orderedIds);
-    if (Array.isArray(next)) dictionaries = next;
-    if (query.trim() !== '' && (hasCompletedSearch || isSearching)) {
-      void executeSearch();
+    if (Array.isArray(next)) {
+      syncUpdatedDictionaries(next);
     }
   }
 
   async function handleBrowseAddDicts() {
     const next = await getBackend().browseAndAddDictionaries();
-    if (Array.isArray(next)) dictionaries = next;
-    scheduleValidation(true);
+    if (Array.isArray(next)) {
+      syncUpdatedDictionaries(next);
+    }
   }
 
   async function handleBrowseAddDirectory() {
     const next = await getBackend().browseAndAddDirectory();
-    if (Array.isArray(next)) dictionaries = next;
-    scheduleValidation(true);
+    if (Array.isArray(next)) {
+      syncUpdatedDictionaries(next);
+    }
   }
 
   async function handleRemoveDict(id: string) {
     const next = await getBackend().removeDictionary(id);
-    if (Array.isArray(next)) dictionaries = next;
-    scheduleValidation(true);
+    if (Array.isArray(next)) {
+      syncUpdatedDictionaries(next);
+    }
   }
 
   function handleToggleCategory(cat: EntryCategory) {
@@ -466,6 +482,11 @@
       backend.onEvent<DictionaryInfo[]>('dicts:updated', (infos) => {
         if (Array.isArray(infos)) {
           dictionaries = infos;
+          if (!isSearching && !hasCompletedSearch) {
+            const active = infos.filter((d) => d.enabled);
+            searchActiveDicts = active;
+            matchesByDict = active.map(() => []);
+          }
         }
       })
     );
