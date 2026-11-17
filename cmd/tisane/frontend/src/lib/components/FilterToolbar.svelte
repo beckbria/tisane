@@ -127,7 +127,7 @@
     <!-- 4 Entry Category Toggles -->
     <div class="flex items-center gap-1" role="group" aria-label="Entry categories">
       {#each categoryButtons as cb}
-        {@const active = entryCategories.includes(cb.id)}
+        {@const active = (entryCategories ?? []).includes(cb.id)}
         <button
           type="button"
           data-testid={`cat-${cb.id}`}

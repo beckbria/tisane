@@ -140,6 +140,7 @@ func Lookup(ctx context.Context, word string, dicts []*tsd.Dictionary, opts Opti
 	trimmed := strings.TrimSpace(word)
 	res := &Result{
 		Word:     trimmed,
+		Entries:  []DefinitionEntry{},
 		WebLinks: BuildWebLinks(trimmed, opts.WebProviders),
 	}
 	if trimmed == "" {

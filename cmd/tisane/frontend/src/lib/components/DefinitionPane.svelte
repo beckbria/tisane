@@ -90,7 +90,7 @@
         <h3 class="truncate font-mono text-sm font-bold text-amber-300" data-testid="definition-word-heading">
           {selectedWord}
         </h3>
-        {#if lookupResult && lookupResult.entries.length > 0}
+        {#if lookupResult && (lookupResult.entries ?? []).length > 0}
           <span class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
             {lookupResult.entries.length} {lookupResult.entries.length === 1 ? 'entry' : 'entries'}
           </span>
@@ -112,7 +112,7 @@
         <span>Include mentions</span>
       </label>
 
-      {#if selectedWord && lookupResult && lookupResult.webLinks.length > 0}
+      {#if selectedWord && lookupResult && (lookupResult.webLinks ?? []).length > 0}
         <div class="hidden items-center gap-1 sm:flex">
           <span class="text-[11px] text-slate-500">Web:</span>
           {#each lookupResult.webLinks.slice(0, 4) as wl}
@@ -141,7 +141,7 @@
       <div class="flex h-full items-center justify-center text-xs text-slate-400">
         Loading definitions for <strong class="ml-1 font-mono text-slate-200">{selectedWord}</strong>…
       </div>
-    {:else if lookupResult && lookupResult.entries.length > 0}
+    {:else if lookupResult && (lookupResult.entries ?? []).length > 0}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
@@ -202,7 +202,7 @@
         <p class="mt-0.5 text-[11px] text-slate-500">
           Look it up online with one click:
         </p>
-        {#if lookupResult && lookupResult.webLinks.length > 0}
+        {#if lookupResult && (lookupResult.webLinks ?? []).length > 0}
           <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
             {#each lookupResult.webLinks as wl}
               <button

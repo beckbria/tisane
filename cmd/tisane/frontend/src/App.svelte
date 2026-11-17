@@ -52,8 +52,21 @@
     recentQueries: []
   };
 
+  function normalizeConfig(raw: Partial<Config> | null | undefined): Config {
+    if (!raw) return { ...DEFAULT_CONFIG };
+    return {
+      ...DEFAULT_CONFIG,
+      ...raw,
+      dictDirs: Array.isArray(raw.dictDirs) ? raw.dictDirs : DEFAULT_CONFIG.dictDirs,
+      dictionaries: Array.isArray(raw.dictionaries) ? raw.dictionaries : DEFAULT_CONFIG.dictionaries,
+      entryFilter: Array.isArray(raw.entryFilter) ? raw.entryFilter : DEFAULT_CONFIG.entryFilter,
+      webProviders: Array.isArray(raw.webProviders) ? raw.webProviders : DEFAULT_CONFIG.webProviders,
+      recentQueries: Array.isArray(raw.recentQueries) ? raw.recentQueries : DEFAULT_CONFIG.recentQueries
+    };
+  }
+
   // Core reactive state (Svelte 5 runes)
-  let config: Config = $state({ ...DEFAULT_CONFIG });
+  let config: Config = $state(normalizeConfig(DEFAULT_CONFIG));
   let dictionaries: DictionaryInfo[] = $state([]);
 
   let query = $state('');
@@ -91,7 +104,7 @@
   let validateTimer: ReturnType<typeof setTimeout> | null = null;
 
   const displayedTiledDicts = $derived(
-    searchActiveDicts.length > 0 ? searchActiveDicts : dictionaries.filter((d) => d.enabled)
+    searchActiveDicts.length > 0 ? searchActiveDicts : (dictionaries ?? []).filter((d) => d.enabled)
   );
 
   const tiledGridClass = $derived.by(() => {
@@ -144,7 +157,7 @@
     if (!q) return;
 
     errorMessage = '';
-    const activeSnapshot = dictionaries.filter((d) => d.enabled);
+    const activeSnapshot = (dictionaries ?? []).filter((d) => d.enabled);
     searchActiveDicts = activeSnapshot;
     allMatches = [];
     matchesByDict = activeSnapshot.map(() => []);
@@ -169,16 +182,17 @@
         showBalances: config.showBalances,
         showAnnotations: config.showAnnotations,
         suppressDuplicates: config.suppressDuplicates,
-        entryCategories: config.entryFilter,
+        entryCategories: config.entryFilter ?? DEFAULT_CONFIG.entryFilter,
         sortMode: config.sortMode,
         limit: 0
       });
       currentSearchId = sid;
 
       // Update local recent queries immediately
+      const prevRecent = Array.isArray(config.recentQueries) ? config.recentQueries : [];
       config = {
         ...config,
-        recentQueries: [q, ...config.recentQueries.filter((item) => item !== q)].slice(0, 50)
+        recentQueries: [q, ...prevRecent.filter((item) => item !== q)].slice(0, 50)
       };
     } catch (err) {
       isSearching = false;
@@ -214,7 +228,13 @@
     try {
       const res = await getBackend().getDefinitions(clean, includeMentions);
       if (selectedWord === clean) {
-        lookupResult = res;
+        lookupResult = res
+          ? {
+              word: res.word ?? clean,
+              entries: Array.isArray(res.entries) ? res.entries : [],
+              webLinks: Array.isArray(res.webLinks) ? res.webLinks : []
+            }
+          : { word: clean, entries: [], webLinks: [] };
       }
     } catch {
       if (selectedWord === clean) {
@@ -233,7 +253,7 @@
 
   async function handleDoubleClickMatch(m: Match) {
     await loadDefinition(m.word, true);
-    if (config.autoWebFallback && !m.hasDefinition && (!lookupResult || lookupResult.entries.length === 0)) {
+    if (config.autoWebFallback && !m.hasDefinition && (!lookupResult || (lookupResult.entries ?? []).length === 0)) {
       await getBackend().openWebLookup(m.word, config.defaultWebProvider);
     }
   }
@@ -254,9 +274,12 @@
 
   async function applyConfigPatch(patch: ConfigPatch, rerunIfSearched = false) {
     // Optimistically update local config for crisp UI responsiveness
-    config = { ...config, ...patch };
+    config = normalizeConfig({ ...config, ...patch });
     try {
-      config = await getBackend().updateConfig(patch);
+      const updated = await getBackend().updateConfig(patch);
+      if (updated) {
+        config = normalizeConfig(updated);
+      }
     } catch {
       // Keep optimistic state if headless
     }
@@ -267,7 +290,8 @@
   }
 
   async function handleToggleDict(id: string, enabled: boolean) {
-    dictionaries = await getBackend().setEnabled(id, enabled);
+    const next = await getBackend().setEnabled(id, enabled);
+    if (Array.isArray(next)) dictionaries = next;
     scheduleValidation(true);
     if (query.trim() !== '' && (hasCompletedSearch || isSearching)) {
       void executeSearch();
@@ -275,27 +299,31 @@
   }
 
   async function handleReorderDicts(orderedIds: string[]) {
-    dictionaries = await getBackend().reorderDictionaries(orderedIds);
+    const next = await getBackend().reorderDictionaries(orderedIds);
+    if (Array.isArray(next)) dictionaries = next;
     if (query.trim() !== '' && (hasCompletedSearch || isSearching)) {
       void executeSearch();
     }
   }
 
   async function handleBrowseAddDicts() {
-    dictionaries = await getBackend().browseAndAddDictionaries();
+    const next = await getBackend().browseAndAddDictionaries();
+    if (Array.isArray(next)) dictionaries = next;
     scheduleValidation(true);
   }
 
   async function handleRemoveDict(id: string) {
-    dictionaries = await getBackend().removeDictionary(id);
+    const next = await getBackend().removeDictionary(id);
+    if (Array.isArray(next)) dictionaries = next;
     scheduleValidation(true);
   }
 
   function handleToggleCategory(cat: EntryCategory) {
-    const exists = config.entryFilter.includes(cat);
+    const currentFilter = Array.isArray(config.entryFilter) ? config.entryFilter : DEFAULT_CONFIG.entryFilter;
+    const exists = currentFilter.includes(cat);
     let next = exists
-      ? config.entryFilter.filter((c) => c !== cat)
-      : [...config.entryFilter, cat];
+      ? currentFilter.filter((c) => c !== cat)
+      : [...currentFilter, cat];
     if (next.length === 0) {
       // Keep at least one category active so results aren't silently muted
       next = ['lowercase', 'capitalized', 'punctuated', 'phrase'];
@@ -457,7 +485,7 @@
           backend.listDictionaries()
         ]);
         if (loadedCfg) {
-          config = loadedCfg;
+          config = normalizeConfig(loadedCfg);
         }
         if (Array.isArray(loadedDicts)) {
           dictionaries = loadedDicts;

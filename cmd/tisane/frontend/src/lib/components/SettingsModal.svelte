@@ -26,7 +26,7 @@
       hashMacro = config.hashMacro;
       autoWebFallback = config.autoWebFallback;
       defaultWebProvider = config.defaultWebProvider;
-      providers = config.webProviders.map((p) => ({ ...p }));
+      providers = (config.webProviders ?? []).map((p) => ({ ...p }));
     }
   });
 

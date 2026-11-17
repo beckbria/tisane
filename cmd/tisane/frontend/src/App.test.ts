@@ -360,4 +360,40 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     ]);
   });
 
+  it('handles null array fields from backend config without status bar filter error', async () => {
+    const h = createMockHarness();
+    h.backend.getConfig = vi.fn(async (): Promise<Config> => ({
+      dictDirs: null as unknown as string[],
+      dictionaries: null as unknown as Config['dictionaries'],
+      atMacro: '[aeiou]',
+      hashMacro: '[^aeiou]',
+      minLength: 1,
+      maxLength: 100,
+      exclusiveVars: false,
+      ignoreUnusedPunctuation: true,
+      showBalances: true,
+      showAnnotations: true,
+      suppressDuplicates: true,
+      entryFilter: null as unknown as Config['entryFilter'],
+      sortMode: 'dict',
+      layoutMode: 'tiled',
+      autoWebFallback: false,
+      defaultWebProvider: 'onelook',
+      webProviders: null as unknown as Config['webProviders'],
+      recentQueries: null as unknown as string[]
+    }));
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+    const input = screen.getByTestId('pattern-input') as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'c.o..w.rd' } });
+    await fireEvent.click(screen.getByTestId('run-search-btn'));
+
+    await waitFor(() => {
+      expect(h.searchRequests.length).toBe(1);
+    });
+    expect(screen.getByTestId('status-bar')).not.toHaveTextContent('Error:');
+  });
 });

@@ -2,8 +2,10 @@ package app_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +14,7 @@ import (
 	"tisane/pkg/search"
 )
 
-const repoBinDir = "/home/brian/tea/binary"
+const repoBinDir = "../../../binary"
 
 type recordedEvent struct {
 	name string
@@ -81,6 +83,13 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 	cfg := profSvc.GetConfig()
 	if cfg.LayoutMode != "tiled" {
 		t.Fatalf("expected default LayoutMode='tiled', got %q", cfg.LayoutMode)
+	}
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("json.Marshal(cfg): %v", err)
+	}
+	if strings.Contains(string(cfgJSON), `"recentQueries":null`) || strings.Contains(string(cfgJSON), `"dictDirs":null`) {
+		t.Fatalf("expected non-null slice fields in JSON config, got %s", string(cfgJSON))
 	}
 
 	// Register Core English.tsd and The Devil's Dictionary.tsd via BrowseAndAddDictionaries.

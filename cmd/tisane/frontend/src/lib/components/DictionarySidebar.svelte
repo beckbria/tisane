@@ -64,7 +64,7 @@
     onReorder(ids);
   }
 
-  const activeCount = $derived(dictionaries.filter((d) => d.enabled).length);
+  const activeCount = $derived((dictionaries ?? []).filter((d) => d.enabled).length);
 </script>
 
 <aside class="flex h-full w-68 shrink-0 flex-col border-r border-slate-800 bg-slate-900/75 select-none">

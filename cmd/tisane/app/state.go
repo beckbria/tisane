@@ -224,6 +224,7 @@ func (s *State) SnapshotSearchDicts() (active []*tsd.Dictionary, activeInfos []D
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	activeInfos = []DictionaryInfo{}
 	for _, ld := range s.dicts {
 		if ld.info.Enabled {
 			active = append(active, ld.dict)

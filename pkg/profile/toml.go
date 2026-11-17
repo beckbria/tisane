@@ -303,10 +303,10 @@ func parseTOMLStringArray(val string) ([]string, error) {
 	}
 	inner := strings.TrimSpace(val[1 : len(val)-1])
 	if inner == "" {
-		return nil, nil
+		return []string{}, nil
 	}
 
-	var out []string
+	out := []string{}
 	curStart := 0
 	inDouble := false
 	inSingle := false

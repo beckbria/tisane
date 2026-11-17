@@ -54,6 +54,8 @@ type Config struct {
 // Note that LayoutMode defaults to "tiled" (separate tiled panes per dictionary).
 func DefaultConfig() *Config {
 	return &Config{
+		DictDirs:                []string{},
+		Dictionaries:            []DictConfig{},
 		AtMacro:                 pattern.DefaultAtMacro,
 		HashMacro:               pattern.DefaultHashMacro,
 		MinLength:               1,
@@ -69,6 +71,7 @@ func DefaultConfig() *Config {
 		AutoWebFallback:         false,
 		DefaultWebProvider:      "onelook",
 		WebProviders:            lookup.DefaultWebProviders(),
+		RecentQueries:           []string{},
 	}
 }
 

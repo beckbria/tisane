@@ -39,11 +39,11 @@ func (ps *ProfileService) GetConfig() profile.Config {
 	ps.state.mu.RLock()
 	defer ps.state.mu.RUnlock()
 	cfgCopy := *ps.state.cfg
-	cfgCopy.DictDirs = append([]string(nil), ps.state.cfg.DictDirs...)
-	cfgCopy.Dictionaries = append([]profile.DictConfig(nil), ps.state.cfg.Dictionaries...)
-	cfgCopy.EntryFilter = append([]string(nil), ps.state.cfg.EntryFilter...)
-	cfgCopy.WebProviders = append([]lookup.WebProvider(nil), ps.state.cfg.WebProviders...)
-	cfgCopy.RecentQueries = append([]string(nil), ps.state.cfg.RecentQueries...)
+	cfgCopy.DictDirs = append([]string{}, ps.state.cfg.DictDirs...)
+	cfgCopy.Dictionaries = append([]profile.DictConfig{}, ps.state.cfg.Dictionaries...)
+	cfgCopy.EntryFilter = append([]string{}, ps.state.cfg.EntryFilter...)
+	cfgCopy.WebProviders = append([]lookup.WebProvider{}, ps.state.cfg.WebProviders...)
+	cfgCopy.RecentQueries = append([]string{}, ps.state.cfg.RecentQueries...)
 	return cfgCopy
 }
 
