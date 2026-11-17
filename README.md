@@ -1,30 +1,14 @@
 # Tisane
 
-**Tisane** is a pattern matching/regex tool. It provides high-speed crossword, cryptic, anagram, and dictionary search. 
+**Tisane** is a pattern matching/regex tool. It provides high-speed crossword, cryptic, anagram, and dictionary search. It can operate on custom user-defined dictionaries.
 
 ![Screenshot of Tisane UI](./img/tisane_ui.png)
 
-## Pattern Matching Tools
-
-### Comparison to TEA
-
-Tisane takes significant inspiration from (and owes great thanks to) the classic Win32 **TEA** by Ross Beresford ([Crossword Man](http://www.rossberesford.com/crosswordman)). TEA is no longer available for purchase, but Tisane provides a modern UI compatible for TEA users. The dictionary files included with TEA are not included in this repository.
-
-Tisane's query syntax is borrowed from TEA and its dictionary files are identical. If you purchased TEA and have dictionary files created for it, those files can be used with Tisane.
-
-* `tisane-cli` respects the CLI switches from `TEACON.EXE` and can be used as a drop-in replacement. 
-* `tisane-build` is a command-line tool to build new dictionary files from word lists
-* `tisane` is a desktop GUI application whose default interface is similar to that of TEA
-
-Tisane contains features and performance improvements not included in TEA, described below.
-
-### Comparison to Nutrimatic
-
-[Nutrimatic](https://nutrimatic.org) is another excellent modern pattern searching engine which makes a different tradeoff between exhaustive search and ranking.
-
-Nutrimatic ranks likely words and multi-word phrases utilizing usage frequency data, but does a best-first search which may not enumerate all possible results. It also filters out many punctuation and diacritic combinations which Tisane preserves.
-
 ## Using Tisane
+
+### Dictionaries
+
+A limited number of publicly available dictionaries are included in the releases. If you own a copy of TEA, dictionaries that came with it can be used with Tisane. Some other dictionaries can be found in the [tisane-dictionaries repository](https://github.com/beckbria/tisane-dictionaries).
 
 ### Pattern Syntax Summary
 
@@ -157,7 +141,25 @@ Run `./tisane-build --help` for all builder flags (`--min-len`, `--max-len`, `--
 
 Run `./tisane-extract --help` for all extractor options (`--no-header`, `--no-dedupe`, `--sort`, `--encoding`).
 
----
+## Pattern Matching Tools
+
+### Comparison to TEA
+
+Tisane takes significant inspiration from (and owes great thanks to) the classic Win32 **TEA** by Ross Beresford ([Crossword Man](http://www.rossberesford.com/crosswordman)). TEA is no longer available for purchase, but Tisane provides a modern UI compatible for TEA users. The dictionary files included with TEA are not included in this repository.
+
+Tisane's query syntax is borrowed from TEA and its dictionary files are identical. If you purchased TEA and have dictionary files created for it, those files can be used with Tisane.
+
+* `tisane-cli` respects the CLI switches from `TEACON.EXE` and can be used as a drop-in replacement. 
+* `tisane-build` is a command-line tool to build new dictionary files from word lists
+* `tisane` is a desktop GUI application whose default interface is similar to that of TEA
+
+Tisane contains features and performance improvements not included in TEA, described below.
+
+### Comparison to Nutrimatic
+
+[Nutrimatic](https://nutrimatic.org) is another excellent modern pattern searching engine which makes a different tradeoff between exhaustive search and ranking.
+
+Nutrimatic ranks likely words and multi-word phrases utilizing usage frequency data, but does a best-first search which may not enumerate all possible results. It also filters out many punctuation and diacritic combinations which Tisane preserves.
 
 ## Development
 
