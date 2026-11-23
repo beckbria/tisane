@@ -17,7 +17,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-const appVersion = app.Version
+var appVersion = app.Version
 
 // wailsHostBridge connects the testable app.State services to the live Wails v3 runtime.
 type wailsHostBridge struct {

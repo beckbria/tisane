@@ -94,6 +94,7 @@ go_test(
     srcs = ["main_test.go"],
     embed = [":tisane_lib"],
     deps = [
+        "//:version",
         "//build",
         "//cmd/tisane/app",
         "@com_github_wailsapp_wails_v3//pkg/application",

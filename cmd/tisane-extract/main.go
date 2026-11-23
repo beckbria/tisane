@@ -10,10 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"tisane"
 	"tisane/pkg/tsd"
 )
 
-const version = "0.5.0"
+var version = tisane.Version
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))

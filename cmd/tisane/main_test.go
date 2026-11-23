@@ -9,6 +9,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"tisane"
 	"tisane/build"
 	"tisane/cmd/tisane/app"
 )
@@ -102,7 +103,7 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 		t.Fatalf("expected embedded '/icon.png' response body to start with PNG signature")
 	}
 
-	if appVersion != "0.5.0" || app.Version != "0.5.0" {
-		t.Fatalf("expected version constant '0.5.0', got appVersion=%q app.Version=%q", appVersion, app.Version)
+	if appVersion == "" || appVersion != app.Version || appVersion != tisane.Version {
+		t.Fatalf("expected non-empty matching version %q, got appVersion=%q app.Version=%q", tisane.Version, appVersion, app.Version)
 	}
 }

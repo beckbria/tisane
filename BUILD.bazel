@@ -1,9 +1,28 @@
 load("@gazelle//:def.bzl", "gazelle")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 load(":release.bzl", "release_archive", "windows_installer")
 
+# gazelle:ignore
 # gazelle:prefix tisane
 # gazelle:build_file_name BUILD.bazel
 gazelle(name = "gazelle")
+
+exports_files(["VERSION"])
+
+go_library(
+    name = "version",
+    srcs = ["version.go"],
+    embedsrcs = ["VERSION"],
+    importpath = "tisane",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "version_test",
+    srcs = ["version_test.go"],
+    data = ["VERSION"],
+    embed = [":version"],
+)
 
 platform(
     name = "linux_amd64",

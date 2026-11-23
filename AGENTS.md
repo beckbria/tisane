@@ -99,17 +99,12 @@ Tisane uses Semantic Versioning (`MAJOR.MINOR.PATCH`, e.g., `0.5.0`).
 - **Default increment**: Always increment the **patch** number by default (`0.5.0` -> `0.5.1`).
 - **Major and minor updates**: Only update the **major** or **minor** version number when **explicitly requested by a human**.
 
-### Files to Update Together
-`pkg/profile/profile.go` (`profile.Version`) is the primary Go constant (automatically consumed by `cmd/tisane/app`, `cmd/tisane-cli`, `cmd/tisane-merge`, `cmd/tisane/internal/winrsrc`, and `internal/wininstaller`). When bumping the version, update **all** of the following files in sync:
+### Single Source of Truth (`VERSION`)
+The repository root [`VERSION`](VERSION) file is the single source of truth for the Tisane version across the entire codebase:
 
-1. `pkg/profile/profile.go` (`Version`)
-2. `MODULE.bazel` (`module(version = ...)`)
-3. `cmd/tisane-build/main.go` (`const version`)
-4. `cmd/tisane-extract/main.go` (`const version`)
-5. `cmd/tisane/frontend/package.json` (`"version"`)
-6. `cmd/tisane/frontend/src/lib/version.ts` (`APP_VERSION`)
-7. `cmd/tisane/main_test.go` (version assertion)
-8. `cmd/tisane/frontend/src/App.test.ts` (About dialog version assertions)
+- **Go**: Root `version.go` (`package tisane`, Bazel target `//:version`) embeds `VERSION` via `//go:embed VERSION` and exposes `tisane.Version`. `pkg/profile.Version`, all CLI binaries (`tisane-cli`, `tisane-build`, `tisane-extract`, `tisane-merge`), `cmd/tisane`, `winrsrc`, and `wininstaller` all derive from `tisane.Version`.
+- **Frontend (Vite / Svelte / TypeScript)**: `cmd/tisane/frontend/vite.config.ts` injects `__APP_VERSION__` from `TISANE_VERSION` (passed by `cmd/tisane/internal/vitebuild` during Bazel builds) or by reading `../../../VERSION` directly during local `npm` / `vitest` runs.
+- When bumping the version, edit **only `VERSION`** (and rebuild `cmd/tisane/frontend/dist` via `npm run build` if verifying an embedded `go build` desktop binary).
 
 ---
 

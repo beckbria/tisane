@@ -24,7 +24,7 @@ import (
 	"tisane/pkg/tsd"
 )
 
-const cliVersion = profile.Version
+var cliVersion = profile.Version
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

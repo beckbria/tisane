@@ -13,7 +13,7 @@ import (
 )
 
 // Version is the current application version of Tisane.
-const Version = profile.Version
+var Version = profile.Version
 
 // HostBridge abstracts OS/Wails runtime operations (events, browser URL launching, native file dialogs)
 // so all desktop services can be unit-tested deterministically without a GUI display.

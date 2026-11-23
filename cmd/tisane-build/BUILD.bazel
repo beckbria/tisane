@@ -5,7 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "tisane/cmd/tisane-build",
     visibility = ["//visibility:private"],
-    deps = ["//pkg/tsd"],
+    deps = [
+        "//:version",
+        "//pkg/tsd",
+    ],
 )
 
 go_binary(

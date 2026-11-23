@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	"tisane"
 )
 
 func main() {
@@ -131,7 +133,10 @@ func runCmd(dir, name string, args ...string) error {
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "npm_config_update_notifier=false")
+	cmd.Env = append(os.Environ(),
+		"npm_config_update_notifier=false",
+		"TISANE_VERSION="+tisane.Version,
+	)
 	return cmd.Run()
 }
 

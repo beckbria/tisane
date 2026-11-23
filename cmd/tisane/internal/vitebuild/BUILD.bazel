@@ -5,6 +5,7 @@ go_library(
     srcs = ["main.go"],
     importpath = "tisane/cmd/tisane/internal/vitebuild",
     visibility = ["//visibility:private"],
+    deps = ["//:version"],
 )
 
 go_binary(

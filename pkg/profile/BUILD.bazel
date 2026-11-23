@@ -9,6 +9,7 @@ go_library(
     importpath = "tisane/pkg/profile",
     visibility = ["//visibility:public"],
     deps = [
+        "//:version",
         "//pkg/lookup",
         "//pkg/pattern",
         "//pkg/tsd",

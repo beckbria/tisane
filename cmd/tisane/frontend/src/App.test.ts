@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -608,14 +610,16 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(rootStyle).toContain('Iosevka');
   });
 
-  it('opens the About dialog with version 0.5.0 when clicking the app icon in the upper left corner', async () => {
+  it('opens the About dialog with the root VERSION when clicking the app icon in the upper left corner', async () => {
     const h = createMockHarness();
     setBackendForTesting(h.backend);
+
+    const expectedVersion = readFileSync(resolve(process.cwd(), '../../../VERSION'), 'utf8').trim();
 
     render(App);
     await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
 
-    expect(APP_VERSION).toBe('0.5.0');
+    expect(APP_VERSION).toBe(expectedVersion);
     expect(screen.queryByTestId('about-modal')).not.toBeInTheDocument();
 
     // Click the app icon in the upper-left corner
@@ -630,7 +634,7 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(aboutIcon.getAttribute('src')).toBe('/icon.png');
 
     expect(modal).toHaveTextContent('Tisane');
-    expect(modal).toHaveTextContent('0.5.0');
+    expect(modal).toHaveTextContent(`Version ${expectedVersion}`);
     expect(modal).toHaveTextContent('by Brian Beck');
     expect(modal).toHaveTextContent('Copyright 2026');
     expect(modal).toHaveTextContent('github.com/beckbria/tisane');
