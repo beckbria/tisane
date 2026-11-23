@@ -104,7 +104,23 @@ filegroup(
     name = "dictionaries",
     srcs = glob(
         ["dictionaries/**"],
-        exclude = ["**/.*"],
+        exclude = [
+            "**/.*",
+            "dictionaries/private/**",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "private_dictionaries",
+    srcs = glob(
+        ["dictionaries/private/**"],
+        exclude = [
+            "**/.*",
+            "**/README.md",
+        ],
+        allow_empty = True,
     ),
     visibility = ["//visibility:public"],
 )
@@ -152,6 +168,7 @@ release_archive(
         "//build:linux/tisane.desktop": "tisane.desktop",
     },
     format = "tar.gz",
+    private_dictionaries = [":private_dictionaries"],
     visibility = ["//visibility:public"],
 )
 
@@ -161,6 +178,7 @@ windows_installer(
     binaries = [":windows"],
     dictionaries = [":dictionaries"],
     icon = "//build:appicon.png",
+    private_dictionaries = [":private_dictionaries"],
     script = "//build:windows/installer.nsi",
     visibility = ["//visibility:public"],
 )
@@ -171,5 +189,6 @@ release_archive(
     binaries = [":windows"],
     dictionaries = [":dictionaries"],
     format = "zip",
+    private_dictionaries = [":private_dictionaries"],
     visibility = ["//visibility:public"],
 )

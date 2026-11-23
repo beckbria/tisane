@@ -1,3 +1,7 @@
+# Ignore private dictionaries placed in dictionaries/private/ while keeping
+# dictionaries/private/README.md and public dictionaries under dictionaries/ tracked.
+dictionaries/private/*
+!dictionaries/private/README.md
 /tisane
 /tisane-cli
 /tisane-build

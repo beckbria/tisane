@@ -1,5 +1,26 @@
 """Bazel rules for packaging Tisane Linux (.tar.gz) and Windows (.exe installer / .zip) releases."""
 
+def _collect_dictionaries(ctx):
+    """Collects dictionary (dst_rel, src_file) pairs, with private_dictionaries overriding dictionaries."""
+    by_rel = {}
+
+    for d in ctx.files.private_dictionaries:
+        rel = d.short_path
+        if rel.startswith("dictionaries/private/"):
+            rel = "dictionaries/" + rel[len("dictionaries/private/"):]
+        else:
+            rel = "dictionaries/" + d.basename
+        by_rel[rel] = d
+
+    for d in ctx.files.dictionaries:
+        rel = d.short_path
+        if not rel.startswith("dictionaries/"):
+            rel = "dictionaries/" + d.basename
+        if rel not in by_rel:
+            by_rel[rel] = d
+
+    return sorted(by_rel.items(), key = lambda item: item[0])
+
 def _release_archive_impl(ctx):
     out = ctx.outputs.out
     args = ctx.actions.args()
@@ -9,11 +30,11 @@ def _release_archive_impl(ctx):
     for b in ctx.files.binaries:
         args.add("-bin", b.path + "=" + b.basename)
 
-    for d in ctx.files.dictionaries:
-        rel = d.short_path
-        if not rel.startswith("dictionaries/"):
-            rel = "dictionaries/" + d.basename
+    dict_entries = _collect_dictionaries(ctx)
+    dict_files = []
+    for rel, d in dict_entries:
         args.add("-file", d.path + "=" + rel)
+        dict_files.append(d)
 
     extra_inputs = []
     for target, dst in ctx.attr.extra_files.items():
@@ -27,7 +48,7 @@ def _release_archive_impl(ctx):
     ctx.actions.run(
         executable = ctx.executable._packager,
         arguments = [args],
-        inputs = depset(ctx.files.binaries + ctx.files.dictionaries + extra_inputs),
+        inputs = depset(ctx.files.binaries + dict_files + extra_inputs),
         outputs = [out],
         mnemonic = "ReleaseArchive",
         progress_message = "Packaging release archive %s" % out.short_path,
@@ -59,6 +80,10 @@ release_archive = rule(
         "out": attr.output(
             mandatory = True,
         ),
+        "private_dictionaries": attr.label_list(
+            allow_files = True,
+            default = [],
+        ),
         "_packager": attr.label(
             default = "//internal/releasepkg",
             executable = True,
@@ -79,18 +104,18 @@ def _windows_installer_impl(ctx):
     for b in ctx.files.binaries:
         args.add("-bin", b.path + "=" + b.basename)
 
-    for d in ctx.files.dictionaries:
-        rel = d.short_path
-        if not rel.startswith("dictionaries/"):
-            rel = "dictionaries/" + d.basename
+    dict_entries = _collect_dictionaries(ctx)
+    dict_files = []
+    for rel, d in dict_entries:
         args.add("-file", d.path + "=" + rel)
+        dict_files.append(d)
 
     ctx.actions.run(
         executable = ctx.executable._builder,
         arguments = [args],
         inputs = depset(
             ctx.files.binaries +
-            ctx.files.dictionaries +
+            dict_files +
             [ctx.file.icon, ctx.file.script],
         ),
         outputs = [out],
@@ -117,6 +142,10 @@ windows_installer = rule(
         ),
         "out": attr.output(
             mandatory = True,
+        ),
+        "private_dictionaries": attr.label_list(
+            allow_files = True,
+            default = [],
         ),
         "script": attr.label(
             allow_single_file = [".nsi"],
