@@ -29,12 +29,15 @@ type mockBridge struct {
 	openedURLs  []string
 	picked      []string
 	pickedDir   string
-	pickedWord  string
-	pickedSave  string
-	pickedMap   string
-	saveDefDir  string
-	saveDefName string
-	completeCh  chan app.SearchCompleteEvent
+	pickedWord      string
+	pickedSave      string
+	pickedSaveWord  string
+	pickedMap       string
+	saveDefDir      string
+	saveDefName     string
+	saveWordDefDir  string
+	saveWordDefName string
+	completeCh      chan app.SearchCompleteEvent
 }
 
 func newMockBridge() *mockBridge {
@@ -85,6 +88,14 @@ func (m *mockBridge) PickSaveDictionaryFile(defaultDir, defaultName string) (str
 	m.saveDefDir = defaultDir
 	m.saveDefName = defaultName
 	return m.pickedSave, nil
+}
+
+func (m *mockBridge) PickSaveWordListFile(defaultDir, defaultName string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.saveWordDefDir = defaultDir
+	m.saveWordDefName = defaultName
+	return m.pickedSaveWord, nil
 }
 
 func (m *mockBridge) PickAlphabetMapFile() (string, error) {
@@ -621,5 +632,63 @@ func TestDictionaryServiceBuildDictionary(t *testing.T) {
 	dictsAfter := dictSvc.ListDictionaries()
 	if len(dictsAfter) != 1 || dictsAfter[0].Description != "Updated Animals" || dictsAfter[0].WordCount != 6 || dictsAfter[0].MaxWordLength != 20 {
 		t.Fatalf("expected reloaded dictionary with updated stats, got %+v", dictsAfter)
+	}
+}
+
+func TestWordListMergeService(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	bridge := newMockBridge()
+	state, err := app.NewState(cfgPath, bridge)
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+	defer state.Close()
+
+	dictSvc := app.NewDictionaryService(state)
+
+	// BrowseSaveWordListFile suggests merged.txt by default and appends .txt when missing extension.
+	bridge.pickedSaveWord = filepath.Join(tmp, "combined")
+	gotSave, err := dictSvc.BrowseSaveWordListFile("")
+	if err != nil {
+		t.Fatalf("BrowseSaveWordListFile: %v", err)
+	}
+	if bridge.saveWordDefName != "merged.txt" {
+		t.Fatalf("expected default save filename merged.txt, got %q", bridge.saveWordDefName)
+	}
+	if gotSave != filepath.Join(tmp, "combined.txt") {
+		t.Fatalf("expected .txt extension appended, got %q", gotSave)
+	}
+
+	p1 := filepath.Join(tmp, "primary.txt")
+	p2 := filepath.Join(tmp, "secondary.txt")
+	outPath := filepath.Join(tmp, "out.txt")
+	if err := os.WriteFile(p1, []byte("Café\nO'Brien\nAlpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p2, []byte("cafe\nobrien\nBeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := dictSvc.MergeWordLists(app.MergeWordListsRequest{
+		PrimaryPath:   p1,
+		SecondaryPath: p2,
+		OutputPath:    outPath,
+		Operation:     "and",
+		Conversion:    "ascii-lower",
+		Encoding:      "auto",
+	})
+	if err != nil {
+		t.Fatalf("MergeWordLists: %v", err)
+	}
+	if res.OutputEntries != 2 || res.Operation != "and" || res.Conversion != "ascii-lower" {
+		t.Fatalf("unexpected merge result: %+v", res)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "cafe\nobrien\n" {
+		t.Fatalf("got %q, want %q", string(data), "cafe\nobrien\n")
 	}
 }

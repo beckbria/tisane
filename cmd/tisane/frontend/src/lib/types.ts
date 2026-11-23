@@ -239,3 +239,28 @@ export interface BuildDictionaryResult {
   elapsedMs: number;
   addedToLibrary: boolean;
 }
+
+export type WordListConversion = 'none' | 'ascii' | 'ascii-letters' | 'ascii-lower' | 'ascii-upper';
+export type WordListOperation = 'or' | 'and' | 'exclude';
+
+export interface MergeWordListsRequest {
+  primaryPath: string;
+  secondaryPath: string;
+  outputPath: string;
+  operation: WordListOperation;
+  conversion: WordListConversion;
+  encoding: BuildInputEncoding;
+}
+
+export interface MergeWordListsResult {
+  outputPath: string;
+  operation: WordListOperation;
+  conversion: WordListConversion;
+  primaryLines: number;
+  primaryEntries: number;
+  secondaryLines: number;
+  secondaryEntries: number;
+  outputEntries: number;
+  bytesWritten: number;
+  elapsedMs: number;
+}

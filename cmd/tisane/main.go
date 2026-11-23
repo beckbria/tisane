@@ -100,6 +100,27 @@ func (b *wailsHostBridge) PickSaveDictionaryFile(defaultDir, defaultName string)
 	return dlg.PromptForSingleSelection()
 }
 
+func (b *wailsHostBridge) PickSaveWordListFile(defaultDir, defaultName string) (string, error) {
+	if b.wailsApp == nil || b.wailsApp.Dialog == nil {
+		return "", nil
+	}
+	dlg := b.wailsApp.Dialog.SaveFile().
+		SetMessage("Save Merged Word List (.txt)").
+		AddFilter("Word List (*.txt)", "*.txt;*.TXT").
+		AddFilter("All Files (*.*)", "*.*").
+		CanCreateDirectories(true)
+	if defaultDir != "" {
+		dlg.SetDirectory(defaultDir)
+	}
+	if defaultName != "" {
+		dlg.SetFilename(defaultName)
+	}
+	if b.mainWin != nil {
+		dlg.AttachToWindow(b.mainWin)
+	}
+	return dlg.PromptForSingleSelection()
+}
+
 func (b *wailsHostBridge) PickAlphabetMapFile() (string, error) {
 	if b.wailsApp == nil || b.wailsApp.Dialog == nil {
 		return "", nil
@@ -156,6 +177,11 @@ func buildAppMenu(
 		SetAccelerator("CmdOrCtrl+Shift+B").
 		OnClick(func(*application.Context) {
 			wailsApp.Event.Emit("ui:open-dict-builder", nil)
+		})
+	fileMenu.Add("Merge Word Lists...").
+		SetAccelerator("CmdOrCtrl+Shift+M").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit("ui:open-wordlist-merge", nil)
 		})
 	fileMenu.AddSeparator()
 	fileMenu.Add("Settings...").

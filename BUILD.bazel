@@ -45,6 +45,12 @@ alias(
 )
 
 alias(
+    name = "tisane-merge",
+    actual = "//cmd/tisane-merge:tisane-merge",
+    visibility = ["//visibility:public"],
+)
+
+alias(
     name = "tisane-windows",
     actual = "//cmd/tisane:tisane-windows",
     visibility = ["//visibility:public"],
@@ -68,6 +74,12 @@ alias(
     visibility = ["//visibility:public"],
 )
 
+alias(
+    name = "tisane-merge-windows",
+    actual = "//cmd/tisane-merge:tisane-merge-windows",
+    visibility = ["//visibility:public"],
+)
+
 filegroup(
     name = "dictionaries",
     srcs = glob(
@@ -85,12 +97,14 @@ filegroup(
             ":tisane-build",
             ":tisane-cli",
             ":tisane-extract",
+            ":tisane-merge",
         ],
         "//conditions:default": [
             "//cmd/tisane:tisane_linux_bin",
             "//cmd/tisane-build:tisane-build_linux_bin",
             "//cmd/tisane-cli:tisane-cli_linux_bin",
             "//cmd/tisane-extract:tisane-extract_linux_bin",
+            "//cmd/tisane-merge:tisane-merge_linux_bin",
         ],
     }),
     visibility = ["//visibility:public"],
@@ -102,6 +116,7 @@ filegroup(
         ":tisane-build-windows",
         ":tisane-cli-windows",
         ":tisane-extract-windows",
+        ":tisane-merge-windows",
         ":tisane-windows",
     ],
     visibility = ["//visibility:public"],

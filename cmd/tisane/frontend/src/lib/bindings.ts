@@ -6,6 +6,8 @@ import type {
   ConfigPatch,
   DictionaryInfo,
   LookupResult,
+  MergeWordListsRequest,
+  MergeWordListsResult,
   SearchRequest,
   ValidateRequest,
   ValidationResult
@@ -24,8 +26,10 @@ export interface TisaneBackend {
   removeDictionary(id: string): Promise<DictionaryInfo[]>;
   browseWordListFile(): Promise<string>;
   browseSaveDictionaryFile(defaultPath: string): Promise<string>;
+  browseSaveWordListFile(defaultPath: string): Promise<string>;
   browseAlphabetMapFile(): Promise<string>;
   buildDictionary(req: BuildDictionaryRequest): Promise<BuildDictionaryResult>;
+  mergeWordLists(req: MergeWordListsRequest): Promise<MergeWordListsResult>;
 
   validatePattern(req: ValidateRequest): Promise<ValidationResult>;
   startSearch(req: SearchRequest): Promise<number>;
@@ -53,8 +57,10 @@ const FQN = {
   removeDictionary: 'tisane/cmd/tisane/app.DictionaryService.RemoveDictionary',
   browseWordListFile: 'tisane/cmd/tisane/app.DictionaryService.BrowseWordListFile',
   browseSaveDictionaryFile: 'tisane/cmd/tisane/app.DictionaryService.BrowseSaveDictionaryFile',
+  browseSaveWordListFile: 'tisane/cmd/tisane/app.DictionaryService.BrowseSaveWordListFile',
   browseAlphabetMapFile: 'tisane/cmd/tisane/app.DictionaryService.BrowseAlphabetMapFile',
   buildDictionary: 'tisane/cmd/tisane/app.DictionaryService.BuildDictionary',
+  mergeWordLists: 'tisane/cmd/tisane/app.DictionaryService.MergeWordLists',
 
   validatePattern: 'tisane/cmd/tisane/app.SearchService.ValidatePattern',
   startSearch: 'tisane/cmd/tisane/app.SearchService.StartSearch',
@@ -80,8 +86,10 @@ const wailsBackend: TisaneBackend = {
   removeDictionary: (id) => Call.ByName(FQN.removeDictionary, id),
   browseWordListFile: () => Call.ByName(FQN.browseWordListFile),
   browseSaveDictionaryFile: (defaultPath) => Call.ByName(FQN.browseSaveDictionaryFile, defaultPath),
+  browseSaveWordListFile: (defaultPath) => Call.ByName(FQN.browseSaveWordListFile, defaultPath),
   browseAlphabetMapFile: () => Call.ByName(FQN.browseAlphabetMapFile),
   buildDictionary: (req) => Call.ByName(FQN.buildDictionary, req),
+  mergeWordLists: (req) => Call.ByName(FQN.mergeWordLists, req),
 
   validatePattern: (req) => Call.ByName(FQN.validatePattern, req),
   startSearch: (req) => Call.ByName(FQN.startSearch, req),

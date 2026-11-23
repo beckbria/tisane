@@ -9,6 +9,7 @@ go_library(
         "profile_service.go",
         "search_service.go",
         "state.go",
+        "wordlist_merge.go",
     ],
     importpath = "tisane/cmd/tisane/app",
     visibility = ["//visibility:public"],
@@ -18,6 +19,7 @@ go_library(
         "//pkg/profile",
         "//pkg/search",
         "//pkg/tsd",
+        "//pkg/wordlist",
     ],
 )
 

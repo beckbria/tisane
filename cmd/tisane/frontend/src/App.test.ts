@@ -13,6 +13,8 @@ import type {
   DictionaryInfo,
   LookupResult,
   Match,
+  MergeWordListsRequest,
+  MergeWordListsResult,
   SearchRequest,
   ValidateRequest
 } from './lib/types';
@@ -133,6 +135,7 @@ function createMockHarness() {
     }),
     browseWordListFile: vi.fn(async () => '/tmp/wordlist.txt'),
     browseSaveDictionaryFile: vi.fn(async (defaultPath: string) => defaultPath || '/tmp/custom.tsd'),
+    browseSaveWordListFile: vi.fn(async (defaultPath: string) => defaultPath || '/tmp/merged.txt'),
     browseAlphabetMapFile: vi.fn(async () => '/tmp/ANSI.TSM'),
     buildDictionary: vi.fn(async (req: BuildDictionaryRequest): Promise<BuildDictionaryResult> => {
       const result: BuildDictionaryResult = {
@@ -169,6 +172,18 @@ function createMockHarness() {
       }
       return result;
     }),
+    mergeWordLists: vi.fn(async (req: MergeWordListsRequest): Promise<MergeWordListsResult> => ({
+      outputPath: req.outputPath,
+      operation: req.operation,
+      conversion: req.conversion,
+      primaryLines: 50,
+      primaryEntries: 48,
+      secondaryLines: 30,
+      secondaryEntries: 29,
+      outputEntries: 20,
+      bytesWritten: 256,
+      elapsedMs: 3.4
+    })),
 
     validatePattern: vi.fn(async (req: ValidateRequest) => {
       if (req.query.includes('[123]')) {
@@ -953,5 +968,76 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     h.emit('ui:open-dict-builder', null);
     await tick();
     await waitFor(() => expect(screen.getByTestId('build-dict-modal')).toBeInTheDocument());
+  });
+
+  it('opens the Merge Word Lists modal, supports all conversions and operations, suggests .txt output, and merges lists', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('add-dict-btn')).toBeInTheDocument());
+
+    // Open via + Add dropdown -> Merge word lists…
+    await fireEvent.click(screen.getByTestId('add-dict-btn'));
+    await waitFor(() => expect(screen.getByTestId('merge-wordlists-option')).toBeInTheDocument());
+    await fireEvent.click(screen.getByTestId('merge-wordlists-option'));
+
+    await waitFor(() => expect(screen.getByTestId('merge-wordlists-modal')).toBeInTheDocument());
+
+    // Defaults: conversion = none, operation = or, submit disabled until paths are set
+    expect(screen.getByTestId('merge-conversion')).toHaveValue('none');
+    expect(screen.getByTestId('merge-op-or')).toBeChecked();
+    expect(screen.getByTestId('merge-submit-btn')).toBeDisabled();
+
+    // Browse for primary list -> auto-derives .txt output path
+    (h.backend.browseWordListFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce('/tmp/primary.txt');
+    await fireEvent.click(screen.getByTestId('merge-browse-primary-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('merge-primary-path')).toHaveValue('/tmp/primary.txt');
+      expect(screen.getByTestId('merge-output-path')).toHaveValue('/tmp/primary-merged.txt');
+    });
+
+    // Browse for secondary list
+    (h.backend.browseWordListFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce('/tmp/secondary.txt');
+    await fireEvent.click(screen.getByTestId('merge-browse-secondary-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('merge-secondary-path')).toHaveValue('/tmp/secondary.txt');
+    });
+
+    // Browse for output path via Save As
+    (h.backend.browseSaveWordListFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce('/tmp/result.txt');
+    await fireEvent.click(screen.getByTestId('merge-browse-output-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('merge-output-path')).toHaveValue('/tmp/result.txt');
+    });
+
+    // Select conversion and operation
+    await fireEvent.change(screen.getByTestId('merge-conversion'), { target: { value: 'ascii-lower' } });
+    await fireEvent.click(screen.getByTestId('merge-op-exclude'));
+    expect(screen.getByTestId('merge-op-exclude')).toBeChecked();
+
+    // Submit merge
+    expect(screen.getByTestId('merge-submit-btn')).not.toBeDisabled();
+    await fireEvent.click(screen.getByTestId('merge-submit-btn'));
+
+    await waitFor(() => expect(screen.getByTestId('merge-success')).toBeInTheDocument());
+    expect(h.backend.mergeWordLists).toHaveBeenCalledWith({
+      primaryPath: '/tmp/primary.txt',
+      secondaryPath: '/tmp/secondary.txt',
+      outputPath: '/tmp/result.txt',
+      operation: 'exclude',
+      conversion: 'ascii-lower',
+      encoding: 'auto'
+    });
+    expect(screen.getByTestId('merge-success')).toHaveTextContent('Word lists merged successfully');
+    expect(screen.getByTestId('merge-success')).toHaveTextContent('Output entries: 20');
+
+    // Close via Escape, then reopen via native File menu event ui:open-wordlist-merge
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('merge-wordlists-modal')).not.toBeInTheDocument());
+
+    h.emit('ui:open-wordlist-merge', null);
+    await tick();
+    await waitFor(() => expect(screen.getByTestId('merge-wordlists-modal')).toBeInTheDocument());
   });
 });

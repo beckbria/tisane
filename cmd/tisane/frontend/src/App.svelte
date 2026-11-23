@@ -28,6 +28,7 @@
   import FontSettingsModal from './lib/components/FontSettingsModal.svelte';
   import AboutModal from './lib/components/AboutModal.svelte';
   import BuildDictionaryModal from './lib/components/BuildDictionaryModal.svelte';
+  import MergeWordListsModal from './lib/components/MergeWordListsModal.svelte';
 
   const DEFAULT_SIDEBAR_WIDTH = 272;
   const MIN_SIDEBAR_WIDTH = 180;
@@ -101,6 +102,7 @@
   let showFontSettings = $state(false);
   let showAbout = $state(false);
   let showDictBuilder = $state(false);
+  let showWordListMerger = $state(false);
 
   // Resizable & collapsible dictionary sidebar state
   let isResizingSidebar = $state(false);
@@ -533,6 +535,9 @@
     } else if (mod && e.shiftKey && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       showDictBuilder = true;
+    } else if (mod && e.shiftKey && e.key.toLowerCase() === 'm') {
+      e.preventDefault();
+      showWordListMerger = true;
     } else if (mod && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       toggleSidebarCollapsed();
@@ -551,6 +556,8 @@
     } else if (e.key === 'Escape') {
       if (showAbout) {
         showAbout = false;
+      } else if (showWordListMerger) {
+        showWordListMerger = false;
       } else if (showDictBuilder) {
         showDictBuilder = false;
       } else if (showFontSettings) {
@@ -673,6 +680,11 @@
     unsubs.push(
       backend.onEvent('ui:open-dict-builder', () => {
         showDictBuilder = true;
+      })
+    );
+    unsubs.push(
+      backend.onEvent('ui:open-wordlist-merge', () => {
+        showWordListMerger = true;
       })
     );
     unsubs.push(
@@ -801,6 +813,7 @@
       onBrowseAdd={handleBrowseAddDicts}
       onBrowseAddDirectory={handleBrowseAddDirectory}
       onOpenBuilder={() => (showDictBuilder = true)}
+      onOpenMerger={() => (showWordListMerger = true)}
       onRemove={handleRemoveDict}
       onCollapse={() => setSidebarCollapsed(true)}
       onOptionChange={(patch) => applyConfigPatch(patch, true)}
@@ -999,5 +1012,11 @@
   <BuildDictionaryModal
     open={showDictBuilder}
     onClose={() => (showDictBuilder = false)}
+  />
+
+  <!-- Merge Word Lists Modal -->
+  <MergeWordListsModal
+    open={showWordListMerger}
+    onClose={() => (showWordListMerger = false)}
   />
 </div>

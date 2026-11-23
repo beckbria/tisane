@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "wordlist",
+    srcs = [
+        "ascii.go",
+        "merge.go",
+    ],
+    importpath = "tisane/pkg/wordlist",
+    visibility = ["//visibility:public"],
+    deps = ["//pkg/tsd"],
+)
+
+go_test(
+    name = "wordlist_test",
+    srcs = ["merge_test.go"],
+    embed = [":wordlist"],
+    deps = ["//pkg/tsd"],
+)

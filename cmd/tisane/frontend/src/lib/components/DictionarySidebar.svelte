@@ -14,6 +14,7 @@
     onBrowseAdd: () => void;
     onBrowseAddDirectory?: () => void;
     onOpenBuilder?: () => void;
+    onOpenMerger?: () => void;
     onRemove: (id: string) => void;
     onCollapse?: () => void;
     onOptionChange: (patch: {
@@ -37,6 +38,7 @@
     onBrowseAdd,
     onBrowseAddDirectory,
     onOpenBuilder,
+    onOpenMerger,
     onRemove,
     onCollapse,
     onOptionChange
@@ -165,6 +167,18 @@
               class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
             >
               Build dictionary…
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="merge-wordlists-option"
+              onclick={() => {
+                addMenuOpen = false;
+                onOpenMerger?.();
+              }}
+              class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
+            >
+              Merge word lists…
             </button>
           </div>
         {/if}

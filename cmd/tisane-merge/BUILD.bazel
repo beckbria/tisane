@@ -1,0 +1,55 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "tisane-merge_lib",
+    srcs = ["main.go"],
+    importpath = "tisane/cmd/tisane-merge",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/profile",
+        "//pkg/wordlist",
+    ],
+)
+
+go_binary(
+    name = "tisane-merge",
+    embed = [":tisane-merge_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_binary(
+    name = "tisane-merge_linux_bin",
+    out = "tisane-merge",
+    embed = [":tisane-merge_lib"],
+    goarch = "amd64",
+    goos = "linux",
+    pure = "on",
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+go_binary(
+    name = "tisane-merge_windows_bin",
+    embed = [":tisane-merge_lib"],
+    goarch = "amd64",
+    goos = "windows",
+    pure = "on",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+)
+
+genrule(
+    name = "tisane-merge-windows",
+    srcs = [":tisane-merge_windows_bin"],
+    outs = ["tisane-merge.exe"],
+    cmd = "cp $< $@",
+    cmd_ps = "Copy-Item -LiteralPath '$<' -Destination '$@' -Force",
+    executable = True,
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "tisane-merge_test",
+    srcs = ["main_test.go"],
+    embed = [":tisane-merge_lib"],
+)

@@ -24,19 +24,21 @@ type HostBridge interface {
 	PickDictionaryDirectory() (string, error)
 	PickWordListFile() (string, error)
 	PickSaveDictionaryFile(defaultDir, defaultName string) (string, error)
+	PickSaveWordListFile(defaultDir, defaultName string) (string, error)
 	PickAlphabetMapFile() (string, error)
 }
 
 // NoopBridge is a default safe HostBridge when running headless or before Wails startup.
 type NoopBridge struct{}
 
-func (NoopBridge) EmitEvent(string, any)                             {}
-func (NoopBridge) OpenURL(string) error                              { return nil }
-func (NoopBridge) PickDictionaryFiles() ([]string, error)            { return nil, nil }
-func (NoopBridge) PickDictionaryDirectory() (string, error)          { return "", nil }
-func (NoopBridge) PickWordListFile() (string, error)                 { return "", nil }
+func (NoopBridge) EmitEvent(string, any)                                 {}
+func (NoopBridge) OpenURL(string) error                                  { return nil }
+func (NoopBridge) PickDictionaryFiles() ([]string, error)                { return nil, nil }
+func (NoopBridge) PickDictionaryDirectory() (string, error)              { return "", nil }
+func (NoopBridge) PickWordListFile() (string, error)                     { return "", nil }
 func (NoopBridge) PickSaveDictionaryFile(string, string) (string, error) { return "", nil }
-func (NoopBridge) PickAlphabetMapFile() (string, error)              { return "", nil }
+func (NoopBridge) PickSaveWordListFile(string, string) (string, error)   { return "", nil }
+func (NoopBridge) PickAlphabetMapFile() (string, error)                  { return "", nil }
 
 // DictionaryInfo describes a configured .tsd dictionary for the Svelte 5 UI.
 type DictionaryInfo struct {
