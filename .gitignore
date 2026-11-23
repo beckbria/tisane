@@ -6,4 +6,5 @@ binary
 *.exe
 cmd/tisane/frontend/node_modules/
 cmd/tisane/frontend/dist/
+cmd/tisane/rsrc_windows_*.syso
 /bazel-*

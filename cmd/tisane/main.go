@@ -11,6 +11,8 @@ import (
 	"tisane/cmd/tisane/app"
 )
 
+//go:generate go run ./internal/winrsrc -icon icon.png -arch amd64 -out rsrc_windows_amd64.syso
+
 //go:embed all:frontend/dist
 var assets embed.FS
 

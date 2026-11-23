@@ -1,5 +1,6 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 load(":frontend.bzl", "frontend_dist")
+load(":winrsrc.bzl", "windows_syso")
 
 _PREBUILT_DIST = glob(
     ["frontend/dist/**"],
@@ -21,9 +22,19 @@ frontend_dist(
     tags = ["manual"],
 )
 
+windows_syso(
+    name = "tisane_rsrc_windows_amd64",
+    arch = "amd64",
+    icon = "icon.png",
+    out = "rsrc_windows_amd64.syso",
+)
+
 go_library(
     name = "tisane_lib",
-    srcs = ["main.go"],
+    srcs = ["main.go"] + select({
+        "@rules_go//go/platform:windows_amd64": [":tisane_rsrc_windows_amd64"],
+        "//conditions:default": [],
+    }),  # keep
     embedsrcs = [
         "icon.png",
     ] + (_PREBUILT_DIST if _PREBUILT_DIST else [":frontend_dist"]),  # keep

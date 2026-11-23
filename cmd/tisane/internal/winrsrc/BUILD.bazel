@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "winrsrc_lib",
+    srcs = ["main.go"],
+    importpath = "tisane/cmd/tisane/internal/winrsrc",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/profile",
+        "@com_github_tc_hib_winres//:winres",
+        "@com_github_tc_hib_winres//version",
+    ],
+)
+
+go_binary(
+    name = "winrsrc",
+    embed = [":winrsrc_lib"],
+    visibility = ["//cmd/tisane:__subpackages__"],
+)
+
+go_test(
+    name = "winrsrc_test",
+    srcs = ["main_test.go"],
+    embed = [":winrsrc_lib"],
+    deps = ["@com_github_tc_hib_winres//:winres"],
+)
