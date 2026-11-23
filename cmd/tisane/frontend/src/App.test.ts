@@ -608,14 +608,14 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(rootStyle).toContain('Iosevka');
   });
 
-  it('opens the About dialog with version 0.3.0 when clicking the app icon in the upper left corner', async () => {
+  it('opens the About dialog with version 0.5.0 when clicking the app icon in the upper left corner', async () => {
     const h = createMockHarness();
     setBackendForTesting(h.backend);
 
     render(App);
     await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
 
-    expect(APP_VERSION).toBe('0.3.0');
+    expect(APP_VERSION).toBe('0.5.0');
     expect(screen.queryByTestId('about-modal')).not.toBeInTheDocument();
 
     // Click the app icon in the upper-left corner
@@ -630,7 +630,7 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(aboutIcon.getAttribute('src')).toBe('/icon.png');
 
     expect(modal).toHaveTextContent('Tisane');
-    expect(modal).toHaveTextContent('0.3.0');
+    expect(modal).toHaveTextContent('0.5.0');
     expect(modal).toHaveTextContent('by Brian Beck');
     expect(modal).toHaveTextContent('Copyright 2026');
     expect(modal).toHaveTextContent('github.com/beckbria/tisane');

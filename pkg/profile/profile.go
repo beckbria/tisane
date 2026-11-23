@@ -16,7 +16,7 @@ import (
 
 const (
 	// Version is the current release version of Tisane.
-	Version = "0.3.0"
+	Version = "0.5.0"
 	// EnvDictPath overrides or extends dictionary search directories (':' or ';' separated).
 	EnvDictPath = "TISANE_DICT_PATH"
 	// EnvConfigPath overrides the default config.toml location.
