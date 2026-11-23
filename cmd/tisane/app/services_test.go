@@ -437,3 +437,34 @@ func TestResetConfigPreservesOrResetsDictionaries(t *testing.T) {
 		t.Fatalf("unexpected persisted config after ResetConfig(true): %+v", diskCfg)
 	}
 }
+
+func TestProfileServiceSidebarSettingsPersistence(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	state, err := app.NewState(cfgPath, app.NoopBridge{})
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+	defer state.Close()
+
+	profSvc := app.NewProfileService(state)
+	w := 340
+	collapsed := true
+	updated, err := profSvc.UpdateConfig(app.ConfigPatch{
+		SidebarWidth:     &w,
+		SidebarCollapsed: &collapsed,
+	})
+	if err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	if updated.SidebarWidth != 340 || !updated.SidebarCollapsed {
+		t.Fatalf("unexpected updated sidebar config: %+v", updated)
+	}
+
+	diskCfg, err := profile.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("profile.Load: %v", err)
+	}
+	if diskCfg.SidebarWidth != 340 || !diskCfg.SidebarCollapsed {
+		t.Fatalf("unexpected persisted sidebar config: %+v", diskCfg)
+	}
+}

@@ -19,6 +19,8 @@ type ConfigPatch struct {
 	EntryFilter             []string             `json:"entryFilter,omitempty"`
 	SortMode                *string              `json:"sortMode,omitempty"`
 	LayoutMode              *string              `json:"layoutMode,omitempty"` // "tiled" or "unified"
+	SidebarWidth            *int                 `json:"sidebarWidth,omitempty"`
+	SidebarCollapsed        *bool                `json:"sidebarCollapsed,omitempty"`
 	AutoWebFallback         *bool                `json:"autoWebFallback,omitempty"`
 	DefaultWebProvider      *string              `json:"defaultWebProvider,omitempty"`
 	WebProviders            []lookup.WebProvider `json:"webProviders,omitempty"`
@@ -45,6 +47,7 @@ func (ps *ProfileService) GetConfig() profile.Config {
 	cfgCopy.EntryFilter = append([]string{}, ps.state.cfg.EntryFilter...)
 	cfgCopy.WebProviders = append([]lookup.WebProvider{}, ps.state.cfg.WebProviders...)
 	cfgCopy.RecentQueries = append([]string{}, ps.state.cfg.RecentQueries...)
+	cfgCopy.SidebarWidth = profile.NormalizeSidebarWidth(ps.state.cfg.SidebarWidth)
 	cfgCopy.Fonts = profile.NormalizeFontConfig(ps.state.cfg.Fonts)
 	return cfgCopy
 }
@@ -88,6 +91,12 @@ func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error
 	}
 	if patch.LayoutMode != nil && (*patch.LayoutMode == "tiled" || *patch.LayoutMode == "unified") {
 		cfg.LayoutMode = *patch.LayoutMode
+	}
+	if patch.SidebarWidth != nil {
+		cfg.SidebarWidth = profile.NormalizeSidebarWidth(*patch.SidebarWidth)
+	}
+	if patch.SidebarCollapsed != nil {
+		cfg.SidebarCollapsed = *patch.SidebarCollapsed
 	}
 	if patch.AutoWebFallback != nil {
 		cfg.AutoWebFallback = *patch.AutoWebFallback

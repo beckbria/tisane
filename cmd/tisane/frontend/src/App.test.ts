@@ -60,6 +60,8 @@ function createMockHarness() {
     entryFilter: ['lowercase', 'capitalized', 'punctuated', 'phrase'],
     sortMode: 'dict',
     layoutMode: 'tiled',
+    sidebarWidth: 272,
+    sidebarCollapsed: false,
     autoWebFallback: false,
     defaultWebProvider: 'onelook',
     webProviders: [
@@ -228,6 +230,8 @@ function createMockHarness() {
         entryFilter: ['lowercase', 'capitalized', 'punctuated', 'phrase'],
         sortMode: 'dict',
         layoutMode: 'tiled',
+        sidebarWidth: 272,
+        sidebarCollapsed: false,
         autoWebFallback: false,
         defaultWebProvider: 'onelook',
         webProviders: [
@@ -437,6 +441,8 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       entryFilter: null as unknown as Config['entryFilter'],
       sortMode: 'dict',
       layoutMode: 'tiled',
+      sidebarWidth: 0,
+      sidebarCollapsed: false,
       autoWebFallback: false,
       defaultWebProvider: 'onelook',
       webProviders: null as unknown as Config['webProviders'],
@@ -731,6 +737,98 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       expect((screen.getByTestId('dict-toggle-1') as HTMLInputElement).checked).toBe(true);
       expect(screen.getByTestId('tiled-pane-0')).toHaveTextContent('Core English');
       expect(screen.getByTestId('tiled-pane-1')).toHaveTextContent("The Devil's Dictionary");
+    });
+  });
+
+  it('resizes the dictionary sidebar via drag, keyboard, and double-click reset', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(h.backend.listDictionaries).toHaveBeenCalled());
+
+    const sidebar = screen.getByTestId('dictionary-sidebar');
+    const resizer = screen.getByTestId('sidebar-resizer');
+    expect(sidebar).toHaveStyle('width: 272px');
+
+    // Drag right by +80px -> 352px
+    await fireEvent.mouseDown(resizer, { button: 0, clientX: 272 });
+    await fireEvent.mouseMove(window, { clientX: 352 });
+    expect(sidebar).toHaveStyle('width: 352px');
+    await fireEvent.mouseUp(window);
+
+    await waitFor(() => {
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarWidth: 352 });
+    });
+
+    // Keyboard ArrowLeft shrinks by 16px -> 336px
+    await fireEvent.keyDown(resizer, { key: 'ArrowLeft' });
+    await waitFor(() => {
+      expect(sidebar).toHaveStyle('width: 336px');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarWidth: 336 });
+    });
+
+    // Double-clicking the resizer resets to default 272px
+    await fireEvent.dblClick(resizer);
+    await waitFor(() => {
+      expect(sidebar).toHaveStyle('width: 272px');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarWidth: 272 });
+    });
+  });
+
+  it('collapses and expands the dictionary sidebar via button, drag-to-collapse, Ctrl+B, and menu event', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(h.backend.listDictionaries).toHaveBeenCalled());
+
+    // Resize first so we can verify expanded width is remembered across collapse/expand
+    const resizer = screen.getByTestId('sidebar-resizer');
+    await fireEvent.mouseDown(resizer, { button: 0, clientX: 272 });
+    await fireEvent.mouseMove(window, { clientX: 340 });
+    await fireEvent.mouseUp(window);
+    await waitFor(() => expect(screen.getByTestId('dictionary-sidebar')).toHaveStyle('width: 340px'));
+
+    // Collapse via sidebar header button -> sidebar and resizer are removed from DOM
+    await fireEvent.click(screen.getByTestId('collapse-sidebar-btn'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('sidebar-resizer')).not.toBeInTheDocument();
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarCollapsed: true });
+    });
+
+    // Toolbar toggle button shows active count and expands sidebar back to remembered 340px width
+    const toggleBtn = screen.getByTestId('toggle-sidebar-btn');
+    expect(toggleBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(toggleBtn).toHaveTextContent('Dictionaries (2/2)');
+
+    await fireEvent.click(toggleBtn);
+    await waitFor(() => {
+      expect(screen.getByTestId('dictionary-sidebar')).toBeInTheDocument();
+      expect(screen.getByTestId('dictionary-sidebar')).toHaveStyle('width: 340px');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarCollapsed: false });
+    });
+
+    // Dragging the resizer far left past the threshold collapses the sidebar while preserving 340px width
+    await fireEvent.mouseDown(screen.getByTestId('sidebar-resizer'), { button: 0, clientX: 340 });
+    await fireEvent.mouseMove(window, { clientX: 60 });
+    await waitFor(() => {
+      expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
+    });
+
+    // Ctrl+B expands it again at 340px
+    await fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
+    await waitFor(() => {
+      expect(screen.getByTestId('dictionary-sidebar')).toBeInTheDocument();
+      expect(screen.getByTestId('dictionary-sidebar')).toHaveStyle('width: 340px');
+    });
+
+    // Native View menu event ui:toggle-sidebar toggles collapse
+    h.emit('ui:toggle-sidebar', null);
+    await tick();
+    await waitFor(() => {
+      expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
     });
   });
 });

@@ -179,6 +179,8 @@ export interface Config {
   entryFilter: EntryCategory[];
   sortMode: SortMode;
   layoutMode: LayoutMode;
+  sidebarWidth: number;
+  sidebarCollapsed: boolean;
   autoWebFallback: boolean;
   defaultWebProvider: string;
   webProviders: WebProvider[];
@@ -199,6 +201,8 @@ export interface ConfigPatch {
   entryFilter?: EntryCategory[];
   sortMode?: SortMode;
   layoutMode?: LayoutMode;
+  sidebarWidth?: number;
+  sidebarCollapsed?: boolean;
   autoWebFallback?: boolean;
   defaultWebProvider?: string;
   webProviders?: WebProvider[];

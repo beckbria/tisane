@@ -27,6 +27,8 @@ func MarshalTOML(cfg *Config) []byte {
 	fmt.Fprintf(&sb, "entry_filter = %s\n", formatStringArray(cfg.EntryFilter))
 	fmt.Fprintf(&sb, "sort_mode = %s\n", strconv.Quote(cfg.SortMode))
 	fmt.Fprintf(&sb, "layout_mode = %s\n", strconv.Quote(cfg.LayoutMode))
+	fmt.Fprintf(&sb, "sidebar_width = %d\n", NormalizeSidebarWidth(cfg.SidebarWidth))
+	fmt.Fprintf(&sb, "sidebar_collapsed = %t\n", cfg.SidebarCollapsed)
 	fmt.Fprintf(&sb, "auto_web_fallback = %t\n", cfg.AutoWebFallback)
 	fmt.Fprintf(&sb, "default_web_provider = %s\n", strconv.Quote(cfg.DefaultWebProvider))
 	fmt.Fprintf(&sb, "dict_dirs = %s\n", formatStringArray(cfg.DictDirs))
@@ -174,6 +176,7 @@ func ParseTOML(data []byte) (*Config, error) {
 		}
 	}
 
+	cfg.SidebarWidth = NormalizeSidebarWidth(cfg.SidebarWidth)
 	cfg.Fonts = NormalizeFontConfig(cfg.Fonts)
 	if sawWebProviders {
 		cfg.WebProviders = parsedWeb
@@ -333,6 +336,18 @@ func applyTopKey(cfg *Config, key, val string, lineNum int) error {
 			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
 		}
 		cfg.LayoutMode = s
+	case "sidebar_width":
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		cfg.SidebarWidth = NormalizeSidebarWidth(v)
+	case "sidebar_collapsed":
+		b, err := strconv.ParseBool(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		cfg.SidebarCollapsed = b
 	case "auto_web_fallback":
 		b, err := strconv.ParseBool(val)
 		if err != nil {

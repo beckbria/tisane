@@ -8,11 +8,15 @@
     suppressDuplicates: boolean;
     sortMode: SortMode;
     layoutMode: LayoutMode;
+    sidebarCollapsed?: boolean;
+    activeDictCount?: number;
+    totalDictCount?: number;
     onLengthChange: (min: number, max: number) => void;
     onToggleCategory: (cat: EntryCategory) => void;
     onToggleSuppressDuplicates: () => void;
     onSortChange: (sort: SortMode) => void;
     onLayoutChange: (layout: LayoutMode) => void;
+    onToggleSidebar?: () => void;
   }
 
   let {
@@ -22,11 +26,15 @@
     suppressDuplicates,
     sortMode,
     layoutMode,
+    sidebarCollapsed = false,
+    activeDictCount = 0,
+    totalDictCount = 0,
     onLengthChange,
     onToggleCategory,
     onToggleSuppressDuplicates,
     onSortChange,
-    onLayoutChange
+    onLayoutChange,
+    onToggleSidebar
   }: Props = $props();
 
   let exactPin = $state(false);
@@ -80,8 +88,47 @@
   style="font-family: var(--tisane-font-toolbar-family); font-size: var(--tisane-font-toolbar-size);"
   class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/90 bg-slate-900/60 px-4 py-1.5"
 >
-  <!-- Left group: Min/Max Word Length + Entry Categories -->
+  <!-- Left group: Sidebar Toggle + Min/Max Word Length + Entry Categories -->
   <div class="flex flex-wrap items-center gap-3">
+    {#if onToggleSidebar}
+      <button
+        type="button"
+        data-testid="toggle-sidebar-btn"
+        aria-pressed={!sidebarCollapsed}
+        aria-label={sidebarCollapsed ? 'Show dictionaries panel' : 'Hide dictionaries panel'}
+        title={sidebarCollapsed ? 'Show dictionaries panel (Ctrl+B)' : 'Hide dictionaries panel (Ctrl+B)'}
+        onclick={onToggleSidebar}
+        class="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium transition {sidebarCollapsed
+          ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40 hover:bg-amber-500/30'
+          : 'bg-slate-800/80 text-slate-300 ring-1 ring-slate-700/80 hover:bg-slate-800 hover:text-slate-100'}"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"
+          class="h-3.5 w-3.5 shrink-0"
+          aria-hidden="true"
+        >
+          <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
+          <line x1="5.5" y1="2.5" x2="5.5" y2="13.5" />
+          {#if !sidebarCollapsed}
+            <rect x="2" y="3" width="3" height="10" fill="currentColor" stroke="none" opacity="0.45" />
+          {/if}
+        </svg>
+        <span>
+          {#if sidebarCollapsed}
+            {totalDictCount > 0 ? `Dictionaries (${activeDictCount}/${totalDictCount})` : 'Dictionaries'}
+          {:else}
+            Dicts
+          {/if}
+        </span>
+      </button>
+
+      <div class="h-4 w-px bg-slate-800"></div>
+    {/if}
+
     <!-- Min / Max Word Length Filter -->
     <div class="flex items-center gap-1.5" role="group" aria-label="Word length filter">
       <span class="text-[11px] font-medium text-slate-400 select-none">Length</span>

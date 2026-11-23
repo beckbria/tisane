@@ -28,6 +28,18 @@
   import FontSettingsModal from './lib/components/FontSettingsModal.svelte';
   import AboutModal from './lib/components/AboutModal.svelte';
 
+  const DEFAULT_SIDEBAR_WIDTH = 272;
+  const MIN_SIDEBAR_WIDTH = 180;
+  const MAX_SIDEBAR_WIDTH = 560;
+  const SIDEBAR_COLLAPSE_THRESHOLD = 100;
+
+  function clampSidebarWidth(w: unknown): number {
+    if (typeof w !== 'number' || !Number.isFinite(w) || w <= 0) {
+      return DEFAULT_SIDEBAR_WIDTH;
+    }
+    return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, Math.round(w)));
+  }
+
   const DEFAULT_CONFIG: Config = {
     dictDirs: [],
     dictionaries: [],
@@ -43,6 +55,8 @@
     entryFilter: ['lowercase', 'capitalized', 'punctuated', 'phrase'],
     sortMode: 'dict',
     layoutMode: 'tiled',
+    sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+    sidebarCollapsed: false,
     autoWebFallback: false,
     defaultWebProvider: 'onelook',
     webProviders: [
@@ -66,6 +80,8 @@
       entryFilter: Array.isArray(raw.entryFilter) ? raw.entryFilter : DEFAULT_CONFIG.entryFilter,
       webProviders: Array.isArray(raw.webProviders) ? raw.webProviders : DEFAULT_CONFIG.webProviders,
       recentQueries: Array.isArray(raw.recentQueries) ? raw.recentQueries : DEFAULT_CONFIG.recentQueries,
+      sidebarWidth: clampSidebarWidth(raw.sidebarWidth),
+      sidebarCollapsed: typeof raw.sidebarCollapsed === 'boolean' ? raw.sidebarCollapsed : DEFAULT_CONFIG.sidebarCollapsed,
       fonts: normalizeFontConfig(raw.fonts)
     };
   }
@@ -83,6 +99,14 @@
   let showSettings = $state(false);
   let showFontSettings = $state(false);
   let showAbout = $state(false);
+
+  // Resizable & collapsible dictionary sidebar state
+  let isResizingSidebar = $state(false);
+  let dragSidebarWidth: number | null = $state(null);
+  let cleanupSidebarDrag: (() => void) | null = null;
+
+  const effectiveSidebarWidth = $derived(dragSidebarWidth ?? config.sidebarWidth);
+  const activeDictCount = $derived((dictionaries ?? []).filter((d) => d.enabled).length);
 
   const rootFontVars = $derived(buildFontCssVars(config.fonts));
 
@@ -392,6 +416,106 @@
     void applyConfigPatch({ entryFilter: next }, true);
   }
 
+  function setSidebarCollapsed(collapsed: boolean) {
+    if (cleanupSidebarDrag) {
+      cleanupSidebarDrag();
+    }
+    void applyConfigPatch({ sidebarCollapsed: collapsed }, false);
+  }
+
+  function toggleSidebarCollapsed() {
+    setSidebarCollapsed(!config.sidebarCollapsed);
+  }
+
+  function getMaxSidebarWidth(): number {
+    if (typeof window === 'undefined' || !window.innerWidth) {
+      return MAX_SIDEBAR_WIDTH;
+    }
+    return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.floor(window.innerWidth * 0.55)));
+  }
+
+  function handleSidebarResizeStart(e: MouseEvent) {
+    if (e.button !== 0 || config.sidebarCollapsed) return;
+    e.preventDefault();
+
+    if (cleanupSidebarDrag) {
+      cleanupSidebarDrag();
+    }
+
+    const startX = e.clientX;
+    const startWidth = config.sidebarWidth;
+    let collapsedDuringDrag = false;
+    let latestWidth = startWidth;
+
+    isResizingSidebar = true;
+    dragSidebarWidth = startWidth;
+
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const finishDrag = (commit: boolean) => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('blur', onBlur);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+      cleanupSidebarDrag = null;
+      isResizingSidebar = false;
+      dragSidebarWidth = null;
+
+      if (commit && !collapsedDuringDrag && latestWidth !== config.sidebarWidth) {
+        void applyConfigPatch({ sidebarWidth: latestWidth }, false);
+      }
+    };
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const rawWidth = startWidth + (moveEvent.clientX - startX);
+      if (rawWidth < SIDEBAR_COLLAPSE_THRESHOLD) {
+        collapsedDuringDrag = true;
+        finishDrag(false);
+        void applyConfigPatch({ sidebarCollapsed: true }, false);
+        return;
+      }
+      const maxAllowed = getMaxSidebarWidth();
+      latestWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxAllowed, Math.round(rawWidth)));
+      dragSidebarWidth = latestWidth;
+    };
+
+    const onMouseUp = () => finishDrag(true);
+    const onBlur = () => finishDrag(true);
+
+    cleanupSidebarDrag = () => finishDrag(false);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('blur', onBlur);
+  }
+
+  function handleSidebarResizeReset() {
+    void applyConfigPatch({ sidebarWidth: DEFAULT_SIDEBAR_WIDTH }, false);
+  }
+
+  function handleSidebarResizeKeydown(e: KeyboardEvent) {
+    const step = e.shiftKey ? 32 : 16;
+    const maxAllowed = getMaxSidebarWidth();
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const next = Math.max(MIN_SIDEBAR_WIDTH, config.sidebarWidth - step);
+      void applyConfigPatch({ sidebarWidth: next }, false);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const next = Math.min(maxAllowed, config.sidebarWidth + step);
+      void applyConfigPatch({ sidebarWidth: next }, false);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      void applyConfigPatch({ sidebarWidth: MIN_SIDEBAR_WIDTH }, false);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      void applyConfigPatch({ sidebarWidth: maxAllowed }, false);
+    }
+  }
+
   function handleWindowKeydown(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'w') {
@@ -404,6 +528,9 @@
       mode = 'fts';
       patternBarRef?.focusInput();
       scheduleValidation(true);
+    } else if (mod && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      toggleSidebarCollapsed();
     } else if (mod && e.key === ',') {
       e.preventDefault();
       showSettings = true;
@@ -557,6 +684,11 @@
         showCheatsheet = !showCheatsheet;
       })
     );
+    unsubs.push(
+      backend.onEvent('ui:toggle-sidebar', () => {
+        toggleSidebarCollapsed();
+      })
+    );
 
     void (async () => {
       try {
@@ -581,6 +713,7 @@
     return () => {
       for (const off of unsubs) off();
       if (validateTimer) clearTimeout(validateTimer);
+      if (cleanupSidebarDrag) cleanupSidebarDrag();
     };
   });
 </script>
@@ -629,18 +762,24 @@
     suppressDuplicates={config.suppressDuplicates}
     sortMode={config.sortMode}
     layoutMode={config.layoutMode}
+    sidebarCollapsed={config.sidebarCollapsed}
+    {activeDictCount}
+    totalDictCount={dictionaries.length}
     onLengthChange={(min, max) => applyConfigPatch({ minLength: min, maxLength: max }, true)}
     onToggleCategory={handleToggleCategory}
     onToggleSuppressDuplicates={() =>
       applyConfigPatch({ suppressDuplicates: !config.suppressDuplicates }, true)}
     onSortChange={(s: SortMode) => applyConfigPatch({ sortMode: s }, true)}
     onLayoutChange={(l: LayoutMode) => applyConfigPatch({ layoutMode: l }, false)}
+    onToggleSidebar={toggleSidebarCollapsed}
   />
 
   <!-- Main Workspace: Dictionary Sidebar + Results Workspace + Definition Pane -->
   <div class="flex min-h-0 flex-1 overflow-hidden">
     <DictionarySidebar
       {dictionaries}
+      width={effectiveSidebarWidth}
+      collapsed={config.sidebarCollapsed}
       showBalances={config.showBalances}
       showAnnotations={config.showAnnotations}
       exclusiveVars={config.exclusiveVars}
@@ -650,16 +789,53 @@
       onBrowseAdd={handleBrowseAddDicts}
       onBrowseAddDirectory={handleBrowseAddDirectory}
       onRemove={handleRemoveDict}
+      onCollapse={() => setSidebarCollapsed(true)}
       onOptionChange={(patch) => applyConfigPatch(patch, true)}
     />
+
+    {#if !config.sidebarCollapsed}
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize dictionaries panel"
+        aria-valuenow={effectiveSidebarWidth}
+        aria-valuemin={MIN_SIDEBAR_WIDTH}
+        aria-valuemax={MAX_SIDEBAR_WIDTH}
+        tabindex="0"
+        data-testid="sidebar-resizer"
+        title="Drag to resize dictionaries panel (double-click to reset, drag left to collapse)"
+        onmousedown={handleSidebarResizeStart}
+        ondblclick={handleSidebarResizeReset}
+        onkeydown={handleSidebarResizeKeydown}
+        class="group relative z-20 -ml-1 w-2 shrink-0 cursor-col-resize select-none focus:outline-none"
+      >
+        <div
+          class="mx-auto h-full w-0.5 transition-colors {isResizingSidebar
+            ? 'bg-amber-400'
+            : 'bg-transparent group-hover:bg-amber-400/60 group-focus-visible:bg-amber-400'}"
+        ></div>
+      </div>
+    {/if}
 
     <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <!-- Results Area: Separate Tiled Panes per Dictionary (Default) vs Unified Merged List -->
       <div class="min-h-0 flex-1 overflow-hidden p-2.5" data-testid="results-workspace">
         {#if config.layoutMode === 'tiled'}
           {#if displayedTiledDicts.length === 0}
-            <div class="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-800 text-xs text-slate-500">
-              Enable at least one dictionary in the left sidebar to search.
+            <div class="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-800 text-xs text-slate-500">
+              <span>Enable at least one dictionary in the left sidebar to search.</span>
+              {#if config.sidebarCollapsed}
+                <button
+                  type="button"
+                  data-testid="empty-expand-sidebar-btn"
+                  onclick={toggleSidebarCollapsed}
+                  class="rounded bg-amber-500/20 px-2.5 py-1 font-medium text-amber-300 hover:bg-amber-500/30"
+                >
+                  Show Dictionaries Panel
+                </button>
+              {/if}
             </div>
           {:else}
             <div

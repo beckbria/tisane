@@ -124,3 +124,39 @@ func TestExecutableAndSubdirectoryDiscovery(t *testing.T) {
 		t.Fatalf("expected 2 deduplicated dictionaries when CWD == exeDir, got %v", discoveredSameDir)
 	}
 }
+
+func TestSidebarConfigRoundTripAndNormalization(t *testing.T) {
+	cfg := profile.DefaultConfig()
+	if cfg.SidebarWidth != profile.DefaultSidebarWidth || cfg.SidebarCollapsed {
+		t.Fatalf("unexpected sidebar defaults: width=%d collapsed=%v", cfg.SidebarWidth, cfg.SidebarCollapsed)
+	}
+
+	cfg.SidebarWidth = 360
+	cfg.SidebarCollapsed = true
+
+	raw := profile.MarshalTOML(cfg)
+	parsed, err := profile.ParseTOML(raw)
+	if err != nil {
+		t.Fatalf("ParseTOML: %v", err)
+	}
+	if parsed.SidebarWidth != 360 || !parsed.SidebarCollapsed {
+		t.Fatalf("unexpected parsed sidebar config: width=%d collapsed=%v", parsed.SidebarWidth, parsed.SidebarCollapsed)
+	}
+
+	// Out-of-range widths are clamped to [MinSidebarWidth, MaxSidebarWidth].
+	clampedLow, err := profile.ParseTOML([]byte("sidebar_width = 50\n"))
+	if err != nil {
+		t.Fatalf("ParseTOML low: %v", err)
+	}
+	if clampedLow.SidebarWidth != profile.MinSidebarWidth {
+		t.Fatalf("expected clamped low width %d, got %d", profile.MinSidebarWidth, clampedLow.SidebarWidth)
+	}
+
+	clampedHigh, err := profile.ParseTOML([]byte("sidebar_width = 9999\n"))
+	if err != nil {
+		t.Fatalf("ParseTOML high: %v", err)
+	}
+	if clampedHigh.SidebarWidth != profile.MaxSidebarWidth {
+		t.Fatalf("expected clamped high width %d, got %d", profile.MaxSidebarWidth, clampedHigh.SidebarWidth)
+	}
+}

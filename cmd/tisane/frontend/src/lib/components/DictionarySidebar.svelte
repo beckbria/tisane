@@ -3,6 +3,8 @@
 
   interface Props {
     dictionaries: DictionaryInfo[];
+    width?: number;
+    collapsed?: boolean;
     showBalances: boolean;
     showAnnotations: boolean;
     exclusiveVars: boolean;
@@ -12,6 +14,7 @@
     onBrowseAdd: () => void;
     onBrowseAddDirectory?: () => void;
     onRemove: (id: string) => void;
+    onCollapse?: () => void;
     onOptionChange: (patch: {
       showBalances?: boolean;
       showAnnotations?: boolean;
@@ -22,6 +25,8 @@
 
   let {
     dictionaries,
+    width = 272,
+    collapsed = false,
     showBalances,
     showAnnotations,
     exclusiveVars,
@@ -31,6 +36,7 @@
     onBrowseAdd,
     onBrowseAddDirectory,
     onRemove,
+    onCollapse,
     onOptionChange
   }: Props = $props();
 
@@ -84,62 +90,99 @@
   }}
 />
 
-<aside class="flex h-full w-68 shrink-0 flex-col border-r border-slate-800 bg-slate-900/75 select-none">
+{#if !collapsed}
+<aside
+  data-testid="dictionary-sidebar"
+  style={`width: ${width}px;`}
+  class="flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-800 bg-slate-900/75 select-none"
+>
   <!-- Header -->
-  <div class="flex items-center justify-between border-b border-slate-800 px-3 py-2">
-    <div>
-      <h2 class="text-xs font-semibold tracking-wider text-slate-300 uppercase">
+  <div class="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
+    <div class="min-w-0 flex-1">
+      <h2 class="truncate text-xs font-semibold tracking-wider text-slate-300 uppercase">
         Dictionaries
       </h2>
-      <p class="text-[11px] text-slate-500">
+      <p class="truncate text-[11px] text-slate-500">
         {activeCount} of {dictionaries.length} active · priority order
       </p>
     </div>
-    <div class="relative" bind:this={addMenuContainer}>
-      <button
-        type="button"
-        data-testid="add-dict-btn"
-        aria-haspopup="menu"
-        aria-expanded={addMenuOpen}
-        onclick={() => (addMenuOpen = !addMenuOpen)}
-        class="flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700"
-        title="Add .tsd dictionary files or directory (Ctrl+O)"
-      >
-        <span>+ Add</span>
-        <span class="text-[10px] text-amber-300/80">▾</span>
-      </button>
-
-      {#if addMenuOpen}
-        <div
-          role="menu"
-          data-testid="add-dict-menu"
-          class="absolute right-0 z-40 mt-1 w-44 rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl"
+    <div class="flex shrink-0 items-center gap-1">
+      <div class="relative" bind:this={addMenuContainer}>
+        <button
+          type="button"
+          data-testid="add-dict-btn"
+          aria-haspopup="menu"
+          aria-expanded={addMenuOpen}
+          onclick={() => (addMenuOpen = !addMenuOpen)}
+          class="flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700"
+          title="Add .tsd dictionary files or directory (Ctrl+O)"
         >
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="add-dict-file-option"
-            onclick={() => {
-              addMenuOpen = false;
-              onBrowseAdd();
-            }}
-            class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
+          <span>+ Add</span>
+          <span class="text-[10px] text-amber-300/80">▾</span>
+        </button>
+
+        {#if addMenuOpen}
+          <div
+            role="menu"
+            data-testid="add-dict-menu"
+            class="absolute right-0 z-40 mt-1 w-44 rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl"
           >
-            Add dictionary
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="add-dict-dir-option"
-            onclick={() => {
-              addMenuOpen = false;
-              onBrowseAddDirectory?.();
-            }}
-            class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="add-dict-file-option"
+              onclick={() => {
+                addMenuOpen = false;
+                onBrowseAdd();
+              }}
+              class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
+            >
+              Add dictionary
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="add-dict-dir-option"
+              onclick={() => {
+                addMenuOpen = false;
+                onBrowseAddDirectory?.();
+              }}
+              class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
+            >
+              Add all from directory
+            </button>
+          </div>
+        {/if}
+      </div>
+
+      {#if onCollapse}
+        <button
+          type="button"
+          data-testid="collapse-sidebar-btn"
+          onclick={onCollapse}
+          aria-label="Collapse dictionaries panel"
+          title="Collapse dictionaries panel (Ctrl+B)"
+          class="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            class="h-3.5 w-3.5"
+            aria-hidden="true"
           >
-            Add all from directory
-          </button>
-        </div>
+            <path
+              fill-rule="evenodd"
+              d="M9.78 4.22a.75.75 0 0 1 0 1.06L7.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L5.47 8.53a.75.75 0 0 1 0-1.06l3.25-3.25a.75.75 0 0 1 1.06 0Z"
+              clip-rule="evenodd"
+            />
+            <path
+              fill-rule="evenodd"
+              d="M13.28 4.22a.75.75 0 0 1 0 1.06L10.56 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L8.97 8.53a.75.75 0 0 1 0-1.06l3.25-3.25a.75.75 0 0 1 1.06 0Z"
+              clip-rule="evenodd"
+            />
+          </svg>
+        </button>
       {/if}
     </div>
   </div>
@@ -276,37 +319,38 @@
           type="checkbox"
           checked={showBalances}
           onchange={(e) => onOptionChange({ showBalances: (e.currentTarget as HTMLInputElement).checked })}
-          class="h-3.5 w-3.5 rounded accent-amber-500"
+          class="h-3.5 w-3.5 shrink-0 rounded accent-amber-500"
         />
-        <span>Show anagram balances</span>
+        <span class="truncate">Show anagram balances</span>
       </label>
       <label class="flex cursor-pointer items-center gap-2">
         <input
           type="checkbox"
           checked={showAnnotations}
           onchange={(e) => onOptionChange({ showAnnotations: (e.currentTarget as HTMLInputElement).checked })}
-          class="h-3.5 w-3.5 rounded accent-amber-500"
+          class="h-3.5 w-3.5 shrink-0 rounded accent-amber-500"
         />
-        <span>Show word annotations</span>
+        <span class="truncate">Show word annotations</span>
       </label>
       <label class="flex cursor-pointer items-center gap-2" title="Require variables 0–9 to bind to distinct letters">
         <input
           type="checkbox"
           checked={exclusiveVars}
           onchange={(e) => onOptionChange({ exclusiveVars: (e.currentTarget as HTMLInputElement).checked })}
-          class="h-3.5 w-3.5 rounded accent-amber-500"
+          class="h-3.5 w-3.5 shrink-0 rounded accent-amber-500"
         />
-        <span>Exclusive variables (0–9)</span>
+        <span class="truncate">Exclusive variables (0–9)</span>
       </label>
       <label class="flex cursor-pointer items-center gap-2" title="Allow spaces, hyphens, and apostrophes anywhere unless explicitly constrained">
         <input
           type="checkbox"
           checked={ignoreUnusedPunctuation}
           onchange={(e) => onOptionChange({ ignoreUnusedPunctuation: (e.currentTarget as HTMLInputElement).checked })}
-          class="h-3.5 w-3.5 rounded accent-amber-500"
+          class="h-3.5 w-3.5 shrink-0 rounded accent-amber-500"
         />
-        <span>Ignore unused punctuation</span>
+        <span class="truncate">Ignore unused punctuation</span>
       </label>
     </div>
   </div>
 </aside>
+{/if}

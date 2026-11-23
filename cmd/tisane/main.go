@@ -147,6 +147,11 @@ func buildAppMenu(
 		OnClick(func(*application.Context) {
 			wailsApp.Event.Emit("ui:set-layout", "unified")
 		})
+	viewMenu.Add("Toggle Dictionaries Panel").
+		SetAccelerator("CmdOrCtrl+B").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit("ui:toggle-sidebar", nil)
+		})
 	viewMenu.AddSeparator()
 	viewMenu.Add("Pattern Syntax Reference").
 		SetAccelerator("F1").

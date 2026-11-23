@@ -21,7 +21,29 @@ const (
 	EnvDictPath = "TISANE_DICT_PATH"
 	// EnvConfigPath overrides the default config.toml location.
 	EnvConfigPath = "TISANE_CONFIG"
+
+	// DefaultSidebarWidth is the default pixel width of the dictionary sidebar.
+	DefaultSidebarWidth = 272
+	// MinSidebarWidth is the minimum expanded pixel width of the dictionary sidebar.
+	MinSidebarWidth = 180
+	// MaxSidebarWidth is the maximum expanded pixel width of the dictionary sidebar.
+	MaxSidebarWidth = 560
 )
+
+// NormalizeSidebarWidth clamps a sidebar pixel width into [MinSidebarWidth, MaxSidebarWidth],
+// falling back to DefaultSidebarWidth when non-positive.
+func NormalizeSidebarWidth(w int) int {
+	if w <= 0 {
+		return DefaultSidebarWidth
+	}
+	if w < MinSidebarWidth {
+		return MinSidebarWidth
+	}
+	if w > MaxSidebarWidth {
+		return MaxSidebarWidth
+	}
+	return w
+}
 
 // DictConfig represents one configured .tsd dictionary in user priority order.
 type DictConfig struct {
@@ -101,8 +123,10 @@ type Config struct {
 	ShowAnnotations         bool                 `json:"showAnnotations"`
 	SuppressDuplicates      bool                 `json:"suppressDuplicates"`
 	EntryFilter             []string             `json:"entryFilter"` // "lowercase", "capitalized", "punctuated", "phrase"
-	SortMode                string               `json:"sortMode"`    // "dict", "alpha", "alpha-desc", "len", "len-desc", "smart"
-	LayoutMode              string               `json:"layoutMode"`  // "tiled" (default) or "unified"
+	SortMode                string               `json:"sortMode"`         // "dict", "alpha", "alpha-desc", "len", "len-desc", "smart"
+	LayoutMode              string               `json:"layoutMode"`       // "tiled" (default) or "unified"
+	SidebarWidth            int                  `json:"sidebarWidth"`     // expanded pixel width of the dictionary sidebar
+	SidebarCollapsed        bool                 `json:"sidebarCollapsed"` // whether the dictionary sidebar is collapsed
 	AutoWebFallback         bool                 `json:"autoWebFallback"`
 	DefaultWebProvider      string               `json:"defaultWebProvider"`
 	WebProviders            []lookup.WebProvider `json:"webProviders"`
@@ -128,6 +152,8 @@ func DefaultConfig() *Config {
 		EntryFilter:             []string{"lowercase", "capitalized", "punctuated", "phrase"},
 		SortMode:                "dict",
 		LayoutMode:              "tiled",
+		SidebarWidth:            DefaultSidebarWidth,
+		SidebarCollapsed:        false,
 		AutoWebFallback:         false,
 		DefaultWebProvider:      "onelook",
 		WebProviders:            lookup.DefaultWebProviders(),
