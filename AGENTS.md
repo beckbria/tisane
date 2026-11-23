@@ -1,0 +1,161 @@
+# AGENTS.md
+
+Guidelines and reference for AI agents and contributors working in the **Tisane** repository.
+
+## Project Overview
+
+Tisane is a high-speed crossword, cryptic, anagram, and dictionary pattern-matching suite inspired by (and binary-compatible with) classic Win32 TEA. It ships as a cross-platform desktop GUI (`tisane`) plus CLI utilities (`tisane-cli`, `tisane-build`, `tisane-extract`, `tisane-merge`).
+
+---
+
+## Keeping Documentation Up to Date
+
+- **Maintain `AGENTS.md`**: Keep this file accurate as the codebase evolves. Whenever you encounter a build, test, cross-compilation, or runtime problem, add the steps to avoid or resolve it here to help future development.
+- **Maintain `README.md`**: Update `README.md` whenever you make changes to project structure, dependencies, prerequisites, build commands, or user-facing CLI/UI behavior.
+
+---
+
+## Important Architectural Decisions
+
+### Multi-Platform First (Linux, Windows, macOS, Headless)
+- **Pure-Go (`CGO_ENABLED=0`) by default**: All core libraries (`pkg/...`), CLI binaries, internal build tools (`internal/...`), and the Linux desktop GUI build without CGO. On Linux, Tisane uses Wails v3's PureGo backend (`-tags purego,gtk3` for GTK3/WebKitGTK 4.1, or `-tags purego` for GTK4/WebKitGTK 6.0), avoiding any dependency on `gcc`, `pkg-config`, or `-dev` system headers.
+- **Cross-compilation from Linux to Windows**: Bazel targets (`//:windows`, `//:windows-release`, `//:windows-release-zip`, or `--config=windows`) cross-compile `windows/amd64` `.exe` binaries directly from Linux. Keep all code and build rules compatible with cross-compilation.
+- **Platform-specific packaging & runtime details**:
+  - **Windows**: `tisane.exe` is linked with `-H=windowsgui` (no background console window) and embeds a generated `.syso` PE resource (`cmd/tisane/internal/winrsrc`) containing the app icon, DPI/Common-Controls manifest, and version metadata. Releases are packaged as an NSIS installer (`//:windows-release` -> `tisane-setup.exe`, requires `makensis` on `PATH`) and a portable ZIP (`//:windows-release-zip`).
+  - **Linux**: Releases (`//:linux-release` -> `linux-release.tar.gz`) bundle all binaries, dictionaries, `tisane.png`, and `tisane.desktop`.
+  - **macOS & Headless**: Supported via native `WKWebView` and Wails v3 server mode (`-tags server`).
+- **Platform-agnostic core**: Never assume Unix path separators, line endings, case-sensitive filesystems, or POSIX-only shell utilities in Go code or tests. Use `path/filepath`, `os.UserConfigDir()`, `os.PathListSeparator`, and `t.TempDir()`.
+
+### Clean Separation of Concerns
+- **Zero-dependency core libraries (`pkg/...`)**: Core packages (`tsd`, `pattern`, `search`, `lookup`, `profile`, `wordlist`) rely strictly on the Go standard library. Keep them decoupled from UI, CLI flag parsing, and OS-specific GUI frameworks.
+- **Testable GUI backend (`cmd/tisane/app`)**: Desktop services (`DictionaryService`, `SearchService`, `LookupService`, `ProfileService`) interact with the Wails runtime solely through the `HostBridge` interface, allowing full unit and race testing without a display server or WebView.
+- **Embedded Svelte 5 frontend**: `cmd/tisane/main.go` embeds `cmd/tisane/frontend/dist` via `//go:embed all:frontend/dist`. The frontend communicates with Go services through explicit Wails v3 fully-qualified method names (FQNs) in `cmd/tisane/frontend/src/lib/bindings.ts` behind a mockable `TisaneBackend` interface.
+- **TEA compatibility**: Preserve binary compatibility with `TSD0`/`TSD1` `.tsd` dictionaries, `.tsm` alphabet maps, and legacy `TEACON.exe` switches in `tisane-cli`.
+
+### Unified Build System (Bazel + Go + npm)
+- **Bazel (Bzlmod)** (`MODULE.bazel`, `BUILD.bazel`, `release.bzl`, `.bazelrc`) is the primary orchestration layer for building, cross-compiling, testing, and packaging releases.
+- Standard `go build` / `go test` and `npm` workflows must also continue to work directly.
+- Whenever you add, remove, or change Go source files or imports, update the corresponding `BUILD.bazel` files (preserving `# keep` directives on customized rules such as `embedsrcs`, `select(...)`, and `gc_linkopts`).
+
+---
+
+## Repository Layout
+
+| Path | Purpose |
+| :--- | :--- |
+| `BUILD.bazel`, `MODULE.bazel`, `release.bzl`, `.bazelrc` | Root Bazel/Bzlmod build graph, cross-platform targets, and release packaging rules |
+| `artifacts/` | Design docs, specs, and implementation plans (`implementation_plan.md`, `pattern_syntax.md`, `dictionary_format.md`, `installer_plan.md`) |
+| `build/` | Shared app icon (`appicon.png`), embedded Go asset package (`assets.go`), Linux `.desktop` entry, and Windows manifest/NSIS/version metadata (`build/windows/`) |
+| `cmd/tisane/` | Desktop GUI entry point (`main.go`), Wails v3 wiring, and Bazel rules (`frontend.bzl`, `winrsrc.bzl`) |
+| `cmd/tisane/app/` | Testable desktop backend services (`dict_service.go`, `search_service.go`, `lookup_service.go`, `profile_service.go`, `dict_builder.go`, `wordlist_merge.go`, `state.go`) |
+| `cmd/tisane/frontend/` | Svelte 5 + TypeScript + Tailwind CSS v4 + Vite + `@tanstack/svelte-virtual` frontend (`src/lib/bindings.ts`, `src/lib/types.ts`, `src/lib/components/`) |
+| `cmd/tisane/internal/` | Build-time helpers for `cmd/tisane` (`vitebuild` for frontend builds, `winrsrc` for Windows `.syso` generation) |
+| `cmd/tisane-cli/` | CLI and interactive REPL search tool (POSIX flags + legacy `TEACON` switches) |
+| `cmd/tisane-build/` | `.tsd` dictionary compiler and inspector (replaces `TSBuild.exe`) |
+| `cmd/tisane-extract/` | `.tsd` word list and metadata extractor |
+| `cmd/tisane-merge/` | Word list conversion and set-operation merge tool (replaces `TSMerge.exe`) |
+| `dictionaries/` | Bundled open-source `.tsd` dictionaries included in release archives |
+| `internal/releasepkg/` | Cross-platform release archive packager (`.tar.gz` and `.zip`) invoked by Bazel |
+| `internal/wininstaller/` | NSIS Windows installer builder wrapper invoked by Bazel |
+| `pkg/tsd/` | Pure-Go `TSD0`/`TSD1` reader, streaming bit-unpacker, Huffman/zlib/RTF decoder, `.tsm` parser, exporter, and `TSD1` writer |
+| `pkg/pattern/` | Macro expander, boolean expression parser, span validator, compiler, and backtracking VM |
+| `pkg/search/` | Concurrent multi-dictionary word & Full-Text Search (FTS) engine with sorting and filtering |
+| `pkg/lookup/` | Sanitized RTF-to-HTML/plain-text converter and `{entry}` web lookup URL builder |
+| `pkg/profile/` | Portable TOML config (`config.toml`), dictionary discovery, and canonical `profile.Version` |
+| `pkg/wordlist/` | Word list ASCII conversion and merge operations (`or`, `and`, `exclude`) |
+
+---
+
+## Coding Conventions & Best Practices
+
+All code must follow idiomatic conventions and best practices for its language and framework:
+
+### Go
+- Format all Go code with `gofmt` and follow [Effective Go](https://go.dev/doc/effective_go) and Go Code Review Comments.
+- Wrap errors with context using `fmt.Errorf("context: %w", err)` and handle errors explicitly (never silently discard errors).
+- Propagate `context.Context` for cancellable work (especially searches, dictionary builds, and I/O).
+- Write concurrency-safe code; all Go packages must pass `go test -race`.
+- Prefer the Go standard library. Do not add third-party dependencies to `go.mod` without a clear, compelling reason; keep `pkg/...` free of external dependencies.
+- Keep exported APIs concise, well-documented, and consistent with surrounding packages.
+
+### TypeScript, Svelte 5 & Tailwind CSS
+- Follow strict TypeScript (`strict: true` in `tsconfig.json`); avoid `any` and ensure `npm run check` (`svelte-check`) passes with zero errors or warnings.
+- Use idiomatic **Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`) rather than legacy Svelte 4 reactive declarations (`$:`, `export let`).
+- Use Tailwind CSS v4 utility classes consistently and preserve responsive, accessible UI semantics (keyboard shortcuts, ARIA attributes, focus management).
+- Keep large result lists virtualized via `@tanstack/svelte-virtual` so 100k+ hits stay responsive.
+- Whenever a Go service method signature, FQN, or DTO JSON field changes in `cmd/tisane/app`, update `cmd/tisane/frontend/src/lib/bindings.ts` and `src/lib/types.ts` in the same change—and rebuild `cmd/tisane/frontend/dist` (`npm run build`) if verifying the embedded desktop binary.
+
+### Bazel / Starlark
+- Keep `BUILD.bazel` files accurate and minimal. Respect `# keep` comments so Gazelle does not clobber custom attributes.
+- For `genrule`s that may execute on Windows as well as Linux/macOS, provide both `cmd` (POSIX) and `cmd_ps` (PowerShell).
+
+---
+
+## Versioning Policy
+
+Tisane uses Semantic Versioning (`MAJOR.MINOR.PATCH`, e.g., `0.5.0`).
+
+- **When to update**: Increment the build/version number whenever adding significant features or bug fixes.
+- **Default increment**: Always increment the **patch** number by default (`0.5.0` -> `0.5.1`).
+- **Major and minor updates**: Only update the **major** or **minor** version number when **explicitly requested by a human**.
+
+### Files to Update Together
+`pkg/profile/profile.go` (`profile.Version`) is the primary Go constant (automatically consumed by `cmd/tisane/app`, `cmd/tisane-cli`, `cmd/tisane-merge`, `cmd/tisane/internal/winrsrc`, and `internal/wininstaller`). When bumping the version, update **all** of the following files in sync:
+
+1. `pkg/profile/profile.go` (`Version`)
+2. `MODULE.bazel` (`module(version = ...)`)
+3. `cmd/tisane-build/main.go` (`const version`)
+4. `cmd/tisane-extract/main.go` (`const version`)
+5. `cmd/tisane/frontend/package.json` (`"version"`)
+6. `cmd/tisane/frontend/src/lib/version.ts` (`APP_VERSION`)
+7. `cmd/tisane/main_test.go` (version assertion)
+8. `cmd/tisane/frontend/src/App.test.ts` (About dialog version assertions)
+
+---
+
+## Writing and Running Tests
+
+### Writing Tests
+- **Go unit & integration tests (`*_test.go`)**:
+  - Prefer table-driven tests with clear subtest names (`t.Run(...)`).
+  - Isolate filesystem access with `t.TempDir()`; never rely on user home directories or proprietary TEA dictionary files in `binary/` (construct synthetic word lists or `.tsd` fixtures in tests).
+  - Test `cmd/tisane/app` services by injecting a mock `HostBridge` rather than starting a live Wails window.
+  - Test CLI tools (`cmd/tisane-*`) by invoking their runnable entry functions with captured `stdout`/`stderr` buffers and checking exit codes.
+  - Add regression tests for every bug fix and unit tests for every new feature.
+- **Frontend tests (`cmd/tisane/frontend/src/*.test.ts`)**:
+  - Use **Vitest** + **@testing-library/svelte** + **@testing-library/jest-dom** under `jsdom` (configured in `vite.config.ts` and `src/test-setup.ts`).
+  - Inject a mock `TisaneBackend` when mounting components so tests are fast, deterministic, and independent of the Go/Wails runtime.
+  - Cover user interactions, state transitions, and virtualization behavior where relevant.
+
+### Running Tests
+
+#### All Go Tests via Bazel (Recommended)
+```bash
+bazel test //...
+```
+
+#### Go Tests with Race Detector
+```bash
+# Core libraries, CLIs, desktop backend services, and internal build tools
+go test -race ./pkg/... ./cmd/tisane-build ./cmd/tisane-extract ./cmd/tisane-merge ./cmd/tisane-cli ./cmd/tisane/app ./internal/...
+
+# Wails v3 service FQN bindings & embedded asset server check (Linux PureGo)
+CGO_ENABLED=0 go test -tags purego,gtk3 -v ./cmd/tisane
+```
+
+#### Frontend Type-Check & Component Tests
+```bash
+cd cmd/tisane/frontend
+npm run check   # svelte-check + strict TypeScript check
+npm test        # Vitest suite
+```
+
+#### Cross-Platform Build Verification
+When touching build files, platform-specific code, or the frontend bundle, verify that builds succeed across targets:
+```bash
+# Rebuild embedded frontend bundle (when frontend sources changed)
+(cd cmd/tisane/frontend && npm run build)
+
+# Verify native Linux and cross-compiled Windows binaries
+bazel build //:linux //:windows
+```
