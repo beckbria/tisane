@@ -9,6 +9,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"tisane/build"
 	"tisane/cmd/tisane/app"
 )
 
@@ -88,8 +89,8 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 
 	// Verify embedded application icon (PNG) and frontend /icon.png asset
 	pngMagic := "\x89PNG\r\n\x1a\n"
-	if len(appIcon) < len(pngMagic) || string(appIcon[:len(pngMagic)]) != pngMagic {
-		t.Fatalf("expected embedded appIcon to be a valid PNG, got %d bytes", len(appIcon))
+	if len(build.AppIcon) < len(pngMagic) || string(build.AppIcon[:len(pngMagic)]) != pngMagic {
+		t.Fatalf("expected embedded build.AppIcon to be a valid PNG, got %d bytes", len(build.AppIcon))
 	}
 	iconReq := httptest.NewRequest(http.MethodGet, "/icon.png", nil)
 	iconRec := httptest.NewRecorder()

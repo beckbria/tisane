@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"debug/pe"
 	"image"
 	"image/color"
@@ -107,5 +108,52 @@ func TestRunRejectsUnsupportedArch(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unsupported arch")
+	}
+}
+
+func TestBuildResourceSetWithManifestAndInfoJSON(t *testing.T) {
+	tmp := t.TempDir()
+	iconPath := writeTestPNG(t, tmp)
+	manifestPath := filepath.Join(tmp, "tisane.exe.manifest")
+	infoPath := filepath.Join(tmp, "info.json")
+
+	manifestXML := []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><description>Custom Manifest</description></assembly>`)
+	if err := os.WriteFile(manifestPath, manifestXML, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	infoJSON := []byte(`{
+  "fixed": { "file_version": "" },
+  "info": {
+    "0000": {
+      "ProductName": "Tisane Custom",
+      "FileDescription": "Custom Description",
+      "InternalName": "tisane",
+      "OriginalFilename": "tisane.exe",
+      "FileVersion": "",
+      "ProductVersion": ""
+    }
+  }
+}`)
+	if err := os.WriteFile(infoPath, infoJSON, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rs, err := buildResourceSet(config{
+		iconPath:     iconPath,
+		manifestPath: manifestPath,
+		infoPath:     infoPath,
+		arch:         "amd64",
+		appVersion:   "0.3.0",
+	})
+	if err != nil {
+		t.Fatalf("buildResourceSet: %v", err)
+	}
+
+	gotManifest := rs.Get(winres.RT_MANIFEST, winres.ID(1), 0x0409)
+	if !bytes.Equal(gotManifest, manifestXML) {
+		t.Fatalf("manifest mismatch:\ngot:  %q\nwant: %q", string(gotManifest), string(manifestXML))
+	}
+	if got := rs.Get(winres.RT_VERSION, winres.ID(1), 0x0409); len(got) == 0 {
+		t.Fatalf("expected non-empty RT_VERSION resource")
 	}
 }

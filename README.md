@@ -1,4 +1,4 @@
-# <img src="./img/icon.png" alt="Tisane icon" width="80" align="center" /> Tisane
+# <img src="./build/appicon.png" alt="Tisane icon" width="80" align="center" /> Tisane
 
 **Tisane** is a pattern matching/regex tool. It provides high-speed crossword, cryptic, anagram, and dictionary search. It can operate on custom user-defined dictionaries.
 
@@ -189,6 +189,7 @@ Installing `bazel` (or [Bazelisk](https://github.com/bazelbuild/bazelisk) on Win
 | Path | Description |
 | :--- | :--- |
 | `artifacts` | Design documents and work plans |
+| `build` | Shared build assets (`appicon.png`) and platform-specific manifests/metadata (`windows/`, `linux/`) |
 | `cmd/tisane` | **Desktop GUI application** (Go + Wails v3 + Svelte 5 + Tailwind CSS + `@tanstack/svelte-virtual`) |
 | `cmd/tisane-cli` | **Command-line & interactive REPL search tool** (compatible with legacy `TEACON` switches plus JSON/CSV, FTS, `--define`, and `--enum`) |
 | `cmd/tisane-build` | **Dictionary compiler & inspector** (replaces `TSBuild.exe`; compiles plain-text/RTF word lists into `.tsd` files) |

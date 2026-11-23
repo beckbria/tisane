@@ -8,16 +8,14 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"tisane/build"
 	"tisane/cmd/tisane/app"
 )
 
-//go:generate go run ./internal/winrsrc -icon icon.png -arch amd64 -out rsrc_windows_amd64.syso
+//go:generate go run ./internal/winrsrc -icon ../../build/appicon.png -manifest ../../build/windows/tisane.exe.manifest -info ../../build/windows/info.json -arch amd64 -out rsrc_windows_amd64.syso
 
 //go:embed all:frontend/dist
 var assets embed.FS
-
-//go:embed icon.png
-var appIcon []byte
 
 const appVersion = app.Version
 
@@ -266,7 +264,7 @@ func main() {
 	wailsApp := application.New(application.Options{
 		Name:        "Tisane",
 		Description: "High-speed crossword, anagram, and wordplay dictionary search",
-		Icon:        appIcon,
+		Icon:        build.AppIcon,
 		Services:    services,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -286,7 +284,7 @@ func main() {
 		MinHeight: 600,
 		URL:       "/",
 		Linux: application.LinuxWindow{
-			Icon: appIcon,
+			Icon: build.AppIcon,
 		},
 	})
 

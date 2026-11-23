@@ -2,6 +2,7 @@ load("@gazelle//:def.bzl", "gazelle")
 load(":release.bzl", "release_archive")
 
 # gazelle:prefix tisane
+# gazelle:build_file_name BUILD.bazel
 gazelle(name = "gazelle")
 
 platform(
@@ -127,6 +128,10 @@ release_archive(
     out = "linux-release.tar.gz",
     binaries = [":linux"],
     dictionaries = [":dictionaries"],
+    extra_files = {
+        "//build:appicon.png": "tisane.png",
+        "//build:linux/tisane.desktop": "tisane.desktop",
+    },
     format = "tar.gz",
     visibility = ["//visibility:public"],
 )

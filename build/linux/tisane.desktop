@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Tisane
+GenericName=Crossword & Dictionary Search
+Comment=High-speed crossword, anagram, and wordplay dictionary search
+Exec=tisane
+Icon=tisane
+Terminal=false
+Categories=Utility;Education;
+Keywords=crossword;anagram;dictionary;wordplay;pattern;
+StartupWMClass=tisane

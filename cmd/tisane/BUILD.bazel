@@ -25,7 +25,9 @@ frontend_dist(
 windows_syso(
     name = "tisane_rsrc_windows_amd64",
     arch = "amd64",
-    icon = "icon.png",
+    icon = "//build:appicon.png",
+    info = "//build:windows/info.json",
+    manifest = "//build:windows/tisane.exe.manifest",
     out = "rsrc_windows_amd64.syso",
 )
 
@@ -35,12 +37,11 @@ go_library(
         "@rules_go//go/platform:windows_amd64": [":tisane_rsrc_windows_amd64"],
         "//conditions:default": [],
     }),  # keep
-    embedsrcs = [
-        "icon.png",
-    ] + (_PREBUILT_DIST if _PREBUILT_DIST else [":frontend_dist"]),  # keep
+    embedsrcs = _PREBUILT_DIST if _PREBUILT_DIST else [":frontend_dist"],  # keep
     importpath = "tisane/cmd/tisane",
     visibility = ["//visibility:private"],
     deps = [
+        "//build",
         "//cmd/tisane/app",
         "@com_github_wailsapp_wails_v3//pkg/application",
     ],
@@ -93,6 +94,7 @@ go_test(
     srcs = ["main_test.go"],
     embed = [":tisane_lib"],
     deps = [
+        "//build",
         "//cmd/tisane/app",
         "@com_github_wailsapp_wails_v3//pkg/application",
     ],
