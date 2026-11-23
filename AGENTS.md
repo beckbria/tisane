@@ -113,7 +113,7 @@ The repository root [`VERSION`](VERSION) file is the single source of truth for 
 ### Writing Tests
 - **Go unit & integration tests (`*_test.go`)**:
   - Prefer table-driven tests with clear subtest names (`t.Run(...)`).
-  - Isolate filesystem access with `t.TempDir()`; never rely on user home directories or proprietary TEA dictionary files in `binary/` (construct synthetic word lists or `.tsd` fixtures in tests).
+  - Isolate filesystem access with `t.TempDir()`; never rely on user home directories (construct synthetic word lists or `.tsd` fixtures in tests).
   - Test `cmd/tisane/app` services by injecting a mock `HostBridge` rather than starting a live Wails window.
   - Test CLI tools (`cmd/tisane-*`) by invoking their runnable entry functions with captured `stdout`/`stderr` buffers and checking exit codes.
   - Add regression tests for every bug fix and unit tests for every new feature.

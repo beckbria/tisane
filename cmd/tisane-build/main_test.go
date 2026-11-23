@@ -9,20 +9,23 @@ import (
 )
 
 func TestCLIBuildAndInfo(t *testing.T) {
-	binDir := filepath.Join("..", "..", "binary")
-	if _, err := os.Stat(binDir); os.IsNotExist(err) {
-		t.Skip("binary test corpus not present")
+	wordnetPath := filepath.Join("..", "..", "dictionaries", "english-wordnet-2025-plus.tsd")
+	if _, err := os.Stat(wordnetPath); os.IsNotExist(err) {
+		t.Skip("dictionaries/english-wordnet-2025-plus.tsd not present")
 	}
 
 	tmpDir := t.TempDir()
-	outPath := filepath.Join(tmpDir, "tsbuild2_cli.tsd")
+	inPath := filepath.Join(tmpDir, "input.txt")
+	if err := os.WriteFile(inPath, []byte("alpha\nbeta\ngamma|Greek letter\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(tmpDir, "built.tsd")
 
 	var stdout, stderr bytes.Buffer
 	code := run(
 		[]string{
-			"-d", "TEA&Sympathy Dictionary Builder Example 2",
-			"-m", filepath.Join(binDir, "Default.TSM"),
-			filepath.Join(binDir, "tsbuild2.txt"),
+			"-d", "Synthetic Test Dictionary",
+			inPath,
 			outPath,
 		},
 		strings.NewReader(""),
@@ -33,26 +36,14 @@ func TestCLIBuildAndInfo(t *testing.T) {
 		t.Fatalf("run build exited %d; stderr=%s", code, stderr.String())
 	}
 
-	gotBytes, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantBytes, err := os.ReadFile(filepath.Join(binDir, "tsbuild2.tsd"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(gotBytes, wantBytes) {
-		t.Fatalf("tisane-build output did not match binary/tsbuild2.tsd byte-for-byte")
-	}
-
-	// Test --info on both TSD1 and TSD0 files.
+	// Test --info on both the newly built TSD1 file and the bundled WordNet TSD1 file.
 	stdout.Reset()
 	stderr.Reset()
 	code = run(
 		[]string{
 			"--info",
 			outPath,
-			filepath.Join(binDir, "Dictionaries", "Core English.tsd"),
+			wordnetPath,
 		},
 		strings.NewReader(""),
 		&stdout,
@@ -62,7 +53,7 @@ func TestCLIBuildAndInfo(t *testing.T) {
 		t.Fatalf("run --info exited %d; stderr=%s", code, stderr.String())
 	}
 	outStr := stdout.String()
-	if !strings.Contains(outStr, "Format:        TSD1") || !strings.Contains(outStr, "Format:        TSD0") {
+	if strings.Count(outStr, "Format:        TSD1") != 2 || !strings.Contains(outStr, "English WordNet 2025+") {
 		t.Fatalf("unexpected --info output:\n%s", outStr)
 	}
 

@@ -51,5 +51,6 @@ genrule(
 go_test(
     name = "tisane-build_test",
     srcs = ["main_test.go"],
+    data = ["//:dictionaries"],
     embed = [":tisane-build_lib"],
 )

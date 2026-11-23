@@ -2,8 +2,6 @@ package lookup_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -41,12 +39,23 @@ func TestRTFConversionAndXSSSanitization(t *testing.T) {
 }
 
 func TestLookupAndWebURLs(t *testing.T) {
-	binDir := filepath.Join("..", "..", "binary")
-	if _, err := os.Stat(binDir); os.IsNotExist(err) {
-		t.Skip("binary test corpus not present")
-	}
+	src := strings.Join([]string{
+		"tap|First sense of tap",
+		"tap|Second sense of tap",
+		"tap|Third sense of tap",
+		"evasive|Not direct",
+		";elusive|see evasive",
+		"Crossword Man|Author of TEA",
+		`TEA Support|{\rtf1\ansi Contact CrosswordMan at mailto:support@crosswordman.com }`,
+	}, "\n") + "\n"
 
-	d2, err := tsd.Open(filepath.Join(binDir, "tsbuild2.tsd"))
+	opts := tsd.DefaultBuildOptions()
+	opts.Description = "Lookup Test"
+	built, _, err := tsd.BuildBytes([]byte(src), opts)
+	if err != nil {
+		t.Fatalf("BuildBytes: %v", err)
+	}
+	d2, err := tsd.OpenBytes(built, "lookup-test")
 	if err != nil {
 		t.Fatal(err)
 	}

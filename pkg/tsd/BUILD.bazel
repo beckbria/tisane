@@ -23,5 +23,8 @@ go_test(
         "export_test.go",
         "tsd_test.go",
     ],
+    data = [
+        "//:dictionaries",
+    ] + glob(["testdata/**"]),
     deps = [":tsd"],
 )

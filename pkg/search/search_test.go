@@ -15,13 +15,30 @@ import (
 
 func openRepoDict(t *testing.T, rel string) *tsd.Dictionary {
 	t.Helper()
-	p := filepath.Join("..", "..", "binary", rel)
+	p := filepath.Join("..", "..", "dictionaries", rel)
 	if _, err := os.Stat(p); os.IsNotExist(err) {
 		t.Skipf("dictionary not present: %s", p)
 	}
 	d, err := tsd.Open(p)
 	if err != nil {
 		t.Fatalf("Open(%s): %v", rel, err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	return d
+}
+
+func buildSynthDict(t *testing.T, name, content string) *tsd.Dictionary {
+	t.Helper()
+	opts := tsd.DefaultBuildOptions()
+	opts.Description = name
+	opts.MaxFTSPercent = 100
+	built, _, err := tsd.BuildBytes([]byte(content), opts)
+	if err != nil {
+		t.Fatalf("BuildBytes(%s): %v", name, err)
+	}
+	d, err := tsd.OpenBytes(built, name)
+	if err != nil {
+		t.Fatalf("OpenBytes(%s): %v", name, err)
 	}
 	t.Cleanup(func() { _ = d.Close() })
 	return d
@@ -36,13 +53,13 @@ func matchWords(matches []search.Match) []string {
 }
 
 func TestMultiDictDedupeSortingFiltersEnumerationAndDefEnrichment(t *testing.T) {
-	core := openRepoDict(t, filepath.Join("Dictionaries", "Core English.tsd"))            // TSD0 (no definitions)
-	devil := openRepoDict(t, filepath.Join("Dictionaries", "The Devil's Dictionary.tsd")) // TSD1 (has definitions)
+	wordnet := openRepoDict(t, "english-wordnet-2025-plus.tsd") // TSD1 (no definitions)
+	defs := buildSynthDict(t, "defs", "cynic|one who sneers\n")  // TSD1 (has definitions)
 
 	eng := search.NewEngine()
 
-	// 1. Cross-dictionary deduplication & HasDefinition enrichment on TSD0 match!
-	req := search.DefaultRequest("cynic", core, devil)
+	// 1. Cross-dictionary deduplication & HasDefinition enrichment on wordlist-only match!
+	req := search.DefaultRequest("cynic", wordnet, defs)
 	req.DedupeMode = search.DedupeSuppress
 	sum, err := eng.Search(context.Background(), req)
 	if err != nil {
@@ -51,7 +68,7 @@ func TestMultiDictDedupeSortingFiltersEnumerationAndDefEnrichment(t *testing.T) 
 	if len(sum.Matches) != 1 {
 		t.Fatalf("expected 1 deduplicated match for 'cynic', got %d (%+v)", len(sum.Matches), sum.Matches)
 	}
-	// Won by Core English (DictIndex 0, TSD0), enriched with HasDefinition=true from Devil's Dictionary!
+	// Won by WordNet (DictIndex 0), enriched with HasDefinition=true from defs!
 	if sum.Matches[0].DictIndex != 0 || !sum.Matches[0].HasDefinition {
 		t.Fatalf("expected DictIndex=0 with HasDefinition=true, got %+v", sum.Matches[0])
 	}
@@ -67,7 +84,7 @@ func TestMultiDictDedupeSortingFiltersEnumerationAndDefEnrichment(t *testing.T) 
 	}
 
 	// 2. Smart Balance Sort on sub-anagram rack play `.....*;aadmort`
-	rackReq := search.DefaultRequest(".....*;aadmort", core)
+	rackReq := search.DefaultRequest(".....*;aadmort", wordnet)
 	rackReq.Sort = search.SortLenSmart
 	rackSum, err := eng.Search(context.Background(), rackReq)
 	if err != nil {
@@ -147,9 +164,21 @@ func TestMultiDictDedupeSortingFiltersEnumerationAndDefEnrichment(t *testing.T) 
 }
 
 func TestFullTextSearchIndexedVsSequentialParity(t *testing.T) {
-	tsb2 := openRepoDict(t, "tsbuild2.tsd")
-	devil := openRepoDict(t, filepath.Join("Dictionaries", "The Devil's Dictionary.tsd"))
-	grose := openRepoDict(t, filepath.Join("Dictionaries", "1811 Grose's Dictionary.tsd"))
+	tsb2 := buildSynthDict(t, "fts-sample", strings.Join([]string{
+		"tap|A 3-letter word",
+		"alias|A synonym for another word",
+		"agonize|To suffer extreme pain",
+		"agonise|British spelling of agonize",
+		"Crossword Man|Author of TEA",
+		"TEA Support|{\\rtf1\\ansi Contact CrosswordMan for rtf help via mailto:support@crosswordman.com }",
+		"Web Help|{\\rtf1\\ansi Visit our rtf web page over http }",
+		"cynic|A blackguard whose faulty vision sees things as they are",
+		"lexicon|A dictionary compiled by a Lexicographer",
+		"glossary|A dictionary without a lexicographer note",
+		"listen|To pay attention to sound",
+		"silent|Making no sound",
+		"quiet|listen or silent without music",
+	}, "\n")+"\n")
 
 	eng := search.NewEngine()
 
@@ -159,13 +188,12 @@ func TestFullTextSearchIndexedVsSequentialParity(t *testing.T) {
 		wantIdxFTS bool
 	}{
 		{tsb2, "synonym*", false},            // Unbounded '*' exceeds indexed length buckets -> Sequential FTS fallback
-		{tsb2, "agoni[sz]e", true},           // Bounded length 7 (WordCount(7)==5 > 0) -> Indexed FTS!
+		{tsb2, "agoni[sz]e", true},           // Bounded length 7 -> Indexed FTS!
 		{tsb2, "crosswordman & !http", true}, // Exercises Indexed set_difference (A & !B)!
 		{tsb2, "rtf & (web | mailto)", true},
-		{devil, "dictionary & !lexicographer", true},
-		{devil, "(;listen | ;silent) & !music", true},
-		{devil, `dictionary & !\Lexicographer`, false}, // Hybrid indexed + case-exact sequential filter
-		{grose, "mistress & !brothel", true},
+		{tsb2, "dictionary & !lexicographer", true},
+		{tsb2, "(;listen | ;silent) & !music", true},
+		{tsb2, `dictionary & !\Lexicographer`, false}, // Hybrid indexed + case-exact sequential filter
 	}
 
 	for _, tc := range queries {
@@ -204,12 +232,12 @@ func TestFullTextSearchIndexedVsSequentialParity(t *testing.T) {
 }
 
 func TestSearchContextCancellation(t *testing.T) {
-	unedited := openRepoDict(t, filepath.Join("Dictionaries", "Unedited English.tsd"))
+	wordnet := openRepoDict(t, "english-wordnet-2025-plus.tsd")
 	eng := search.NewEngine()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req := search.DefaultRequest("*", unedited)
+	req := search.DefaultRequest("*", wordnet)
 
 	batches := 0
 	for _, err := range eng.SearchStream(ctx, req) {

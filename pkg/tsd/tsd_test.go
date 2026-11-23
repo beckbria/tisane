@@ -11,12 +11,12 @@ import (
 	"tisane/pkg/tsd"
 )
 
-var binaryDir = filepath.Join("..", "..", "binary")
+var dictionariesDir = filepath.Join("..", "..", "dictionaries")
 
-func requireBinaryDir(t *testing.T) {
+func requireDictionariesDir(t *testing.T) {
 	t.Helper()
-	if _, err := os.Stat(binaryDir); os.IsNotExist(err) {
-		t.Skipf("binary test corpus not present at %s", binaryDir)
+	if _, err := os.Stat(dictionariesDir); os.IsNotExist(err) {
+		t.Skipf("dictionaries directory not present at %s", dictionariesDir)
 	}
 }
 
@@ -50,76 +50,66 @@ func TestCP1252RoundTrip(t *testing.T) {
 	}
 }
 
-func TestLoadAllTSMFiles(t *testing.T) {
-	requireBinaryDir(t)
-
-	defaultLoaded, err := tsd.LoadTSM(filepath.Join(binaryDir, "Default.TSM"))
+func TestLoadTSMFiles(t *testing.T) {
+	defaultLoaded, err := tsd.LoadTSM(filepath.Join("testdata", "default.tsm"))
 	if err != nil {
-		t.Fatalf("LoadTSM(Default.TSM): %v", err)
+		t.Fatalf("LoadTSM(default.tsm): %v", err)
 	}
 	if defaultLoaded != tsd.DefaultTSM() {
-		t.Fatalf("Default.TSM does not match built-in DefaultTSM()")
+		t.Fatalf("default.tsm does not match built-in DefaultTSM()")
+	}
+	if got := defaultLoaded.NumClasses(); got != 63 {
+		t.Errorf("default.tsm: NumClasses()=%d, want 63", got)
+	}
+	if defaultLoaded.IsAlpha(0x00) || defaultLoaded.IsAlpha(0x0A) || defaultLoaded.IsAlpha(0x0D) {
+		t.Errorf("default.tsm: mandatory non-alphabetic control byte marked alphabetic")
 	}
 
-	expectedClasses := map[string]int{
-		"ANSI.TSM":     63,
-		"ANSIACa.TSM":  252,
-		"ANSIAcce.TSM": 95,
-		"ANSIAll.TSM":  166,
-		"ANSICase.TSM": 152,
-		"Baltic.TSM":   61,
-		"CentEuro.TSM": 60,
-		"Default.TSM":  63,
-		"Slovene.TSM":  65,
-		"Turkish.TSM":  63,
-	}
-
-	matches, err := filepath.Glob(filepath.Join(binaryDir, "*.TSM"))
+	customLoaded, err := tsd.LoadTSM(filepath.Join("testdata", "custom.tsm"))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("LoadTSM(custom.tsm): %v", err)
 	}
-	if len(matches) != len(expectedClasses) {
-		t.Fatalf("found %d .TSM files, expected %d", len(matches), len(expectedClasses))
+	if got := customLoaded.NumClasses(); got != 26 {
+		t.Errorf("custom.tsm: NumClasses()=%d, want 26", got)
+	}
+	// Verify lowercase folding and transitive closure (0xE9 'é' -> 'e' -> 'E').
+	if got := customLoaded.Mapped('a'); got != 'A' {
+		t.Errorf("custom.tsm: Mapped('a')=%q, want 'A'", got)
+	}
+	if got := customLoaded.Mapped(0xE9); got != 'E' {
+		t.Errorf("custom.tsm: Mapped(0xE9)=%q, want 'E'", got)
+	}
+	if customLoaded.IsAlpha(' ') || customLoaded.IsAlpha('0') || customLoaded.IsAlpha(0x00) || customLoaded.IsAlpha(0x0A) || customLoaded.IsAlpha(0x0D) {
+		t.Errorf("custom.tsm: expected punctuation/digits/control bytes to be non-alphabetic")
 	}
 
-	for _, p := range matches {
-		base := filepath.Base(p)
-		m, err := tsd.LoadTSM(p)
-		if err != nil {
-			t.Fatalf("LoadTSM(%s): %v", base, err)
-		}
-		if got, want := m.NumClasses(), expectedClasses[base]; got != want {
-			t.Errorf("%s: NumClasses()=%d, want %d", base, got, want)
-		}
-		if m.IsAlpha(0x00) || m.IsAlpha(0x0A) || m.IsAlpha(0x0D) {
-			t.Errorf("%s: mandatory non-alphabetic control byte marked alphabetic", base)
-		}
+	// Verify malformed .tsm input returns an error.
+	if _, err := tsd.ParseTSM([]byte("invalid_line\n")); err == nil {
+		t.Errorf("ParseTSM: expected error for malformed line")
 	}
 }
 
-func TestTSBuild2DetailedWalkthrough(t *testing.T) {
-	requireBinaryDir(t)
-
-	d, err := tsd.Open(filepath.Join(binaryDir, "tsbuild2.tsd"))
+func TestTSDWalkthrough(t *testing.T) {
+	d, err := tsd.Open(filepath.Join("testdata", "walkthrough.tsd"))
 	if err != nil {
-		t.Fatalf("Open(tsbuild2.tsd): %v", err)
+		t.Fatalf("Open(walkthrough.tsd): %v", err)
 	}
 	defer d.Close()
 
 	if d.Version() != tsd.VersionTSD1 {
 		t.Fatalf("Version() = %s, want TSD1", d.Version())
 	}
-	if d.Description() != "TEA&Sympathy Dictionary Builder Example 2" {
+	if d.Description() != "Tisane Walkthrough Test Fixture" {
 		t.Fatalf("Description() = %q", d.Description())
 	}
-	if d.TotalWords() != 21 || d.MaxWordLength() != 12 {
-		t.Fatalf("TotalWords=%d MaxWordLength=%d, want 21 and 12", d.TotalWords(), d.MaxWordLength())
+	if d.TotalWords() != 18 || d.MaxWordLength() != 12 {
+		t.Fatalf("TotalWords=%d MaxWordLength=%d, want 18 and 12", d.TotalWords(), d.MaxWordLength())
 	}
 	if !d.HasDefinitions() || !d.HasPass2Definitions() || !d.HasFTSIndex() {
 		t.Fatalf("expected definitions and FTS index to be reported present")
 	}
 
-	// Check L=3 dictionary words ("aid", "tap") and FTS-only words.
+	// Check L=3 dictionary words ("aid", "tap").
 	var words3 []tsd.WordEntry
 	for w, err := range d.ScanWords(3) {
 		if err != nil {
@@ -131,7 +121,7 @@ func TestTSBuild2DetailedWalkthrough(t *testing.T) {
 		t.Fatalf("unexpected L=3 words: %+v", words3)
 	}
 
-	// "tap" (LinkGroupIndex 1) has 3 direct definitions with qualifiers " 1 v.", " 2 v.", " 3 n.".
+	// "tap" has 3 direct definitions with qualifiers " 1 v.", " 2 v.", " 3 n.".
 	direct, fts, overflow, err := d.ResolveAllDefinitionOffsets(3, int(words3[1].LinkGroupIndex))
 	if err != nil {
 		t.Fatalf("ResolveAllDefinitionOffsets(tap): %v", err)
@@ -150,26 +140,50 @@ func TestTSBuild2DetailedWalkthrough(t *testing.T) {
 		}
 	}
 
-	// Check L=3 Sub-stream 2 FTS-only words.
-	var fts3 []string
+	// Check L=3 Sub-stream 2 FTS-only words and verify each resolves to >= 1 occurrence.
+	fts3Set := make(map[string]bool)
 	for fe, err := range d.ScanFTSOnlyWords(3) {
 		if err != nil {
 			t.Fatalf("ScanFTSOnlyWords(3): %v", err)
 		}
-		fts3 = append(fts3, fe.Word)
+		fts3Set[string(fe.Canonical)] = true
 		occs, err := d.ReadFTSOccurrences(fe.OccListOffset)
 		if err != nil || len(occs) == 0 {
 			t.Fatalf("ReadFTSOccurrences(%s @ %d): occs=%v err=%v", fe.Word, fe.OccListOffset, occs, err)
 		}
 	}
-	wantFTS3 := []string{"adJ", "and", "CoM", "for", "has", "rtf", "Web", "WWW"}
-	if len(fts3) != len(wantFTS3) {
-		t.Fatalf("L=3 FTS words = %v, want %v", fts3, wantFTS3)
-	}
-	for i := range wantFTS3 {
-		if fts3[i] != wantFTS3[i] {
-			t.Fatalf("L=3 FTS[%d] = %q, want %q (all=%v)", i, fts3[i], wantFTS3[i], fts3)
+	for _, want := range []string{"AND", "FOR", "RTF", "WEB"} {
+		if !fts3Set[want] {
+			t.Fatalf("L=3 FTS-only words missing %q (got %v)", want, fts3Set)
 		}
+	}
+
+	// Check Pass 1 alias-only stub ";elusive" in L=7.
+	foundElusive := false
+	for w, err := range d.ScanWords(7) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w.Word == "elusive" {
+			foundElusive = true
+			d7, _, _, err := d.ResolveAllDefinitionOffsets(7, int(w.LinkGroupIndex))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(d7) != 1 {
+				t.Fatalf("elusive direct definitions = %v, want 1", d7)
+			}
+			rec, err := d.ReadDefinition(d7[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rec.Pass != 1 || rec.Body != "See evasive" {
+				t.Fatalf("expected Pass 1 alias record for 'elusive', got %+v", rec)
+			}
+		}
+	}
+	if !foundElusive {
+		t.Fatalf("did not find alias word 'elusive' in L=7")
 	}
 
 	// Check L=12 ("Crossword Man") hybrid direct + indirect FTS link group.
@@ -200,19 +214,14 @@ func TestTSBuild2DetailedWalkthrough(t *testing.T) {
 }
 
 func TestDecodeAllRepositoryDictionaries(t *testing.T) {
-	requireBinaryDir(t)
+	requireDictionariesDir(t)
 
-	topFiles, err := filepath.Glob(filepath.Join(binaryDir, "*.tsd"))
+	allFiles, err := filepath.Glob(filepath.Join(dictionariesDir, "*.tsd"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	subFiles, err := filepath.Glob(filepath.Join(binaryDir, "Dictionaries", "*.tsd"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	allFiles := append(topFiles, subFiles...)
-	if len(allFiles) < 30 {
-		t.Fatalf("expected at least 30 .tsd dictionaries, found %d", len(allFiles))
+	if len(allFiles) == 0 {
+		t.Fatalf("expected at least 1 .tsd dictionary in %s, found 0", dictionariesDir)
 	}
 
 	for _, path := range allFiles {
@@ -340,9 +349,9 @@ func TestDecodeAllRepositoryDictionaries(t *testing.T) {
 }
 
 func TestConcurrentDictionaryAccess(t *testing.T) {
-	requireBinaryDir(t)
+	requireDictionariesDir(t)
 
-	d, err := tsd.Open(filepath.Join(binaryDir, "Dictionaries", "The Devil's Dictionary.tsd"))
+	d, err := tsd.Open(filepath.Join(dictionariesDir, "english-wordnet-2025-plus.tsd"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

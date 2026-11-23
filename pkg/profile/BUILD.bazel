@@ -19,6 +19,7 @@ go_library(
 go_test(
     name = "profile_test",
     srcs = ["profile_test.go"],
+    data = ["//:dictionaries"],
     deps = [
         ":profile",
         "//pkg/lookup",

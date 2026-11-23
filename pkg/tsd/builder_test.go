@@ -1,68 +1,12 @@
 package tsd_test
 
 import (
-	"bytes"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"tisane/pkg/tsd"
 )
-
-func TestByteIdenticalTSBuild1AndTSBuild2(t *testing.T) {
-	requireBinaryDir(t)
-
-	cases := []struct {
-		txtName string
-		tsdName string
-		desc    string
-	}{
-		{
-			txtName: "tsbuild1.txt",
-			tsdName: "tsbuild1.tsd",
-			desc:    "TEA&Sympathy Dictionary Builder Example 1",
-		},
-		{
-			txtName: "tsbuild2.txt",
-			tsdName: "tsbuild2.tsd",
-			desc:    "TEA&Sympathy Dictionary Builder Example 2",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.tsdName, func(t *testing.T) {
-			inBytes, err := os.ReadFile(filepath.Join(binaryDir, tc.txtName))
-			if err != nil {
-				t.Fatal(err)
-			}
-			wantBytes, err := os.ReadFile(filepath.Join(binaryDir, tc.tsdName))
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			opts := tsd.DefaultBuildOptions()
-			opts.Description = tc.desc
-
-			gotBytes, stats, err := tsd.BuildBytes(inBytes, opts)
-			if err != nil {
-				t.Fatalf("BuildBytes(%s): %v", tc.txtName, err)
-			}
-			if stats.BytesWritten != len(wantBytes) {
-				t.Fatalf("size mismatch: got %d bytes, want %d bytes", stats.BytesWritten, len(wantBytes))
-			}
-			if !bytes.Equal(gotBytes, wantBytes) {
-				for i := 0; i < len(gotBytes); i++ {
-					if gotBytes[i] != wantBytes[i] {
-						t.Fatalf("%s differs from TSBuild.exe output at byte %d (0x%X): got 0x%02X, want 0x%02X",
-							tc.tsdName, i, i, gotBytes[i], wantBytes[i])
-					}
-				}
-			}
-		})
-	}
-}
 
 func TestBuilderUTF8UnsortedDedupAndFTSCutoff(t *testing.T) {
 	var src strings.Builder

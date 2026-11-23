@@ -19,20 +19,19 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 		t.Fatalf("expected default LayoutMode='tiled', got %q", cfg.LayoutMode)
 	}
 
-	binDir, err := filepath.Abs(filepath.Join("..", "..", "binary"))
+	dictsDir, err := filepath.Abs(filepath.Join("..", "..", "dictionaries"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	dictsDir := filepath.Join(binDir, "Dictionaries")
 
 	cfg.AtMacro = "[aeiouy]"
 	cfg.MinLength = 3
 	cfg.MaxLength = 15
 	cfg.SortMode = "smart"
-	cfg.DictDirs = []string{binDir, dictsDir}
+	cfg.DictDirs = []string{tmp, dictsDir}
 	cfg.Dictionaries = []profile.DictConfig{
-		{Path: filepath.Join(dictsDir, "Core English.tsd"), Name: "Core", Enabled: true},
-		{Path: filepath.Join(binDir, "tsbuild2.tsd"), Name: "Example 2", Enabled: false},
+		{Path: filepath.Join(dictsDir, "english-wordnet-2025-plus.tsd"), Name: "WordNet", Enabled: true},
+		{Path: filepath.Join(tmp, "custom.tsd"), Name: "Custom", Enabled: false},
 	}
 	cfg.RecentQueries = []string{".....*;aadmort", `c@t & !#at`}
 	cfg.WebProviders = []lookup.WebProvider{
@@ -63,17 +62,17 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 		t.Fatalf("slice/table round-trip mismatch: %+v", loaded)
 	}
 
-	if _, err := os.Stat(dictsDir); err == nil {
+	if _, err := os.Stat(filepath.Join(dictsDir, "english-wordnet-2025-plus.tsd")); err == nil {
 		// Default resolution returns Enabled dictionaries in priority order.
 		defPaths, err := profile.ResolveDictionaryPaths(nil, loaded)
-		if err != nil || len(defPaths) != 1 || filepath.Base(defPaths[0]) != "Core English.tsd" {
+		if err != nil || len(defPaths) != 1 || filepath.Base(defPaths[0]) != "english-wordnet-2025-plus.tsd" {
 			t.Fatalf("default ResolveDictionaryPaths = %v, %v", defPaths, err)
 		}
 
 		// Legacy ';'-separated spec resolving profile alias + directory stem case-insensitively.
-		resolved, err := profile.ResolveDictionaryPaths([]string{"example 2;the devil's dictionary"}, loaded)
-		if err != nil || len(resolved) != 2 {
-			t.Fatalf("ResolveDictionaryPaths(';'): %v, %v", resolved, err)
+		resolved, err := profile.ResolveDictionaryPaths([]string{"wordnet"}, loaded)
+		if err != nil || len(resolved) != 1 || filepath.Base(resolved[0]) != "english-wordnet-2025-plus.tsd" {
+			t.Fatalf("ResolveDictionaryPaths: %v, %v", resolved, err)
 		}
 	}
 }
