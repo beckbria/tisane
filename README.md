@@ -169,7 +169,16 @@ Nutrimatic ranks likely words and multi-word phrases utilizing usage frequency d
 
 ### Prerequisites
 
-Installing `bazel` (or [Bazelisk](https://github.com/bazelbuild/bazelisk) on Windows) will manage dependencies.  `bazel build ...` will install the necessary tools.
+Installing `bazel` (or [Bazelisk](https://github.com/bazelbuild/bazelisk) on Windows) will manage Go dependencies automatically.
+
+To build the Windows installer (`bazel build //:windows-release`), **NSIS** (`makensis`) must also be installed and available on `PATH`:
+
+- **Linux (Ubuntu / Debian)**: `sudo apt install nsis`
+- **Linux (Fedora)**: `sudo dnf install nsis`
+- **macOS**: `brew install nsis`
+- **Windows**: `winget install NSIS.NSIS` (or `choco install nsis`)
+
+*(Note: `//:linux-release`, `//:windows`, and `//:windows-release-zip` do not require NSIS.)*
 
 #### Frameworks used in Tisane
 
@@ -339,10 +348,11 @@ bazel build //:windows
 # Or cross-compile any target via the windows config / platform flag:
 bazel build --config=windows //:tisane //:tisane-cli //:tisane-build
 
-# Build distributable release archives (all binaries + bundled dictionaries):
+# Build distributable releases (all binaries + bundled dictionaries):
 # - bazel-bin/linux-release.tar.gz (Linux binaries + dictionaries/)
-# - bazel-bin/windows-release.zip  (Windows .exe binaries + dictionaries/)
-bazel build //:linux-release //:windows-release
+# - bazel-bin/tisane-setup.exe     (Windows NSIS installer; requires NSIS / `makensis` — see Prerequisites)
+# - bazel-bin/windows-release.zip  (Portable Windows .exe binaries + dictionaries/)
+bazel build //:linux-release //:windows-release //:windows-release-zip
 
 # Run all Go unit and integration tests via Bazel
 bazel test //...

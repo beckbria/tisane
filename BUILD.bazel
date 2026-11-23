@@ -1,5 +1,5 @@
 load("@gazelle//:def.bzl", "gazelle")
-load(":release.bzl", "release_archive")
+load(":release.bzl", "release_archive", "windows_installer")
 
 # gazelle:prefix tisane
 # gazelle:build_file_name BUILD.bazel
@@ -136,8 +136,18 @@ release_archive(
     visibility = ["//visibility:public"],
 )
 
-release_archive(
+windows_installer(
     name = "windows-release",
+    out = "tisane-setup.exe",
+    binaries = [":windows"],
+    dictionaries = [":dictionaries"],
+    icon = "//build:appicon.png",
+    script = "//build:windows/installer.nsi",
+    visibility = ["//visibility:public"],
+)
+
+release_archive(
+    name = "windows-release-zip",
     out = "windows-release.zip",
     binaries = [":windows"],
     dictionaries = [":dictionaries"],

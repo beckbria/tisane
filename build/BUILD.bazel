@@ -5,6 +5,7 @@ exports_files(
         "appicon.png",
         "linux/tisane.desktop",
         "windows/info.json",
+        "windows/installer.nsi",
         "windows/tisane.exe.manifest",
     ],
     visibility = ["//visibility:public"],

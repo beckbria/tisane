@@ -1,4 +1,4 @@
-"""Bazel rules for packaging Tisane Linux (.tar.gz) and Windows (.zip) release archives."""
+"""Bazel rules for packaging Tisane Linux (.tar.gz) and Windows (.exe installer / .zip) releases."""
 
 def _release_archive_impl(ctx):
     out = ctx.outputs.out
@@ -61,6 +61,72 @@ release_archive = rule(
         ),
         "_packager": attr.label(
             default = "//internal/releasepkg",
+            executable = True,
+            cfg = "exec",
+        ),
+    },
+)
+
+def _windows_installer_impl(ctx):
+    out = ctx.outputs.out
+    args = ctx.actions.args()
+    args.add("-script", ctx.file.script.path)
+    args.add("-icon", ctx.file.icon.path)
+    args.add("-out", out.path)
+    if ctx.attr.version:
+        args.add("-version", ctx.attr.version)
+
+    for b in ctx.files.binaries:
+        args.add("-bin", b.path + "=" + b.basename)
+
+    for d in ctx.files.dictionaries:
+        rel = d.short_path
+        if not rel.startswith("dictionaries/"):
+            rel = "dictionaries/" + d.basename
+        args.add("-file", d.path + "=" + rel)
+
+    ctx.actions.run(
+        executable = ctx.executable._builder,
+        arguments = [args],
+        inputs = depset(
+            ctx.files.binaries +
+            ctx.files.dictionaries +
+            [ctx.file.icon, ctx.file.script],
+        ),
+        outputs = [out],
+        mnemonic = "WindowsInstaller",
+        progress_message = "Building Windows installer %s" % out.short_path,
+        use_default_shell_env = True,
+    )
+    return [DefaultInfo(files = depset([out]))]
+
+windows_installer = rule(
+    implementation = _windows_installer_impl,
+    attrs = {
+        "binaries": attr.label_list(
+            allow_files = True,
+            mandatory = True,
+        ),
+        "dictionaries": attr.label_list(
+            allow_files = True,
+            mandatory = True,
+        ),
+        "icon": attr.label(
+            allow_single_file = [".png"],
+            mandatory = True,
+        ),
+        "out": attr.output(
+            mandatory = True,
+        ),
+        "script": attr.label(
+            allow_single_file = [".nsi"],
+            mandatory = True,
+        ),
+        "version": attr.string(
+            default = "",
+        ),
+        "_builder": attr.label(
+            default = "//internal/wininstaller",
             executable = True,
             cfg = "exec",
         ),
