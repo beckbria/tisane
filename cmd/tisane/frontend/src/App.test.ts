@@ -6,6 +6,8 @@ import { setBackendForTesting, type TisaneBackend } from './lib/bindings';
 import { DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
 import { APP_VERSION } from './lib/version';
 import type {
+  BuildDictionaryRequest,
+  BuildDictionaryResult,
   Config,
   ConfigPatch,
   DictionaryInfo,
@@ -128,6 +130,44 @@ function createMockHarness() {
     removeDictionary: vi.fn(async (id: string) => {
       dicts = dicts.filter((d) => d.id !== id);
       return dicts;
+    }),
+    browseWordListFile: vi.fn(async () => '/tmp/wordlist.txt'),
+    browseSaveDictionaryFile: vi.fn(async (defaultPath: string) => defaultPath || '/tmp/custom.tsd'),
+    browseAlphabetMapFile: vi.fn(async () => '/tmp/ANSI.TSM'),
+    buildDictionary: vi.fn(async (req: BuildDictionaryRequest): Promise<BuildDictionaryResult> => {
+      const result: BuildDictionaryResult = {
+        outputPath: req.outputPath,
+        inputLines: 120,
+        uniqueWords: 98,
+        maxWordLength: Math.min(req.maxLen, 14),
+        pass1Definitions: 4,
+        pass2Definitions: 25,
+        ftsOnlyWords: 12,
+        usedLetters: 26,
+        totalLetters: 34,
+        bytesWritten: 8420,
+        elapsedMs: 12.5,
+        addedToLibrary: req.addToLibrary
+      };
+      if (req.addToLibrary) {
+        dicts = [
+          ...dicts,
+          {
+            id: req.outputPath,
+            path: req.outputPath,
+            name: req.outputPath.split('/').pop()?.replace(/\.tsd$/i, '') || 'custom',
+            description: req.description,
+            version: 'TSD1',
+            wordCount: result.uniqueWords,
+            maxWordLength: result.maxWordLength,
+            hasDefinitions: true,
+            hasFTS: req.maxFTSPercent > 0,
+            enabled: true
+          }
+        ];
+        emit('dicts:updated', dicts.map((d) => ({ ...d })));
+      }
+      return result;
     }),
 
     validatePattern: vi.fn(async (req: ValidateRequest) => {
@@ -830,5 +870,88 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
     });
+  });
+
+  it('opens the Dictionary Builder modal, exposes all tisane-build options, validates inputs, and builds a dictionary', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('add-dict-btn')).toBeInTheDocument());
+
+    // Open via + Add dropdown -> Build dictionary…
+    await fireEvent.click(screen.getByTestId('add-dict-btn'));
+    await waitFor(() => expect(screen.getByTestId('build-dict-option')).toBeInTheDocument());
+    await fireEvent.click(screen.getByTestId('build-dict-option'));
+
+    await waitFor(() => expect(screen.getByTestId('build-dict-modal')).toBeInTheDocument());
+
+    // Submit is disabled until input & output paths are set
+    expect(screen.getByTestId('builder-submit-btn')).toBeDisabled();
+
+    // Browse for word list file -> auto-derives output .tsd path
+    await fireEvent.click(screen.getByTestId('builder-browse-input-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-input-path')).toHaveValue('/tmp/wordlist.txt');
+      expect(screen.getByTestId('builder-output-path')).toHaveValue('/tmp/wordlist.tsd');
+    });
+
+    // Change output path via Save As button
+    (h.backend.browseSaveDictionaryFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce('/tmp/my_dict.tsd');
+    await fireEvent.click(screen.getByTestId('builder-browse-output-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-output-path')).toHaveValue('/tmp/my_dict.tsd');
+    });
+
+    // Set description, word length min/max, encoding, max FTS %, alphabet map, no-sort, and TSV mode
+    await fireEvent.input(screen.getByTestId('builder-description'), {
+      target: { value: 'My custom crossword list' }
+    });
+    await fireEvent.input(screen.getByTestId('builder-min-len'), { target: { value: '3' } });
+    await fireEvent.input(screen.getByTestId('builder-max-len'), { target: { value: '15' } });
+    await fireEvent.change(screen.getByTestId('builder-encoding'), { target: { value: 'utf8' } });
+    await fireEvent.input(screen.getByTestId('builder-max-fts-pct'), { target: { value: '20' } });
+    await fireEvent.click(screen.getByTestId('builder-browse-map-btn'));
+    await waitFor(() => expect(screen.getByTestId('builder-map-path')).toHaveValue('/tmp/ANSI.TSM'));
+
+    await fireEvent.click(screen.getByTestId('builder-sort-alpha')); // uncheck -> preserve input order
+    await fireEvent.click(screen.getByTestId('builder-tsv-mode')); // check -> TSV mode
+
+    // Invalid min > max disables submit and shows validation message
+    await fireEvent.input(screen.getByTestId('builder-min-len'), { target: { value: '20' } });
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-validation-error')).toBeInTheDocument();
+      expect(screen.getByTestId('builder-submit-btn')).toBeDisabled();
+    });
+    await fireEvent.input(screen.getByTestId('builder-min-len'), { target: { value: '3' } });
+    await waitFor(() => expect(screen.getByTestId('builder-submit-btn')).not.toBeDisabled());
+
+    // Submit build
+    await fireEvent.click(screen.getByTestId('builder-submit-btn'));
+
+    await waitFor(() => expect(screen.getByTestId('builder-success')).toBeInTheDocument());
+    expect(h.backend.buildDictionary).toHaveBeenCalledWith({
+      inputPath: '/tmp/wordlist.txt',
+      outputPath: '/tmp/my_dict.tsd',
+      mapPath: '/tmp/ANSI.TSM',
+      description: 'My custom crossword list',
+      minLen: 3,
+      maxLen: 15,
+      maxFTSPercent: 20,
+      sortAlphabetically: false,
+      tabSeparatedAnnotations: true,
+      encoding: 'utf8',
+      addToLibrary: true
+    });
+    expect(screen.getByTestId('builder-success')).toHaveTextContent('Dictionary built successfully');
+    expect(screen.getByTestId('builder-success')).toHaveTextContent('Added to Tisane');
+
+    // Close via Escape, then reopen via native File menu event ui:open-dict-builder
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('build-dict-modal')).not.toBeInTheDocument());
+
+    h.emit('ui:open-dict-builder', null);
+    await tick();
+    await waitFor(() => expect(screen.getByTestId('build-dict-modal')).toBeInTheDocument());
   });
 });

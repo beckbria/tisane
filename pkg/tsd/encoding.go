@@ -4,6 +4,7 @@ package tsd
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -22,6 +23,21 @@ const (
 	// EncodingUTF8 decodes input text as UTF-8 and maps runes into Windows-1252.
 	EncodingUTF8
 )
+
+// ParseInputEncoding parses a user-facing encoding name ("auto", "cp1252", "utf8", etc.)
+// into an InputEncoding value.
+func ParseInputEncoding(name string) (InputEncoding, error) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "auto", "":
+		return EncodingAuto, nil
+	case "cp1252", "windows-1252", "ansi", "latin1":
+		return EncodingCP1252, nil
+	case "utf8", "utf-8":
+		return EncodingUTF8, nil
+	default:
+		return EncodingAuto, fmt.Errorf("tsd: unsupported encoding %q (expected auto, cp1252, or utf8)", name)
+	}
+}
 
 // cp1252High maps bytes 0x80..0x9F in Windows-1252 to Unicode code points.
 // The five unassigned C1 bytes (0x81, 0x8D, 0x8F, 0x90, 0x9D) map to U+0081..U+009D

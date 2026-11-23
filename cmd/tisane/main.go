@@ -66,6 +66,54 @@ func (b *wailsHostBridge) PickDictionaryDirectory() (string, error) {
 	return dlg.PromptForSingleSelection()
 }
 
+func (b *wailsHostBridge) PickWordListFile() (string, error) {
+	if b.wailsApp == nil || b.wailsApp.Dialog == nil {
+		return "", nil
+	}
+	dlg := b.wailsApp.Dialog.OpenFile().
+		SetTitle("Select Word List File").
+		AddFilter("Word Lists (*.txt, *.tsv, *.lst, *.dic)", "*.txt;*.TXT;*.tsv;*.TSV;*.lst;*.LST;*.dic;*.DIC").
+		AddFilter("All Files (*.*)", "*.*")
+	if b.mainWin != nil {
+		dlg.AttachToWindow(b.mainWin)
+	}
+	return dlg.PromptForSingleSelection()
+}
+
+func (b *wailsHostBridge) PickSaveDictionaryFile(defaultDir, defaultName string) (string, error) {
+	if b.wailsApp == nil || b.wailsApp.Dialog == nil {
+		return "", nil
+	}
+	dlg := b.wailsApp.Dialog.SaveFile().
+		SetMessage("Save Tisane / TEA Dictionary (.tsd)").
+		AddFilter("TEA Dictionary (*.tsd)", "*.tsd;*.TSD").
+		CanCreateDirectories(true)
+	if defaultDir != "" {
+		dlg.SetDirectory(defaultDir)
+	}
+	if defaultName != "" {
+		dlg.SetFilename(defaultName)
+	}
+	if b.mainWin != nil {
+		dlg.AttachToWindow(b.mainWin)
+	}
+	return dlg.PromptForSingleSelection()
+}
+
+func (b *wailsHostBridge) PickAlphabetMapFile() (string, error) {
+	if b.wailsApp == nil || b.wailsApp.Dialog == nil {
+		return "", nil
+	}
+	dlg := b.wailsApp.Dialog.OpenFile().
+		SetTitle("Select Alphabet Map (.tsm)").
+		AddFilter("Alphabet Map (*.tsm)", "*.tsm;*.TSM").
+		AddFilter("All Files (*.*)", "*.*")
+	if b.mainWin != nil {
+		dlg.AttachToWindow(b.mainWin)
+	}
+	return dlg.PromptForSingleSelection()
+}
+
 func newServices(state *app.State) (
 	*app.DictionaryService,
 	*app.SearchService,
@@ -104,6 +152,12 @@ func buildAppMenu(
 		OnClick(func(*application.Context) {
 			_, _ = dictSvc.BrowseAndAddDirectory()
 		})
+	fileMenu.Add("Build Dictionary from Word List...").
+		SetAccelerator("CmdOrCtrl+Shift+B").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit("ui:open-dict-builder", nil)
+		})
+	fileMenu.AddSeparator()
 	fileMenu.Add("Settings...").
 		SetAccelerator("CmdOrCtrl+,").
 		OnClick(func(*application.Context) {

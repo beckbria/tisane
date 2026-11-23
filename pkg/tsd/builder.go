@@ -7,7 +7,9 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // BuildOptions configures compilation of a word/definition source file into a TSD1 dictionary.
@@ -44,6 +46,88 @@ func DefaultBuildOptions() BuildOptions {
 		Alphabet:           DefaultTSM(),
 		Encoding:           EncodingAuto,
 	}
+}
+
+// BuildParams describes high-level, user-facing dictionary build parameters shared
+// between the tisane-build CLI and the Tisane desktop GUI.
+type BuildParams struct {
+	InputPath               string
+	OutputPath              string
+	MapPath                 string
+	Description             string
+	MinLen                  int
+	MaxLen                  int
+	MaxFTSPercent           int
+	SortAlphabetically      bool
+	TabSeparatedAnnotations bool
+	Encoding                string
+}
+
+// DefaultOutputPath derives the default .tsd output path for a given input word list path.
+// Returns "" if inputPath is empty or "-".
+func DefaultOutputPath(inputPath string) string {
+	trimmed := strings.TrimSpace(inputPath)
+	if trimmed == "" || trimmed == "-" {
+		return ""
+	}
+	ext := filepath.Ext(trimmed)
+	if ext != "" && !strings.EqualFold(ext, ".tsd") {
+		return strings.TrimSuffix(trimmed, ext) + ".tsd"
+	}
+	return trimmed + ".tsd"
+}
+
+// ResolveBuildOptions converts user-facing BuildParams into validated BuildOptions,
+// parsing the input encoding name and loading any custom .tsm alphabet map file.
+func ResolveBuildOptions(params BuildParams) (BuildOptions, error) {
+	opts := DefaultBuildOptions()
+	opts.MinLen = params.MinLen
+	opts.MaxLen = params.MaxLen
+	opts.MaxFTSPercent = params.MaxFTSPercent
+	opts.SortAlphabetically = params.SortAlphabetically
+	opts.Description = params.Description
+	opts.TabSeparatedAnnotations = params.TabSeparatedAnnotations
+
+	enc, err := ParseInputEncoding(params.Encoding)
+	if err != nil {
+		return BuildOptions{}, err
+	}
+	opts.Encoding = enc
+
+	mapPath := strings.TrimSpace(params.MapPath)
+	if mapPath != "" && !strings.EqualFold(mapPath, "default") {
+		alphabet, err := LoadTSM(mapPath)
+		if err != nil {
+			return BuildOptions{}, fmt.Errorf("failed to load alphabet map %q: %w", mapPath, err)
+		}
+		opts.Alphabet = alphabet
+	}
+	return opts, nil
+}
+
+// BuildFileWithParams resolves params, compiles params.InputPath into a TSD1 dictionary,
+// and writes the resulting .tsd file to params.OutputPath (or DefaultOutputPath if empty).
+func BuildFileWithParams(params BuildParams) (string, *BuildStats, error) {
+	inputPath := strings.TrimSpace(params.InputPath)
+	if inputPath == "" {
+		return "", nil, fmt.Errorf("tsd: input word list path is required")
+	}
+	outputPath := strings.TrimSpace(params.OutputPath)
+	if outputPath == "" {
+		outputPath = DefaultOutputPath(inputPath)
+	}
+	if outputPath == "" {
+		return "", nil, fmt.Errorf("tsd: output dictionary path is required")
+	}
+	opts, err := ResolveBuildOptions(params)
+	if err != nil {
+		return "", nil, err
+	}
+	stats, err := BuildFile(inputPath, outputPath, opts)
+	if err != nil {
+		return "", nil, err
+	}
+	return outputPath, stats, nil
 }
 
 // BuildStats summarizes the contents of a compiled TSD1 dictionary.

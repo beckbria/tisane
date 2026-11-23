@@ -24,12 +24,17 @@ type recordedEvent struct {
 }
 
 type mockBridge struct {
-	mu         sync.Mutex
-	events     []recordedEvent
-	openedURLs []string
-	picked     []string
-	pickedDir  string
-	completeCh chan app.SearchCompleteEvent
+	mu          sync.Mutex
+	events      []recordedEvent
+	openedURLs  []string
+	picked      []string
+	pickedDir   string
+	pickedWord  string
+	pickedSave  string
+	pickedMap   string
+	saveDefDir  string
+	saveDefName string
+	completeCh  chan app.SearchCompleteEvent
 }
 
 func newMockBridge() *mockBridge {
@@ -66,6 +71,26 @@ func (m *mockBridge) PickDictionaryDirectory() (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.pickedDir, nil
+}
+
+func (m *mockBridge) PickWordListFile() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pickedWord, nil
+}
+
+func (m *mockBridge) PickSaveDictionaryFile(defaultDir, defaultName string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.saveDefDir = defaultDir
+	m.saveDefName = defaultName
+	return m.pickedSave, nil
+}
+
+func (m *mockBridge) PickAlphabetMapFile() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pickedMap, nil
 }
 
 func TestDesktopServicesEndToEnd(t *testing.T) {
@@ -466,5 +491,135 @@ func TestProfileServiceSidebarSettingsPersistence(t *testing.T) {
 	}
 	if diskCfg.SidebarWidth != 340 || !diskCfg.SidebarCollapsed {
 		t.Fatalf("unexpected persisted sidebar config: %+v", diskCfg)
+	}
+}
+
+func TestDictionaryServiceBuildDictionary(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.toml")
+	bridge := newMockBridge()
+
+	state, err := app.NewState(cfgPath, bridge)
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+	defer state.Close()
+
+	dictSvc := app.NewDictionaryService(state)
+	for _, info := range dictSvc.ListDictionaries() {
+		_, _ = dictSvc.RemoveDictionary(info.ID)
+	}
+
+	// Verify file picker helpers.
+	wordListPath := filepath.Join(tmpDir, "custom_words.txt")
+	wordListData := strings.Join([]string{
+		"a",
+		"cat\tnoun|A small domesticated feline",
+		"zebra:zebras|A striped African equine",
+		"elephant|A large mammal with a trunk",
+		"supercalifragilistic",
+	}, "\n") + "\n"
+	if err := os.WriteFile(wordListPath, []byte(wordListData), 0o644); err != nil {
+		t.Fatalf("WriteFile word list: %v", err)
+	}
+
+	bridge.pickedWord = wordListPath
+	gotWord, err := dictSvc.BrowseWordListFile()
+	if err != nil || gotWord != wordListPath {
+		t.Fatalf("BrowseWordListFile: got %q err=%v", gotWord, err)
+	}
+
+	outNoExt := filepath.Join(tmpDir, "animals")
+	bridge.pickedSave = outNoExt
+	gotSave, err := dictSvc.BrowseSaveDictionaryFile(filepath.Join(tmpDir, "custom_words.tsd"))
+	if err != nil || gotSave != outNoExt+".tsd" {
+		t.Fatalf("BrowseSaveDictionaryFile: got %q err=%v", gotSave, err)
+	}
+	if bridge.saveDefDir != tmpDir || bridge.saveDefName != "custom_words.tsd" {
+		t.Fatalf("unexpected save dialog defaults: dir=%q name=%q", bridge.saveDefDir, bridge.saveDefName)
+	}
+
+	// Build with custom min/max length, description, TSV mode, and AddToLibrary=true.
+	outPath := filepath.Join(tmpDir, "animals.tsd")
+	res, err := dictSvc.BuildDictionary(app.BuildDictionaryRequest{
+		InputPath:               wordListPath,
+		OutputPath:              outPath,
+		Description:             "Custom Animals Dictionary",
+		MinLen:                  3,
+		MaxLen:                  10,
+		MaxFTSPercent:           10,
+		SortAlphabetically:      true,
+		TabSeparatedAnnotations: true,
+		Encoding:                "utf8",
+		AddToLibrary:            true,
+	})
+	if err != nil {
+		t.Fatalf("BuildDictionary: %v", err)
+	}
+	if res.OutputPath != outPath {
+		t.Fatalf("expected OutputPath=%q, got %q", outPath, res.OutputPath)
+	}
+	if !res.AddedToLibrary {
+		t.Fatalf("expected AddedToLibrary=true")
+	}
+	// "a" (len 1) and "supercalifragilistic" (len 20) should be excluded; cat, zebra, zebras, elephant remain.
+	if res.UniqueWords != 4 || res.MaxWordLength != 8 {
+		t.Fatalf("unexpected build stats: %+v", res)
+	}
+	if res.Pass2Definitions != 3 {
+		t.Fatalf("expected 3 headword definitions, got %+v", res)
+	}
+
+	// Verify the built dictionary is registered in Tisane with the exact description and word count.
+	dicts := dictSvc.ListDictionaries()
+	if len(dicts) != 1 {
+		t.Fatalf("expected 1 registered dictionary, got %d", len(dicts))
+	}
+	if dicts[0].Description != "Custom Animals Dictionary" || dicts[0].WordCount != 4 || !dicts[0].HasDefinitions || !dicts[0].HasFTS {
+		t.Fatalf("unexpected registered dictionary info: %+v", dicts[0])
+	}
+
+	// Verify output bytes match direct pkg/tsd.BuildBytes with identical options.
+	expectedBytes, _, err := tsd.BuildBytes([]byte(wordListData), tsd.BuildOptions{
+		MinLen:                  3,
+		MaxLen:                  10,
+		MaxFTSPercent:           10,
+		SortAlphabetically:      true,
+		Description:             "Custom Animals Dictionary",
+		Encoding:                tsd.EncodingUTF8,
+		TabSeparatedAnnotations: true,
+	})
+	if err != nil {
+		t.Fatalf("tsd.BuildBytes: %v", err)
+	}
+	actualBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q): %v", outPath, err)
+	}
+	if string(actualBytes) != string(expectedBytes) {
+		t.Fatalf("GUI builder output differs from shared pkg/tsd.BuildBytes (%d vs %d bytes)", len(actualBytes), len(expectedBytes))
+	}
+
+	// Rebuilding over the already-loaded dictionary reloads its handle cleanly with updated metadata.
+	res2, err := dictSvc.BuildDictionary(app.BuildDictionaryRequest{
+		InputPath:          wordListPath,
+		OutputPath:         outPath,
+		Description:        "Updated Animals",
+		MinLen:             1,
+		MaxLen:             100,
+		MaxFTSPercent:      0, // disable FTS
+		SortAlphabetically: false,
+		Encoding:           "auto",
+		AddToLibrary:       false,
+	})
+	if err != nil {
+		t.Fatalf("rebuild BuildDictionary: %v", err)
+	}
+	if res2.UniqueWords != 6 {
+		t.Fatalf("expected 6 unique words on rebuild, got %+v", res2)
+	}
+	dictsAfter := dictSvc.ListDictionaries()
+	if len(dictsAfter) != 1 || dictsAfter[0].Description != "Updated Animals" || dictsAfter[0].WordCount != 6 || dictsAfter[0].MaxWordLength != 20 {
+		t.Fatalf("expected reloaded dictionary with updated stats, got %+v", dictsAfter)
 	}
 }

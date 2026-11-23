@@ -27,6 +27,7 @@
   import SettingsModal from './lib/components/SettingsModal.svelte';
   import FontSettingsModal from './lib/components/FontSettingsModal.svelte';
   import AboutModal from './lib/components/AboutModal.svelte';
+  import BuildDictionaryModal from './lib/components/BuildDictionaryModal.svelte';
 
   const DEFAULT_SIDEBAR_WIDTH = 272;
   const MIN_SIDEBAR_WIDTH = 180;
@@ -99,6 +100,7 @@
   let showSettings = $state(false);
   let showFontSettings = $state(false);
   let showAbout = $state(false);
+  let showDictBuilder = $state(false);
 
   // Resizable & collapsible dictionary sidebar state
   let isResizingSidebar = $state(false);
@@ -528,6 +530,9 @@
       mode = 'fts';
       patternBarRef?.focusInput();
       scheduleValidation(true);
+    } else if (mod && e.shiftKey && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      showDictBuilder = true;
     } else if (mod && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       toggleSidebarCollapsed();
@@ -546,6 +551,8 @@
     } else if (e.key === 'Escape') {
       if (showAbout) {
         showAbout = false;
+      } else if (showDictBuilder) {
+        showDictBuilder = false;
       } else if (showFontSettings) {
         showFontSettings = false;
       } else if (showSettings) {
@@ -661,6 +668,11 @@
     unsubs.push(
       backend.onEvent('ui:open-about', () => {
         showAbout = true;
+      })
+    );
+    unsubs.push(
+      backend.onEvent('ui:open-dict-builder', () => {
+        showDictBuilder = true;
       })
     );
     unsubs.push(
@@ -788,6 +800,7 @@
       onReorder={handleReorderDicts}
       onBrowseAdd={handleBrowseAddDicts}
       onBrowseAddDirectory={handleBrowseAddDirectory}
+      onOpenBuilder={() => (showDictBuilder = true)}
       onRemove={handleRemoveDict}
       onCollapse={() => setSidebarCollapsed(true)}
       onOptionChange={(patch) => applyConfigPatch(patch, true)}
@@ -980,5 +993,11 @@
     onOpenExternalURL={(u) => {
       void getBackend().openExternalURL(u);
     }}
+  />
+
+  <!-- Build Dictionary from Word List Modal -->
+  <BuildDictionaryModal
+    open={showDictBuilder}
+    onClose={() => (showDictBuilder = false)}
   />
 </div>

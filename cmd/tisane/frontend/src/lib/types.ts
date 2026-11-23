@@ -208,3 +208,34 @@ export interface ConfigPatch {
   webProviders?: WebProvider[];
   fonts?: FontConfig;
 }
+
+export type BuildInputEncoding = 'auto' | 'utf8' | 'cp1252';
+
+export interface BuildDictionaryRequest {
+  inputPath: string;
+  outputPath: string;
+  mapPath: string;
+  description: string;
+  minLen: number;
+  maxLen: number;
+  maxFTSPercent: number;
+  sortAlphabetically: boolean;
+  tabSeparatedAnnotations: boolean;
+  encoding: BuildInputEncoding;
+  addToLibrary: boolean;
+}
+
+export interface BuildDictionaryResult {
+  outputPath: string;
+  inputLines: number;
+  uniqueWords: number;
+  maxWordLength: number;
+  pass1Definitions: number;
+  pass2Definitions: number;
+  ftsOnlyWords: number;
+  usedLetters: number;
+  totalLetters: number;
+  bytesWritten: number;
+  elapsedMs: number;
+  addedToLibrary: boolean;
+}

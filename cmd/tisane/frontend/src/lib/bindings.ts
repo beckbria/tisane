@@ -1,5 +1,7 @@
 import { Call, Events } from '@wailsio/runtime';
 import type {
+  BuildDictionaryRequest,
+  BuildDictionaryResult,
   Config,
   ConfigPatch,
   DictionaryInfo,
@@ -20,6 +22,10 @@ export interface TisaneBackend {
   browseAndAddDirectory(): Promise<DictionaryInfo[]>;
   scanDirectory(dir: string): Promise<DictionaryInfo[]>;
   removeDictionary(id: string): Promise<DictionaryInfo[]>;
+  browseWordListFile(): Promise<string>;
+  browseSaveDictionaryFile(defaultPath: string): Promise<string>;
+  browseAlphabetMapFile(): Promise<string>;
+  buildDictionary(req: BuildDictionaryRequest): Promise<BuildDictionaryResult>;
 
   validatePattern(req: ValidateRequest): Promise<ValidationResult>;
   startSearch(req: SearchRequest): Promise<number>;
@@ -45,6 +51,10 @@ const FQN = {
   browseAndAddDirectory: 'tisane/cmd/tisane/app.DictionaryService.BrowseAndAddDirectory',
   scanDirectory: 'tisane/cmd/tisane/app.DictionaryService.ScanDirectory',
   removeDictionary: 'tisane/cmd/tisane/app.DictionaryService.RemoveDictionary',
+  browseWordListFile: 'tisane/cmd/tisane/app.DictionaryService.BrowseWordListFile',
+  browseSaveDictionaryFile: 'tisane/cmd/tisane/app.DictionaryService.BrowseSaveDictionaryFile',
+  browseAlphabetMapFile: 'tisane/cmd/tisane/app.DictionaryService.BrowseAlphabetMapFile',
+  buildDictionary: 'tisane/cmd/tisane/app.DictionaryService.BuildDictionary',
 
   validatePattern: 'tisane/cmd/tisane/app.SearchService.ValidatePattern',
   startSearch: 'tisane/cmd/tisane/app.SearchService.StartSearch',
@@ -68,6 +78,10 @@ const wailsBackend: TisaneBackend = {
   browseAndAddDirectory: () => Call.ByName(FQN.browseAndAddDirectory),
   scanDirectory: (dir) => Call.ByName(FQN.scanDirectory, dir),
   removeDictionary: (id) => Call.ByName(FQN.removeDictionary, id),
+  browseWordListFile: () => Call.ByName(FQN.browseWordListFile),
+  browseSaveDictionaryFile: (defaultPath) => Call.ByName(FQN.browseSaveDictionaryFile, defaultPath),
+  browseAlphabetMapFile: () => Call.ByName(FQN.browseAlphabetMapFile),
+  buildDictionary: (req) => Call.ByName(FQN.buildDictionary, req),
 
   validatePattern: (req) => Call.ByName(FQN.validatePattern, req),
   startSearch: (req) => Call.ByName(FQN.startSearch, req),

@@ -13,6 +13,7 @@
     onReorder: (orderedIds: string[]) => void;
     onBrowseAdd: () => void;
     onBrowseAddDirectory?: () => void;
+    onOpenBuilder?: () => void;
     onRemove: (id: string) => void;
     onCollapse?: () => void;
     onOptionChange: (patch: {
@@ -35,6 +36,7 @@
     onReorder,
     onBrowseAdd,
     onBrowseAddDirectory,
+    onOpenBuilder,
     onRemove,
     onCollapse,
     onOptionChange
@@ -150,6 +152,19 @@
               class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
             >
               Add all from directory
+            </button>
+            <div class="my-1 border-t border-slate-800"></div>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="build-dict-option"
+              onclick={() => {
+                addMenuOpen = false;
+                onOpenBuilder?.();
+              }}
+              class="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-300"
+            >
+              Build dictionary…
             </button>
           </div>
         {/if}

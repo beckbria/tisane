@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"tisane/pkg/tsd"
@@ -124,67 +122,58 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "tisane-build: -o / --output is required when reading from stdin ('-')")
 			return 2
 		}
-		ext := filepath.Ext(inputPath)
-		if ext != "" && !strings.EqualFold(ext, ".tsd") {
-			outputPath = strings.TrimSuffix(inputPath, ext) + ".tsd"
-		} else {
-			outputPath = inputPath + ".tsd"
-		}
+		outputPath = tsd.DefaultOutputPath(inputPath)
 	}
 
-	opts := tsd.DefaultBuildOptions()
-	opts.MinLen = minLen
-	opts.MaxLen = maxLen
-	opts.MaxFTSPercent = maxFTSPct
-	opts.SortAlphabetically = !noSort
-	opts.Description = desc
-	opts.TabSeparatedAnnotations = tsvMode
-
-	switch strings.ToLower(strings.TrimSpace(encoding)) {
-	case "auto", "":
-		opts.Encoding = tsd.EncodingAuto
-	case "cp1252", "windows-1252", "ansi", "latin1":
-		opts.Encoding = tsd.EncodingCP1252
-	case "utf8", "utf-8":
-		opts.Encoding = tsd.EncodingUTF8
-	default:
-		fmt.Fprintf(stderr, "tisane-build: unsupported --encoding %q (expected auto, cp1252, or utf8)\n", encoding)
+	if _, err := tsd.ParseInputEncoding(encoding); err != nil {
+		fmt.Fprintf(stderr, "tisane-build: %v\n", err)
 		return 2
 	}
 
-	if mapPath != "" && !strings.EqualFold(mapPath, "default") {
-		alphabet, err := tsd.LoadTSM(mapPath)
-		if err != nil {
-			fmt.Fprintf(stderr, "tisane-build: failed to load alphabet map %q: %v\n", mapPath, err)
-			return 1
-		}
-		opts.Alphabet = alphabet
+	params := tsd.BuildParams{
+		InputPath:               inputPath,
+		OutputPath:              outputPath,
+		MapPath:                 mapPath,
+		Description:             desc,
+		MinLen:                  minLen,
+		MaxLen:                  maxLen,
+		MaxFTSPercent:           maxFTSPct,
+		SortAlphabetically:      !noSort,
+		TabSeparatedAnnotations: tsvMode,
+		Encoding:                encoding,
+	}
+
+	opts, err := tsd.ResolveBuildOptions(params)
+	if err != nil {
+		fmt.Fprintf(stderr, "tisane-build: %v\n", err)
+		return 1
 	}
 
 	start := time.Now()
-	var (
-		rawInput []byte
-		err      error
-	)
+	var stats *tsd.BuildStats
 	if inputPath == "-" {
-		rawInput, err = io.ReadAll(stdin)
+		rawInput, readErr := io.ReadAll(stdin)
+		if readErr != nil {
+			fmt.Fprintf(stderr, "tisane-build: failed to read input %q: %v\n", inputPath, readErr)
+			return 1
+		}
+		outBytes, s, buildErr := tsd.BuildBytes(rawInput, opts)
+		if buildErr != nil {
+			fmt.Fprintf(stderr, "tisane-build: build failed: %v\n", buildErr)
+			return 1
+		}
+		if writeErr := os.WriteFile(outputPath, outBytes, 0o644); writeErr != nil {
+			fmt.Fprintf(stderr, "tisane-build: failed to write %q: %v\n", outputPath, writeErr)
+			return 1
+		}
+		stats = s
 	} else {
-		rawInput, err = os.ReadFile(inputPath)
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "tisane-build: failed to read input %q: %v\n", inputPath, err)
-		return 1
-	}
-
-	outBytes, stats, err := tsd.BuildBytes(rawInput, opts)
-	if err != nil {
-		fmt.Fprintf(stderr, "tisane-build: build failed: %v\n", err)
-		return 1
-	}
-
-	if err := os.WriteFile(outputPath, outBytes, 0o644); err != nil {
-		fmt.Fprintf(stderr, "tisane-build: failed to write %q: %v\n", outputPath, err)
-		return 1
+		var buildErr error
+		stats, buildErr = tsd.BuildFile(inputPath, outputPath, opts)
+		if buildErr != nil {
+			fmt.Fprintf(stderr, "tisane-build: %v\n", buildErr)
+			return 1
+		}
 	}
 
 	if !quiet {
