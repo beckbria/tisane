@@ -44,7 +44,7 @@ Tisane is a high-speed crossword, cryptic, anagram, and dictionary pattern-match
 | Path | Purpose |
 | :--- | :--- |
 | `BUILD.bazel`, `MODULE.bazel`, `release.bzl`, `.bazelrc` | Root Bazel/Bzlmod build graph, cross-platform targets, and release packaging rules |
-| `artifacts/` | Design docs, specs, and implementation plans (`implementation_plan.md`, `pattern_syntax.md`, `dictionary_format.md`, `installer_plan.md`) |
+| `artifacts/` | Design docs, specs, and implementation plans (`implementation_plan.md`, `pattern_syntax.md`, `dictionary_format.md`, `installer_plan.md`, `ui_accessibility.md`) |
 | `build/` | Shared app icon (`appicon.png`), embedded Go asset package (`assets.go`), Linux `.desktop` entry, and Windows manifest/NSIS/version metadata (`build/windows/`) |
 | `cmd/tisane/` | Desktop GUI entry point (`main.go`), Wails v3 wiring, and Bazel rules (`frontend.bzl`, `winrsrc.bzl`) |
 | `cmd/tisane/app/` | Testable desktop backend services (`dict_service.go`, `tools_service.go`, `search_service.go`, `lookup_service.go`, `profile_service.go`, `dict_builder.go`, `wordlist_merge.go`, `events.go`, `state.go`) |
