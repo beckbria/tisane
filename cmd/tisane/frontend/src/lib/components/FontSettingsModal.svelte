@@ -191,7 +191,7 @@
                       type="button"
                       data-testid={`font-reset-${item.key}`}
                       onclick={() => resetElement(item.key)}
-                      class="rounded bg-slate-800 px-1.5 py-0.2 text-[10px] text-amber-300 hover:bg-slate-700"
+                      class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-slate-700"
                       title={`Reset ${item.label} to ${def.family} (${def.size}px)`}
                     >
                       Reset

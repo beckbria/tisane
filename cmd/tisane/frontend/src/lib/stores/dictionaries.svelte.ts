@@ -12,7 +12,12 @@ function formatError(err: unknown): string {
 }
 
 function dictListSignature(list: DictionaryInfo[]): string {
-  return list.map((d) => `${d.id}:${d.enabled ? '1' : '0'}`).join('|');
+  return list
+    .map(
+      (d) =>
+        `${d.id}:${d.enabled ? '1' : '0'}:${d.name}:${d.wordCount}:${d.maxWordLength}:${d.hasDefinitions ? '1' : '0'}:${d.hasFTS ? '1' : '0'}`
+    )
+    .join('|');
 }
 
 export class DictionaryStore {

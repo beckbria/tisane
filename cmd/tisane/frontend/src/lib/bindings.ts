@@ -150,10 +150,22 @@ export function setBackendForTesting(mock: TisaneBackend | null): void {
   activeBackend = mock ?? wailsBackend;
 }
 
-// Returns true when running inside the native Wails v3 desktop WebView (which owns native menu accelerators).
+// Returns true when running inside the native Wails v3 desktop WebView (which owns native menu accelerators),
+// returning false in headless "-tags server" browser mode and Vitest.
 export function isDesktopWebview(): boolean {
   if (typeof window === 'undefined') return false;
-  const w = window as unknown as { _wails?: { environment?: { OS?: string } } };
+  const w = window as unknown as {
+    _wails?: {
+      flags?: { server?: boolean };
+      environment?: {
+        OS?: string;
+        PlatformInfo?: { mode?: string };
+      };
+    };
+  };
+  if (w._wails?.flags?.server === true || w._wails?.environment?.PlatformInfo?.mode === 'server') {
+    return false;
+  }
   const os = w._wails?.environment?.OS;
   return os === 'windows' || os === 'linux' || os === 'darwin';
 }

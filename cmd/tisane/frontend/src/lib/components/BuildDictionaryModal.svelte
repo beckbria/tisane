@@ -52,7 +52,8 @@
     return `${n} B`;
   }
 
-  const descriptionBytes = $derived(new TextEncoder().encode(description).length);
+  // .tsd headers store descriptions as 1-byte Windows-1252 characters (max 999 bytes).
+  const descriptionBytes = $derived(Array.from(description).length);
 
   const validationError = $derived.by(() => {
     if (!Number.isInteger(minLen) || minLen < 1 || minLen > 100) {

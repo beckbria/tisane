@@ -76,6 +76,7 @@
       items[items.length - 1]?.focus();
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       addMenuOpen = false;
       addMenuBtnEl?.focus();
     }
@@ -117,16 +118,25 @@
       addMenuOpen = false;
     }
   });
+
+  $effect(() => {
+    if (!addMenuOpen || typeof window === 'undefined') return;
+    const onCaptureKeydown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        addMenuOpen = false;
+        addMenuBtnEl?.focus();
+      }
+    };
+    window.addEventListener('keydown', onCaptureKeydown, true);
+    return () => window.removeEventListener('keydown', onCaptureKeydown, true);
+  });
 </script>
 
 <svelte:window
   onclick={(e) => {
     if (addMenuOpen && addMenuContainer && !addMenuContainer.contains(e.target as Node)) {
-      addMenuOpen = false;
-    }
-  }}
-  onkeydown={(e) => {
-    if (addMenuOpen && e.key === 'Escape') {
       addMenuOpen = false;
     }
   }}

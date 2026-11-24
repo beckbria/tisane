@@ -725,6 +725,7 @@
                   title={dict.name}
                   subtitle={`${dict.wordCount.toLocaleString()} words`}
                   items={searchStore.matchesByDict[paneIdx] ?? []}
+                  searchKey={searchStore.currentSearchId}
                   selectedWord={defStore.selectedWord}
                   showDictBadge={false}
                   showBalances={cfgStore.value.showBalances}
@@ -745,6 +746,7 @@
             title="Unified Results"
             subtitle={`${displayedTiledDicts.length} active ${displayedTiledDicts.length === 1 ? 'dictionary' : 'dictionaries'}`}
             items={searchStore.allMatches}
+            searchKey={searchStore.currentSearchId}
             selectedWord={defStore.selectedWord}
             showDictBadge={true}
             showBalances={cfgStore.value.showBalances}
@@ -849,7 +851,7 @@
           <strong class="font-mono text-slate-200">{searchStore.elapsedMs.toFixed(1)} ms</strong>
         </span>
         {#if searchStore.usedIndexedFTS}
-          <span class="rounded bg-sky-500/15 px-1.5 py-0.2 text-[10px] text-sky-300">
+          <span class="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-300">
             Indexed FTS
           </span>
         {/if}

@@ -8,6 +8,7 @@
     title: string;
     subtitle?: string;
     items: Match[];
+    searchKey?: number;
     selectedWord: string | null;
     showDictBadge: boolean;
     showBalances: boolean;
@@ -23,6 +24,7 @@
     title,
     subtitle = '',
     items,
+    searchKey = 0,
     selectedWord,
     showDictBadge,
     showBalances,
@@ -37,6 +39,7 @@
   const rowHeight = $derived(Math.max(24, Math.round(fontSize * 2.15)));
   let scrollEl: HTMLDivElement | null = $state(null);
   let selectedIndex = $state(-1);
+  let lastSearchKey = -1;
   let copyAnnouncement = $state('');
   let copiedBadge = $state(false);
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -94,6 +97,14 @@
   }
 
   $effect(() => {
+    const key = searchKey;
+    if (key !== lastSearchKey) {
+      lastSearchKey = key;
+      selectedIndex = -1;
+      if (scrollEl) {
+        scrollEl.scrollTop = 0;
+      }
+    }
     // Reset local keyboard cursor when the result list is cleared or shrinks past it.
     if (items.length === 0 || selectedIndex >= items.length) {
       selectedIndex = -1;
@@ -335,7 +346,7 @@
                 {#if showAnnotations && match.annotation}
                   <span
                     style="font-size: calc(var(--tisane-font-results-size) * 0.78);"
-                    class="truncate rounded bg-slate-800 px-1.5 py-0.2 text-slate-400"
+                    class="truncate rounded bg-slate-800 px-1.5 py-0.5 text-slate-400"
                   >
                     {match.annotation}
                   </span>
@@ -358,7 +369,7 @@
                   </span>
                 {/if}
                 {#if showDictBadge && match.dict}
-                  <span class="max-w-[12ch] truncate rounded bg-slate-800/90 px-1.5 py-0.2 text-slate-400">
+                  <span class="max-w-[12ch] truncate rounded bg-slate-800/90 px-1.5 py-0.5 text-slate-400">
                     {match.dict}
                   </span>
                 {/if}

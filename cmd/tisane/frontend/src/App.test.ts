@@ -4,7 +4,12 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/sve
 import { tick } from 'svelte';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import App from './App.svelte';
-import { setBackendForTesting, type TisaneBackend, type WailsEventMap } from './lib/bindings';
+import {
+  isDesktopWebview,
+  setBackendForTesting,
+  type TisaneBackend,
+  type WailsEventMap
+} from './lib/bindings';
 import { buildFontCssVars, DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
 import { APP_VERSION } from './lib/version';
 import type {
@@ -1774,6 +1779,196 @@ describe('Tisane Svelte 5 Desktop UI', () => {
         configurable: true,
         value: origClipboard
       });
+    }
+  });
+
+  it('enables keyboard shortcuts in server mode, aligns UTF-8 error spans, guards async definition races, refreshes in-place rebuilds, and isolates dropdown Escape', async () => {
+    const h = createMockHarness();
+    // Simulate Go UTF-8 byte offsets in validatePattern
+    (h.backend.validatePattern as ReturnType<typeof vi.fn>).mockImplementation(async (req: ValidateRequest) => {
+      const enc = new TextEncoder();
+      const idx = req.query.indexOf('[123]');
+      if (idx >= 0) {
+        const byteStart = enc.encode(req.query.slice(0, idx)).length;
+        const byteEnd = byteStart + enc.encode('[123]').length;
+        return {
+          valid: false,
+          code: 2,
+          message: 'Invalid choice list',
+          span: { start: byteStart, end: byteEnd },
+          minMatchedLength: 0,
+          maxMatchedLength: 0,
+          hasWarning: false
+        };
+      }
+      return {
+        valid: true,
+        code: 0,
+        message: 'Pattern is valid',
+        span: { start: 0, end: enc.encode(req.query).length },
+        minMatchedLength: 4,
+        maxMatchedLength: 4,
+        hasWarning: false
+      };
+    });
+
+    setBackendForTesting(h.backend);
+
+    // 1. Server-mode detection keeps window shortcuts active even when OS is "linux".
+    const w = window as unknown as Record<string, unknown>;
+    const prevWails = w._wails;
+    w._wails = {
+      environment: { OS: 'linux', PlatformInfo: { mode: 'server' } },
+      flags: { server: true }
+    };
+    try {
+      expect(isDesktopWebview()).toBe(false);
+      render(App);
+      await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+      await fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+      expect(screen.getByTestId('mode-fts-btn')).toHaveAttribute('aria-pressed', 'true');
+      await fireEvent.keyDown(window, { key: 'w', ctrlKey: true });
+      expect(screen.getByTestId('mode-word-btn')).toHaveAttribute('aria-pressed', 'true');
+
+      // 2. Multi-byte UTF-8 query ("café[123]") highlights "[123]" accurately.
+      const input = screen.getByTestId('pattern-input') as HTMLInputElement;
+      await fireEvent.input(input, { target: { value: 'café[123]' } });
+      await waitFor(() => {
+        const banner = screen.getByTestId('validation-banner');
+        expect(banner.querySelector('code > span')?.textContent).toBe('[123]');
+      });
+
+      // 3. Dropdown Escape closes "+ Add" menu without cancelling an active search.
+      await fireEvent.input(input, { target: { value: 'c.t*' } });
+      await fireEvent.keyDown(input, { key: 'Enter' });
+      await waitFor(() => expect(h.searchRequests.length).toBe(1));
+
+      await fireEvent.click(screen.getByTestId('add-dict-btn'));
+      expect(screen.getByTestId('add-dict-menu')).toBeInTheDocument();
+      await fireEvent.keyDown(window, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByTestId('add-dict-menu')).not.toBeInTheDocument());
+      expect(h.backend.cancelSearch).not.toHaveBeenCalled();
+
+      // Finish the search so we can verify in-place dictionary rebuild refresh.
+      const sid = h.searchRequests[0].searchId!;
+      h.emit('search:complete', {
+        searchId: sid,
+        totalMatches: 0,
+        wordsScanned: 100,
+        totalCandidateWords: 100,
+        elapsedMs: 1.0,
+        usedIndexedFTS: false,
+        activeDicts: []
+      });
+      await waitFor(() => expect(h.searchRequests.length).toBe(1));
+
+      // 4. Emitting dicts:updated with same id/enabled but changed wordCount triggers refresh.
+      h.emit('dicts:updated', [
+        {
+          id: '/dicts/core.tsd',
+          path: '/dicts/core.tsd',
+          name: 'Core English',
+          description: 'Core word list',
+          version: 'TSD1',
+          wordCount: 300000,
+          maxWordLength: 28,
+          hasDefinitions: false,
+          hasFTS: false,
+          enabled: true
+        },
+        {
+          id: '/dicts/devils.tsd',
+          path: '/dicts/devils.tsd',
+          name: "The Devil's Dictionary",
+          description: 'Ambrose Bierce definitions',
+          version: '1.2.0',
+          wordCount: 1580,
+          maxWordLength: 24,
+          hasDefinitions: true,
+          hasFTS: true,
+          enabled: true
+        }
+      ]);
+      await waitFor(() => {
+        expect(screen.getByTestId('tiled-pane-0')).toHaveTextContent('300,000 words');
+        expect(h.searchRequests.length).toBe(2);
+      });
+
+      // 5. Out-of-order getDefinitions response (slow includeMentions=true) cannot clobber newer result.
+      let resolveSlowMentions!: (val: LookupResult) => void;
+      (h.backend.getDefinitions as ReturnType<typeof vi.fn>).mockImplementation(
+        (word: string, includeMentions: boolean) => {
+          if (includeMentions) {
+            return new Promise<LookupResult>((resolve) => {
+              resolveSlowMentions = resolve;
+            });
+          }
+          return Promise.resolve({
+            word,
+            entries: [
+              {
+                dictIndex: 1,
+                dict: "The Devil's Dictionary",
+                offset: 1,
+                isRTF: false,
+                headwords: [{ headword: word, qualifier: '' }],
+                html: '<p>Direct headword definition only</p>',
+                text: 'Direct headword definition only'
+              }
+            ],
+            webLinks: []
+          });
+        }
+      );
+
+      // Emit a match to select "cynic", then toggle Include Mentions ON (slow) -> OFF (fast).
+      const sid2 = h.searchRequests[1].searchId!;
+      h.emit('search:batch', {
+        searchId: sid2,
+        matches: [{ word: 'cynic', length: 5, dictIndex: 1, dict: "The Devil's Dictionary", hasDefinition: true }],
+        progress: { dictIndex: 1, dictName: "The Devil's Dictionary", wordsScanned: 10, totalCandidateWords: 10, matchesFound: 1 }
+      });
+      h.emit('search:complete', {
+        searchId: sid2,
+        totalMatches: 1,
+        wordsScanned: 10,
+        totalCandidateWords: 10,
+        elapsedMs: 0.5,
+        usedIndexedFTS: false,
+        activeDicts: []
+      });
+      await waitFor(() => expect(screen.getByTestId('definition-word-heading')).toHaveTextContent('cynic'));
+
+      const mentionsCheckbox = screen.getByTestId('include-mentions-toggle');
+      await fireEvent.click(mentionsCheckbox); // includeMentions = true (pending)
+      await fireEvent.click(mentionsCheckbox); // includeMentions = false (resolves fast)
+      await waitFor(() =>
+        expect(screen.getByTestId('definition-pane')).toHaveTextContent('Direct headword definition only')
+      );
+
+      // Now resolve the stale slow includeMentions=true call; UI must keep the newer result.
+      resolveSlowMentions({
+        word: 'cynic',
+        entries: [
+          {
+            dictIndex: 1,
+            dict: "The Devil's Dictionary",
+            offset: 2,
+            isRTF: false,
+            isMention: true,
+            headwords: [{ headword: 'Other', qualifier: '' }],
+            html: '<p>Stale mention entry</p>',
+            text: 'Stale mention entry'
+          }
+        ],
+        webLinks: []
+      });
+      await tick();
+      expect(screen.getByTestId('definition-pane')).toHaveTextContent('Direct headword definition only');
+      expect(screen.getByTestId('definition-pane')).not.toHaveTextContent('Stale mention entry');
+    } finally {
+      w._wails = prevWails;
     }
   });
 });

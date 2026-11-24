@@ -85,6 +85,7 @@
       items[items.length - 1]?.focus();
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       showHistory = false;
       inputEl?.focus();
     }
@@ -108,8 +109,12 @@
       onSubmit();
     } else if (e.key === 'Escape') {
       if (showHistory) {
+        e.preventDefault();
+        e.stopPropagation();
         showHistory = false;
       } else if (isSearching) {
+        e.preventDefault();
+        e.stopPropagation();
         onCancel();
       }
     } else if (e.key === 'ArrowDown' && e.altKey && recentQueries.length > 0) {
@@ -123,10 +128,42 @@
     }
   }
 
+  function utf8ByteSpanToUtf16(
+    str: string,
+    byteStart: number,
+    byteEnd: number
+  ): { start: number; end: number } {
+    let start16: number | null = byteStart <= 0 ? 0 : null;
+    let end16: number | null = byteEnd <= 0 ? 0 : null;
+    let u8 = 0;
+    let u16 = 0;
+
+    while (u16 < str.length) {
+      if (start16 === null && u8 >= byteStart) start16 = u16;
+      if (end16 === null && u8 >= byteEnd) end16 = u16;
+      const cp = str.codePointAt(u16) ?? 0;
+      u16 += cp > 0xffff ? 2 : 1;
+      u8 += cp <= 0x7f ? 1 : cp <= 0x7ff ? 2 : cp <= 0xffff ? 3 : 4;
+    }
+    const resolvedStart = start16 ?? str.length;
+    const resolvedEnd = end16 ?? str.length;
+    return { start: resolvedStart, end: resolvedEnd };
+  }
+
   const highlightedError = $derived.by(() => {
     if (!validation || validation.valid || !query) return null;
-    const start = Math.max(0, Math.min(query.length, validation.span.start));
-    const end = Math.max(start, Math.min(query.length, validation.span.end || start + 1));
+    const trimmed = query.trim();
+    if (!trimmed) return null;
+    const leadOffset = Math.max(0, query.indexOf(trimmed));
+    const rawByteStart = Math.max(0, validation.span.start);
+    const rawByteEnd = Math.max(rawByteStart, validation.span.end);
+    const mapped = utf8ByteSpanToUtf16(trimmed, rawByteStart, rawByteEnd);
+    const start = Math.max(0, Math.min(query.length, leadOffset + mapped.start));
+    let end = Math.max(start, Math.min(query.length, leadOffset + mapped.end));
+    if (end === start && start < query.length) {
+      const cp = query.codePointAt(start) ?? 0;
+      end = Math.min(query.length, start + (cp > 0xffff ? 2 : 1));
+    }
     return {
       before: query.slice(0, start),
       bad: query.slice(start, end) || '␣',

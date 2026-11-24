@@ -23,6 +23,7 @@ export class DefinitionStore {
   );
 
   private callbacks: DefinitionStoreCallbacks;
+  private loadSeq = 0;
 
   constructor(callbacks: DefinitionStoreCallbacks) {
     this.callbacks = callbacks;
@@ -32,6 +33,7 @@ export class DefinitionStore {
     const clean = word.trim();
     if (!clean) return;
 
+    const reqId = ++this.loadSeq;
     this.selectedWord = clean;
     this.isLoading = true;
 
@@ -46,7 +48,7 @@ export class DefinitionStore {
 
     try {
       const res = await getBackend().getDefinitions(clean, this.includeMentions);
-      if (this.selectedWord === clean) {
+      if (reqId === this.loadSeq && this.selectedWord === clean) {
         this.lookupResult = res
           ? {
               word: res.word ?? clean,
@@ -56,11 +58,11 @@ export class DefinitionStore {
           : { word: clean, entries: [], webLinks: [] };
       }
     } catch {
-      if (this.selectedWord === clean) {
+      if (reqId === this.loadSeq && this.selectedWord === clean) {
         this.lookupResult = { word: clean, entries: [], webLinks: [] };
       }
     } finally {
-      if (this.selectedWord === clean) {
+      if (reqId === this.loadSeq && this.selectedWord === clean) {
         this.isLoading = false;
       }
     }
