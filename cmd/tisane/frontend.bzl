@@ -3,10 +3,12 @@
 def _frontend_dist_impl(ctx):
     out_dir = ctx.actions.declare_directory("frontend/dist")
     pkg_json = ctx.file.package_json
+    node_toolchain = ctx.toolchains["@rules_nodejs//nodejs:toolchain_type"].nodeinfo
+    node_bin = node_toolchain.target_tool_path
     ctx.actions.run(
         executable = ctx.executable._builder,
-        arguments = [pkg_json.path, out_dir.path],
-        inputs = ctx.files.srcs,
+        arguments = ["-node", node_bin, pkg_json.path, out_dir.path],
+        inputs = ctx.files.srcs + node_toolchain.tool_files,
         outputs = [out_dir],
         execution_requirements = {
             "no-sandbox": "1",
@@ -34,4 +36,5 @@ frontend_dist = rule(
             cfg = "exec",
         ),
     },
+    toolchains = ["@rules_nodejs//nodejs:toolchain_type"],
 )

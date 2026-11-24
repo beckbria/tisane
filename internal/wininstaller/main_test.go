@@ -62,19 +62,20 @@ func TestParseEntries(t *testing.T) {
 
 func TestGenerateInstallAndUninstallNSH(t *testing.T) {
 	entries := []stagedEntry{
-		{srcPath: "/src/a.tsd", dstPath: "dictionaries/sub/a$1.tsd"},
-		{srcPath: "/src/b.tsd", dstPath: "dictionaries/b.tsd"},
-		{srcPath: "/src/tisane.exe", dstPath: "tisane.exe"},
+		{srcPath: "/src/a.tsd", dstPath: "dictionaries/sub/a$1.tsd", stageName: "stage_0000.bin"},
+		{srcPath: "/src/b.tsd", dstPath: "dictionaries/b.tsd", stageName: "stage_0001.bin"},
+		{srcPath: "/src/tisane.exe", dstPath: "tisane.exe", stageName: "stage_0002.bin"},
 	}
 
-	installNSH := generateInstallNSH("/stage", entries)
+	stageDir := filepath.Join("tmp", "stage")
+	installNSH := generateInstallNSH(stageDir, entries)
 	for _, want := range []string{
 		`SetOutPath "$INSTDIR"`,
-		`File "/stage/tisane.exe"`,
+		`File "/oname=tisane.exe" "` + filepath.Join(stageDir, "stage_0002.bin") + `"`,
 		`SetOutPath "$INSTDIR\dictionaries"`,
-		`File "/stage/dictionaries/b.tsd"`,
+		`File "/oname=b.tsd" "` + filepath.Join(stageDir, "stage_0001.bin") + `"`,
 		`SetOutPath "$INSTDIR\dictionaries\sub"`,
-		`File "/stage/dictionaries/sub/a$$1.tsd"`,
+		`File "/oname=a$$1.tsd" "` + filepath.Join(stageDir, "stage_0000.bin") + `"`,
 	} {
 		if !strings.Contains(installNSH, want) {
 			t.Errorf("install NSH missing %q:\n%s", want, installNSH)
@@ -222,7 +223,7 @@ printf 'FAKE-NSIS-EXE' > "$out"
 		"-V2",
 		"-DAPP_VERSION=0.3.0",
 		"-DAPP_VERSION_QUAD=0.3.0.0",
-		"-DOUT_FILE=" + outExe,
+		"-DOUT_FILE=",
 		scriptPath,
 	} {
 		if !strings.Contains(logStr, want) {

@@ -132,4 +132,16 @@ func TestZipPackaging(t *testing.T) {
 	if gotFiles["dictionaries/english-wordnet-2025-plus.tsd"] != "TSD1-dict" {
 		t.Fatalf("unexpected dictionary content: %q", gotFiles["dictionaries/english-wordnet-2025-plus.tsd"])
 	}
+
+	// Reject absolute destination paths and directory sources without leaving partial output.
+	badOut := filepath.Join(tmp, "out", "should-not-exist.zip")
+	if err := run([]string{"-format=zip", "-out=" + badOut, "-bin=" + binSrc + "=/abs.exe"}); err == nil {
+		t.Fatal("expected error for leading-slash destination")
+	}
+	if err := run([]string{"-format=zip", "-out=" + badOut, "-file=" + tmp + "=dir.txt"}); err == nil {
+		t.Fatal("expected error for directory source")
+	}
+	if _, err := os.Stat(badOut); !os.IsNotExist(err) {
+		t.Fatalf("failed packaging must not leave partial archive at %q", badOut)
+	}
 }

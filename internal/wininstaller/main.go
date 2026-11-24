@@ -9,18 +9,17 @@ import (
 	"flag"
 	"fmt"
 	"image/png"
-	"io"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/tc-hib/winres"
 
 	"tisane"
+	"tisane/internal/buildutil"
 )
 
 // iconSizes are the standard Windows 10/11 icon resolutions embedded in the
@@ -28,19 +27,9 @@ import (
 var iconSizes = []int{256, 128, 64, 48, 32, 24, 16}
 
 type stagedEntry struct {
-	srcPath string
-	dstPath string // normalized forward-slash relative path
-}
-
-type entrySliceFlag []string
-
-func (f *entrySliceFlag) String() string {
-	return strings.Join(*f, ",")
-}
-
-func (f *entrySliceFlag) Set(val string) error {
-	*f = append(*f, val)
-	return nil
+	srcPath   string
+	dstPath   string // normalized forward-slash relative path
+	stageName string // safe flat filename in stagingDir (e.g. "stage_0000.bin")
 }
 
 type config struct {
@@ -63,8 +52,8 @@ func main() {
 func run(args []string) error {
 	fs := flag.NewFlagSet("wininstaller", flag.ContinueOnError)
 	var cfg config
-	var bins entrySliceFlag
-	var files entrySliceFlag
+	var bins buildutil.EntrySliceFlag
+	var files buildutil.EntrySliceFlag
 
 	fs.StringVar(&cfg.scriptPath, "script", "", "path to NSIS .nsi script")
 	fs.StringVar(&cfg.iconPath, "icon", "", "path to source PNG icon")
@@ -77,10 +66,20 @@ func run(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected positional arguments: %v", fs.Args())
+	}
 	cfg.bins = bins
 	cfg.files = files
 
 	return buildInstaller(cfg)
+}
+
+func validateNSISDefine(name, val string) error {
+	if strings.ContainsAny(val, "\r\n\"$") {
+		return fmt.Errorf("NSIS define %s contains unsafe character in %q", name, val)
+	}
+	return nil
 }
 
 func buildInstaller(cfg config) error {
@@ -95,6 +94,14 @@ func buildInstaller(cfg config) error {
 	}
 	if strings.TrimSpace(cfg.appVersion) == "" {
 		cfg.appVersion = tisane.Version
+	}
+
+	versionQuad, err := buildutil.FormatVersionQuad(cfg.appVersion)
+	if err != nil {
+		return err
+	}
+	if err := validateNSISDefine("APP_VERSION", cfg.appVersion); err != nil {
+		return err
 	}
 
 	entries, err := parseEntries(cfg.bins, cfg.files)
@@ -122,7 +129,8 @@ func buildInstaller(cfg config) error {
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
+	outDir := filepath.Dir(absOut)
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
 
@@ -151,7 +159,31 @@ func buildInstaller(cfg config) error {
 		return fmt.Errorf("write files_uninstall.nsh: %w", err)
 	}
 
-	versionQuad := formatVersionQuad(cfg.appVersion)
+	tmpOutFile, err := os.CreateTemp(outDir, ".tisane-installer-*.exe.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp installer output: %w", err)
+	}
+	tmpOutPath := tmpOutFile.Name()
+	_ = tmpOutFile.Close()
+	keepTmpOut := false
+	defer func() {
+		if !keepTmpOut {
+			_ = os.Remove(tmpOutPath)
+		}
+	}()
+
+	for name, val := range map[string]string{
+		"ICON_PATH":           icoPath,
+		"STAGING_DIR":         stagingDir,
+		"FILES_INSTALL_NSH":   installNSH,
+		"FILES_UNINSTALL_NSH": uninstallNSH,
+		"OUT_FILE":            tmpOutPath,
+	} {
+		if err := validateNSISDefine(name, val); err != nil {
+			return err
+		}
+	}
+
 	cmdArgs := []string{
 		"-V2",
 		"-DAPP_VERSION=" + cfg.appVersion,
@@ -160,7 +192,7 @@ func buildInstaller(cfg config) error {
 		"-DSTAGING_DIR=" + stagingDir,
 		"-DFILES_INSTALL_NSH=" + installNSH,
 		"-DFILES_UNINSTALL_NSH=" + uninstallNSH,
-		"-DOUT_FILE=" + absOut,
+		"-DOUT_FILE=" + tmpOutPath,
 		absScript,
 	}
 
@@ -171,84 +203,43 @@ func buildInstaller(cfg config) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("makensis failed: %w\n%s", err, outBuf.String())
 	}
+	if err := os.Rename(tmpOutPath, absOut); err != nil {
+		return fmt.Errorf("rename installer output: %w", err)
+	}
+	keepTmpOut = true
 	return nil
 }
 
 func parseEntries(bins, files []string) ([]stagedEntry, error) {
-	seen := make(map[string]bool, len(bins)+len(files))
-	entries := make([]stagedEntry, 0, len(bins)+len(files))
-
-	add := func(raw string) error {
-		idx := strings.LastIndex(raw, "=")
-		if idx <= 0 || idx == len(raw)-1 {
-			return fmt.Errorf("invalid mapping %q (expected <src>=<dst>)", raw)
-		}
-		src := filepath.FromSlash(raw[:idx])
-		dst := path.Clean(strings.ReplaceAll(raw[idx+1:], "\\", "/"))
-		dst = strings.TrimPrefix(dst, "/")
-		if dst == "" || dst == "." || strings.HasPrefix(dst, "../") {
-			return fmt.Errorf("invalid installer destination path %q", raw[idx+1:])
-		}
-		if seen[dst] {
-			return fmt.Errorf("duplicate installer destination path %q", dst)
-		}
-		seen[dst] = true
-		entries = append(entries, stagedEntry{
-			srcPath: src,
-			dstPath: dst,
-		})
-		return nil
+	parsed, err := buildutil.ParseEntries(bins, files)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, b := range bins {
-		if err := add(b); err != nil {
-			return nil, err
+	entries := make([]stagedEntry, len(parsed))
+	for i, p := range parsed {
+		entries[i] = stagedEntry{
+			srcPath:   p.SrcPath,
+			dstPath:   p.DstPath,
+			stageName: fmt.Sprintf("stage_%04d.bin", i),
 		}
 	}
-	for _, f := range files {
-		if err := add(f); err != nil {
-			return nil, err
-		}
-	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].dstPath < entries[j].dstPath
-	})
 	return entries, nil
 }
 
 func stageEntries(stagingDir string, entries []stagedEntry) error {
-	for _, e := range entries {
-		dst := filepath.Join(stagingDir, filepath.FromSlash(e.dstPath))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("create staging dir for %q: %w", e.dstPath, err)
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		return fmt.Errorf("create staging dir: %w", err)
+	}
+	for i := range entries {
+		if entries[i].stageName == "" {
+			entries[i].stageName = fmt.Sprintf("stage_%04d.bin", i)
 		}
-		if err := copyFile(e.srcPath, dst); err != nil {
-			return fmt.Errorf("stage %q -> %q: %w", e.srcPath, e.dstPath, err)
+		dst := filepath.Join(stagingDir, entries[i].stageName)
+		if err := buildutil.CopyRegularFile(entries[i].srcPath, dst); err != nil {
+			return fmt.Errorf("stage %q -> %q: %w", entries[i].srcPath, entries[i].dstPath, err)
 		}
 	}
 	return nil
-}
-
-func copyFile(srcPath, dstPath string) (retErr error) {
-	in, err := os.Open(srcPath)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := out.Close(); retErr == nil {
-			retErr = cerr
-		}
-	}()
-
-	_, err = io.Copy(out, in)
-	return err
 }
 
 func writeICOFromPNG(pngPath, icoPath string) (retErr error) {
@@ -285,19 +276,11 @@ func writeICOFromPNG(pngPath, icoPath string) (retErr error) {
 }
 
 func formatVersionQuad(ver string) string {
-	var quad [4]uint16
-	if i := strings.IndexAny(ver, "-+"); i >= 0 {
-		ver = ver[:i]
+	q, err := buildutil.FormatVersionQuad(ver)
+	if err != nil {
+		return "0.0.0.0"
 	}
-	parts := strings.Split(ver, ".")
-	for i := 0; i < len(parts) && i < 4; i++ {
-		n, err := strconv.ParseUint(strings.TrimSpace(parts[i]), 10, 16)
-		if err != nil {
-			break
-		}
-		quad[i] = uint16(n)
-	}
-	return fmt.Sprintf("%d.%d.%d.%d", quad[0], quad[1], quad[2], quad[3])
+	return q
 }
 
 // escapeNSIS escapes characters that are special inside double-quoted NSIS strings.
@@ -311,11 +294,15 @@ func toWindowsRelPath(rel string) string {
 	return strings.ReplaceAll(rel, "/", `\`)
 }
 
-// generateInstallNSH emits SetOutPath and File directives grouped by directory.
+// generateInstallNSH emits SetOutPath and File /oname=... directives grouped by directory
+// using safe sequential stage filenames so special characters in target names never confuse makensis.
 func generateInstallNSH(stagingDir string, entries []stagedEntry) string {
 	byDir := make(map[string][]stagedEntry)
 	var dirs []string
-	for _, e := range entries {
+	for i, e := range entries {
+		if e.stageName == "" {
+			e.stageName = fmt.Sprintf("stage_%04d.bin", i)
+		}
 		dir := path.Dir(e.dstPath)
 		if dir == "." {
 			dir = ""
@@ -336,8 +323,9 @@ func generateInstallNSH(stagingDir string, entries []stagedEntry) string {
 			sb.WriteString(fmt.Sprintf("SetOutPath \"$INSTDIR\\%s\"\n", escapeNSIS(toWindowsRelPath(dir))))
 		}
 		for _, e := range byDir[dir] {
-			hostPath := filepath.Join(stagingDir, filepath.FromSlash(e.dstPath))
-			sb.WriteString(fmt.Sprintf("File \"%s\"\n", escapeNSIS(hostPath)))
+			baseName := path.Base(e.dstPath)
+			hostPath := filepath.Join(stagingDir, e.stageName)
+			sb.WriteString(fmt.Sprintf("File \"/oname=%s\" \"%s\"\n", escapeNSIS(baseName), escapeNSIS(hostPath)))
 		}
 	}
 	return sb.String()

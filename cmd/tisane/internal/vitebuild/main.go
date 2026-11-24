@@ -5,28 +5,70 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"tisane"
 )
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintf(os.Stderr, "usage: %s <package.json> <out-dist-dir>\n", os.Args[0])
+	fs := flag.NewFlagSet("vitebuild", flag.ContinueOnError)
+	nodeFlag := fs.String("node", "", "Optional path to hermetic node executable")
+	if err := fs.Parse(os.Args[1:]); err != nil || fs.NArg() != 2 {
+		fmt.Fprintf(os.Stderr, "usage: %s [-node <node-bin>] <package.json> <out-dist-dir>\n", os.Args[0])
 		os.Exit(2)
 	}
-	if err := run(os.Args[1], os.Args[2]); err != nil {
+	if err := run(*nodeFlag, fs.Arg(0), fs.Arg(1)); err != nil {
 		fmt.Fprintf(os.Stderr, "vitebuild: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(pkgJSONArg, outDistArg string) error {
+func resolveNodeAndNPM(nodeFlag string) (nodeBin string, nodeDir string, err error) {
+	if strings.TrimSpace(nodeFlag) != "" {
+		absNode, absErr := filepath.Abs(filepath.FromSlash(nodeFlag))
+		if absErr != nil {
+			return "", "", fmt.Errorf("resolve -node path %q: %w", nodeFlag, absErr)
+		}
+		if _, statErr := os.Stat(absNode); statErr != nil {
+			return "", "", fmt.Errorf("hermetic node binary %q not found: %w", absNode, statErr)
+		}
+		return absNode, filepath.Dir(absNode), nil
+	}
+	found, lookErr := exec.LookPath("node")
+	if lookErr != nil {
+		return "", "", fmt.Errorf("node executable not found in PATH (Node.js 20+ required): %w", lookErr)
+	}
+	return found, filepath.Dir(found), nil
+}
+
+func resolveNPM(nodeDir string) (string, error) {
+	if nodeDir != "" {
+		names := []string{"npm"}
+		if runtime.GOOS == "windows" {
+			names = []string{"npm.cmd", "npm.exe", "npm"}
+		}
+		for _, name := range names {
+			cand := filepath.Join(nodeDir, name)
+			if info, err := os.Stat(cand); err == nil && !info.IsDir() {
+				return cand, nil
+			}
+		}
+	}
+	npmBin, err := exec.LookPath("npm")
+	if err != nil {
+		return "", fmt.Errorf("npm executable not found in PATH: %w", err)
+	}
+	return npmBin, nil
+}
+
+func run(nodeFlag, pkgJSONArg, outDistArg string) error {
 	absPkgJSON, err := filepath.Abs(filepath.FromSlash(pkgJSONArg))
 	if err != nil {
 		return fmt.Errorf("resolve package.json path: %w", err)
@@ -34,6 +76,10 @@ func run(pkgJSONArg, outDistArg string) error {
 	absOutDist, err := filepath.Abs(filepath.FromSlash(outDistArg))
 	if err != nil {
 		return fmt.Errorf("resolve output directory path: %w", err)
+	}
+	nodeBin, nodeDir, err := resolveNodeAndNPM(nodeFlag)
+	if err != nil {
+		return err
 	}
 
 	frontendSrcDir := filepath.Dir(absPkgJSON)
@@ -44,11 +90,6 @@ func run(pkgJSONArg, outDistArg string) error {
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 			realNodeModules = candidate
 		}
-	}
-
-	nodeBin, err := exec.LookPath("node")
-	if err != nil {
-		return fmt.Errorf("node executable not found in PATH (Node.js 20+ required): %w", err)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "tv-*")
@@ -78,22 +119,25 @@ func run(pkgJSONArg, outDistArg string) error {
 		}
 	}
 	if !usedLink {
-		if err := npmCI(tmpDir); err != nil {
+		if err := npmCI(nodeDir, tmpDir); err != nil {
 			return fmt.Errorf("npm ci failed: %w", err)
 		}
 	}
 
-	if err := viteBuild(nodeBin, tmpDir); err != nil {
+	if err := viteBuild(nodeBin, nodeDir, tmpDir); err != nil {
 		if !usedLink {
 			return fmt.Errorf("vite build failed: %w", err)
 		}
 		// Workspace node_modules may have been installed for another OS (e.g. WSL vs Windows).
-		_ = os.Remove(linkedNodeModules)
+		// Never run npm ci if unlinking fails, or npm ci could mutate the workspace node_modules.
+		if rmErr := os.Remove(linkedNodeModules); rmErr != nil {
+			return fmt.Errorf("vite build failed (%v) and unlinking staged node_modules failed: %w", err, rmErr)
+		}
 		usedLink = false
-		if err := npmCI(tmpDir); err != nil {
+		if err := npmCI(nodeDir, tmpDir); err != nil {
 			return fmt.Errorf("npm ci fallback failed: %w", err)
 		}
-		if err := viteBuild(nodeBin, tmpDir); err != nil {
+		if err := viteBuild(nodeBin, nodeDir, tmpDir); err != nil {
 			return fmt.Errorf("vite build failed: %w", err)
 		}
 	}
@@ -108,35 +152,40 @@ func run(pkgJSONArg, outDistArg string) error {
 	return nil
 }
 
-func npmCI(dir string) error {
-	npmBin, err := exec.LookPath("npm")
+func npmCI(nodeDir, dir string) error {
+	npmBin, err := resolveNPM(nodeDir)
 	if err != nil {
-		return fmt.Errorf("npm executable not found in PATH: %w", err)
+		return err
 	}
-	return runCmd(dir, npmBin, "ci", "--no-audit", "--no-fund")
+	return runCmd(nodeDir, dir, npmBin, "ci", "--no-audit", "--no-fund")
 }
 
-func viteBuild(nodeBin, dir string) error {
+func viteBuild(nodeBin, nodeDir, dir string) error {
 	viteJS := filepath.Join(dir, "node_modules", "vite", "bin", "vite.js")
 	if _, err := os.Stat(viteJS); err == nil {
-		return runCmd(dir, nodeBin, viteJS, "build")
+		return runCmd(nodeDir, dir, nodeBin, viteJS, "build")
 	}
-	npmBin, err := exec.LookPath("npm")
+	npmBin, err := resolveNPM(nodeDir)
 	if err != nil {
-		return fmt.Errorf("npm executable not found in PATH: %w", err)
+		return err
 	}
-	return runCmd(dir, npmBin, "run", "build")
+	return runCmd(nodeDir, dir, npmBin, "run", "build")
 }
 
-func runCmd(dir, name string, args ...string) error {
+func runCmd(nodeDir, dir, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(),
+	env := os.Environ()
+	if nodeDir != "" {
+		env = append(env, "PATH="+nodeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	env = append(env,
 		"npm_config_update_notifier=false",
 		"TISANE_VERSION="+tisane.Version,
 	)
+	cmd.Env = env
 	return cmd.Run()
 }
 
@@ -145,6 +194,9 @@ func linkDir(target, linkPath string) error {
 		return nil
 	} else if runtime.GOOS != "windows" {
 		return err
+	}
+	if strings.ContainsAny(target, "&|<>^%!\"\r\n") || strings.ContainsAny(linkPath, "&|<>^%!\"\r\n") {
+		return fmt.Errorf("unsafe shell characters in Windows junction path")
 	}
 	// On Windows without Developer Mode, directory symlinks require elevation,
 	// whereas NTFS directory junctions (mklink /J) work unprivileged.

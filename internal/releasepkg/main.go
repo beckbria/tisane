@@ -14,29 +14,13 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
+
+	"tisane/internal/buildutil"
 )
 
 // deterministicModTime ensures reproducible archive outputs across builds.
 var deterministicModTime = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-type archiveEntry struct {
-	srcPath    string
-	dstPath    string
-	executable bool
-}
-
-type entrySliceFlag []string
-
-func (f *entrySliceFlag) String() string {
-	return strings.Join(*f, ",")
-}
-
-func (f *entrySliceFlag) Set(val string) error {
-	*f = append(*f, val)
-	return nil
-}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -49,13 +33,16 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("releasepkg", flag.ContinueOnError)
 	format := fs.String("format", "", "archive format: tar.gz or zip")
 	outPath := fs.String("out", "", "output archive path")
-	var bins entrySliceFlag
-	var files entrySliceFlag
+	var bins buildutil.EntrySliceFlag
+	var files buildutil.EntrySliceFlag
 	fs.Var(&bins, "bin", "executable binary mapping in src=dst format (repeatable)")
 	fs.Var(&files, "file", "regular file mapping in src=dst format (repeatable)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected positional arguments: %v", fs.Args())
 	}
 	if *format != "tar.gz" && *format != "zip" {
 		return fmt.Errorf("unsupported -format %q (want \"tar.gz\" or \"zip\")", *format)
@@ -64,7 +51,7 @@ func run(args []string) error {
 		return fmt.Errorf("-out is required")
 	}
 
-	entries, err := parseEntries(bins, files)
+	entries, err := buildutil.ParseEntries(bins, files)
 	if err != nil {
 		return err
 	}
@@ -72,68 +59,63 @@ func run(args []string) error {
 		return fmt.Errorf("at least one -bin or -file entry is required")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(*outPath), 0o755); err != nil {
-		return fmt.Errorf("create output directory: %w", err)
-	}
-
 	switch *format {
 	case "tar.gz":
-		return writeTarGz(*outPath, entries)
+		return writeAtomically(*outPath, func(f *os.File) error {
+			return writeTarGzTo(f, entries)
+		})
 	case "zip":
-		return writeZip(*outPath, entries)
+		return writeAtomically(*outPath, func(f *os.File) error {
+			return writeZipTo(f, entries)
+		})
 	default:
 		return fmt.Errorf("unsupported format %q", *format)
 	}
 }
 
-func parseEntries(bins, files []string) ([]archiveEntry, error) {
-	seen := make(map[string]bool, len(bins)+len(files))
-	entries := make([]archiveEntry, 0, len(bins)+len(files))
-
-	add := func(raw string, executable bool) error {
-		idx := strings.LastIndex(raw, "=")
-		if idx <= 0 || idx == len(raw)-1 {
-			return fmt.Errorf("invalid mapping %q (expected <src>=<dst>)", raw)
-		}
-		src := filepath.FromSlash(raw[:idx])
-		dst := path.Clean(strings.ReplaceAll(raw[idx+1:], "\\", "/"))
-		dst = strings.TrimPrefix(dst, "/")
-		if dst == "" || dst == "." || strings.HasPrefix(dst, "../") {
-			return fmt.Errorf("invalid archive destination path %q", raw[idx+1:])
-		}
-		if seen[dst] {
-			return fmt.Errorf("duplicate archive destination path %q", dst)
-		}
-		seen[dst] = true
-		entries = append(entries, archiveEntry{
-			srcPath:    src,
-			dstPath:    dst,
-			executable: executable,
-		})
-		return nil
+func writeAtomically(outPath string, writeFn func(f *os.File) error) error {
+	dir := filepath.Dir(outPath)
+	if dir == "" {
+		dir = "."
 	}
-
-	for _, b := range bins {
-		if err := add(b, true); err != nil {
-			return nil, err
-		}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create output directory: %w", err)
 	}
-	for _, f := range files {
-		if err := add(f, false); err != nil {
-			return nil, err
-		}
+	tmp, err := os.CreateTemp(dir, ".releasepkg-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp archive: %w", err)
 	}
+	tmpPath := tmp.Name()
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].dstPath < entries[j].dstPath
-	})
-	return entries, nil
+	if err := writeFn(tmp); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync archive: %w", err)
+	}
+	_ = tmp.Chmod(0o644)
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close archive: %w", err)
+	}
+	if err := os.Rename(tmpPath, outPath); err != nil {
+		return fmt.Errorf("rename archive: %w", err)
+	}
+	keepTmp = true
+	return nil
 }
 
-func collectParentDirs(entries []archiveEntry) []string {
+func collectParentDirs(entries []buildutil.PackagedEntry) []string {
 	dirSet := make(map[string]bool)
 	for _, e := range entries {
-		dir := path.Dir(e.dstPath)
+		dir := path.Dir(e.DstPath)
 		for dir != "." && dir != "/" && dir != "" {
 			dirSet[dir+"/"] = true
 			dir = path.Dir(dir)
@@ -147,18 +129,8 @@ func collectParentDirs(entries []archiveEntry) []string {
 	return dirs
 }
 
-func writeTarGz(outPath string, entries []archiveEntry) (retErr error) {
-	outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("open output file: %w", err)
-	}
-	defer func() {
-		if cerr := outFile.Close(); retErr == nil {
-			retErr = cerr
-		}
-	}()
-
-	gzWriter, err := gzip.NewWriterLevel(outFile, gzip.BestCompression)
+func writeTarGzTo(out io.Writer, entries []buildutil.PackagedEntry) (retErr error) {
+	gzWriter, err := gzip.NewWriterLevel(out, gzip.BestCompression)
 	if err != nil {
 		return fmt.Errorf("init gzip writer: %w", err)
 	}
@@ -197,25 +169,28 @@ func writeTarGz(outPath string, entries []archiveEntry) (retErr error) {
 	return nil
 }
 
-func addFileToTar(tw *tar.Writer, e archiveEntry) error {
-	in, err := os.Open(e.srcPath)
+func addFileToTar(tw *tar.Writer, e buildutil.PackagedEntry) error {
+	in, err := os.Open(e.SrcPath)
 	if err != nil {
-		return fmt.Errorf("open input %q: %w", e.srcPath, err)
+		return fmt.Errorf("open input %q: %w", e.SrcPath, err)
 	}
 	defer in.Close()
 
 	info, err := in.Stat()
 	if err != nil {
-		return fmt.Errorf("stat input %q: %w", e.srcPath, err)
+		return fmt.Errorf("stat input %q: %w", e.SrcPath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("input %q is not a regular file", e.SrcPath)
 	}
 
 	mode := int64(0o644)
-	if e.executable {
+	if e.Executable {
 		mode = 0o755
 	}
 
 	hdr := &tar.Header{
-		Name:     e.dstPath,
+		Name:     e.DstPath,
 		Size:     info.Size(),
 		Mode:     mode,
 		Typeflag: tar.TypeReg,
@@ -223,26 +198,16 @@ func addFileToTar(tw *tar.Writer, e archiveEntry) error {
 		Format:   tar.FormatPAX,
 	}
 	if err := tw.WriteHeader(hdr); err != nil {
-		return fmt.Errorf("write tar header %q: %w", e.dstPath, err)
+		return fmt.Errorf("write tar header %q: %w", e.DstPath, err)
 	}
 	if _, err := io.Copy(tw, in); err != nil {
-		return fmt.Errorf("copy %q into tar: %w", e.srcPath, err)
+		return fmt.Errorf("copy %q into tar: %w", e.SrcPath, err)
 	}
 	return nil
 }
 
-func writeZip(outPath string, entries []archiveEntry) (retErr error) {
-	outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("open output file: %w", err)
-	}
-	defer func() {
-		if cerr := outFile.Close(); retErr == nil {
-			retErr = cerr
-		}
-	}()
-
-	zw := zip.NewWriter(outFile)
+func writeZipTo(out io.Writer, entries []buildutil.PackagedEntry) (retErr error) {
+	zw := zip.NewWriter(out)
 	defer func() {
 		if cerr := zw.Close(); retErr == nil {
 			retErr = cerr
@@ -268,26 +233,29 @@ func writeZip(outPath string, entries []archiveEntry) (retErr error) {
 	return nil
 }
 
-func addFileToZip(zw *zip.Writer, e archiveEntry) error {
-	in, err := os.Open(e.srcPath)
+func addFileToZip(zw *zip.Writer, e buildutil.PackagedEntry) error {
+	in, err := os.Open(e.SrcPath)
 	if err != nil {
-		return fmt.Errorf("open input %q: %w", e.srcPath, err)
+		return fmt.Errorf("open input %q: %w", e.SrcPath, err)
 	}
 	defer in.Close()
 
 	info, err := in.Stat()
 	if err != nil {
-		return fmt.Errorf("stat input %q: %w", e.srcPath, err)
+		return fmt.Errorf("stat input %q: %w", e.SrcPath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("input %q is not a regular file", e.SrcPath)
 	}
 
 	fh, err := zip.FileInfoHeader(info)
 	if err != nil {
-		return fmt.Errorf("create zip file header %q: %w", e.srcPath, err)
+		return fmt.Errorf("create zip file header %q: %w", e.SrcPath, err)
 	}
-	fh.Name = e.dstPath
+	fh.Name = e.DstPath
 	fh.Method = zip.Deflate
 	fh.Modified = deterministicModTime
-	if e.executable {
+	if e.Executable {
 		fh.SetMode(0o755)
 	} else {
 		fh.SetMode(0o644)
@@ -295,10 +263,10 @@ func addFileToZip(zw *zip.Writer, e archiveEntry) error {
 
 	w, err := zw.CreateHeader(fh)
 	if err != nil {
-		return fmt.Errorf("write zip header %q: %w", e.dstPath, err)
+		return fmt.Errorf("write zip header %q: %w", e.DstPath, err)
 	}
 	if _, err := io.Copy(w, in); err != nil {
-		return fmt.Errorf("copy %q into zip: %w", e.srcPath, err)
+		return fmt.Errorf("copy %q into zip: %w", e.SrcPath, err)
 	}
 	return nil
 }

@@ -5,12 +5,13 @@ go_library(
     srcs = ["main.go"],
     importpath = "tisane/internal/releasepkg",
     visibility = ["//visibility:private"],
+    deps = ["//internal/buildutil"],
 )
 
 go_binary(
     name = "releasepkg",
     embed = [":releasepkg_lib"],
-    visibility = ["//visibility:public"],
+    visibility = ["//:__subpackages__"],
 )
 
 go_test(

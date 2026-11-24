@@ -8,7 +8,7 @@ exports_files(
         "windows/installer.nsi",
         "windows/tisane.exe.manifest",
     ],
-    visibility = ["//visibility:public"],
+    visibility = ["//:__subpackages__"],
 )
 
 go_library(
@@ -16,5 +16,5 @@ go_library(
     srcs = ["assets.go"],
     embedsrcs = ["appicon.png"],
     importpath = "tisane/build",
-    visibility = ["//visibility:public"],
+    visibility = ["//:__subpackages__"],
 )

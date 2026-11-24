@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "buildutil",
+    srcs = ["buildutil.go"],
+    importpath = "tisane/internal/buildutil",
+    visibility = ["//:__subpackages__"],
+)
+
+go_test(
+    name = "buildutil_test",
+    srcs = ["buildutil_test.go"],
+    embed = [":buildutil"],
+)

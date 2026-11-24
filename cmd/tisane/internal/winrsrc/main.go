@@ -8,8 +8,10 @@ import (
 	"flag"
 	"fmt"
 	"image/png"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/tc-hib/winres/version"
 
 	"tisane"
+	"tisane/internal/buildutil"
 )
 
 // iconSizes are the standard Windows 10/11 icon resolutions embedded in the
@@ -58,20 +61,8 @@ func parseArch(arch string) (winres.Arch, error) {
 }
 
 func parseVersionQuad(ver string) [4]uint16 {
-	var quad [4]uint16
-	// Strip any pre-release/build metadata (e.g. "0.3.0-rc1+build").
-	if i := strings.IndexAny(ver, "-+"); i >= 0 {
-		ver = ver[:i]
-	}
-	parts := strings.Split(ver, ".")
-	for i := 0; i < len(parts) && i < 4; i++ {
-		n, err := strconv.ParseUint(strings.TrimSpace(parts[i]), 10, 16)
-		if err != nil {
-			break
-		}
-		quad[i] = uint16(n)
-	}
-	return quad
+	q, _ := buildutil.ParseVersionQuad(ver)
+	return q
 }
 
 func buildResourceSet(cfg config) (*winres.ResourceSet, error) {
@@ -105,7 +96,10 @@ func buildResourceSet(cfg config) (*winres.ResourceSet, error) {
 		return nil, fmt.Errorf("set icon resource: %w", err)
 	}
 
-	quad := parseVersionQuad(cfg.appVersion)
+	quad, err := buildutil.ParseVersionQuad(cfg.appVersion)
+	if err != nil {
+		return nil, fmt.Errorf("invalid -version: %w", err)
+	}
 	if cfg.manifestPath != "" {
 		manifestData, err := os.ReadFile(cfg.manifestPath)
 		if err != nil {
@@ -148,16 +142,17 @@ func buildVersionInfo(cfg config, defaultQuad [4]uint16) (version.Info, error) {
 	vi.Type = version.App
 
 	if cfg.infoPath == "" {
-		for k, v := range map[string]string{
-			version.ProductName:      cfg.productName,
-			version.FileDescription:  cfg.description,
-			version.InternalName:     "tisane",
-			version.OriginalFilename: "tisane.exe",
-			version.FileVersion:      cfg.appVersion,
-			version.ProductVersion:   cfg.appVersion,
-		} {
-			if err := vi.Set(version.LangDefault, k, v); err != nil {
-				return vi, fmt.Errorf("set version field %q: %w", k, err)
+		defaults := []struct{ k, v string }{
+			{version.ProductName, cfg.productName},
+			{version.FileDescription, cfg.description},
+			{version.InternalName, "tisane"},
+			{version.OriginalFilename, "tisane.exe"},
+			{version.FileVersion, cfg.appVersion},
+			{version.ProductVersion, cfg.appVersion},
+		}
+		for _, kv := range defaults {
+			if err := vi.Set(version.LangDefault, kv.k, kv.v); err != nil {
+				return vi, fmt.Errorf("set version field %q: %w", kv.k, err)
 			}
 		}
 		return vi, nil
@@ -173,18 +168,27 @@ func buildVersionInfo(cfg config, defaultQuad [4]uint16) (version.Info, error) {
 	}
 
 	if v := strings.TrimSpace(info.Fixed.FileVersion); v != "" {
-		vi.FileVersion = parseVersionQuad(v)
+		q, qErr := buildutil.ParseVersionQuad(v)
+		if qErr != nil {
+			return vi, fmt.Errorf("invalid fixed.file_version in %q: %w", cfg.infoPath, qErr)
+		}
+		vi.FileVersion = q
 	}
 	if v := strings.TrimSpace(info.Fixed.ProductVersion); v != "" {
-		vi.ProductVersion = parseVersionQuad(v)
+		q, qErr := buildutil.ParseVersionQuad(v)
+		if qErr != nil {
+			return vi, fmt.Errorf("invalid fixed.product_version in %q: %w", cfg.infoPath, qErr)
+		}
+		vi.ProductVersion = q
 	} else if v := strings.TrimSpace(info.Fixed.FileVersion); v != "" {
-		vi.ProductVersion = parseVersionQuad(v)
+		vi.ProductVersion = vi.FileVersion
 	}
 
 	if len(info.Info) == 0 {
 		info.Info = map[string]map[string]string{"0000": {}}
 	}
-	for langHex, fields := range info.Info {
+	for _, langHex := range slices.Sorted(maps.Keys(info.Info)) {
+		fields := info.Info[langHex]
 		langID := uint16(version.LangDefault)
 		if trimmed := strings.TrimSpace(langHex); trimmed != "" && trimmed != "0000" {
 			parsed, err := strconv.ParseUint(trimmed, 16, 16)
@@ -193,7 +197,8 @@ func buildVersionInfo(cfg config, defaultQuad [4]uint16) (version.Info, error) {
 			}
 			langID = uint16(parsed)
 		}
-		for k, v := range fields {
+		for _, k := range slices.Sorted(maps.Keys(fields)) {
+			v := fields[k]
 			if strings.TrimSpace(v) == "" {
 				switch k {
 				case version.FileVersion, version.ProductVersion:
