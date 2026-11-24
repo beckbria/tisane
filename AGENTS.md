@@ -89,6 +89,11 @@ All code must follow idiomatic conventions and best practices for its language a
 - Keep `BUILD.bazel` files accurate and minimal. Respect `# keep` comments so Gazelle does not clobber custom attributes.
 - For `genrule`s that may execute on Windows as well as Linux/macOS, provide both `cmd` (POSIX) and `cmd_ps` (PowerShell).
 
+### Commit Messages & Comments
+- Keep both **commit messages** and **code comments** terse and focused on *why* rather than enumerating specific implementation details.
+- **Commit messages**: Summarize intent concisely (e.g., prefer `"Dictionary Builder UI"` over `"Implement Dictionary Builder UI, reading the configurations from directory..."`).
+- **Code comments**: Document rationale, trade-offs, or non-obvious invariants rather than restating what the code does.
+
 ---
 
 ## Versioning Policy
