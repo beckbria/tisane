@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
+	"tisane/pkg/lookup"
 	"tisane/pkg/profile"
 	"tisane/pkg/tsd"
 )
@@ -57,6 +59,18 @@ type DictionaryInfo struct {
 type loadedDict struct {
 	info DictionaryInfo
 	dict *tsd.Dictionary
+	refs atomic.Int32
+}
+
+func (ld *loadedDict) acquire() {
+	ld.refs.Add(1)
+}
+
+func (ld *loadedDict) release() error {
+	if ld.refs.Add(-1) == 0 && ld.dict != nil {
+		return ld.dict.Close()
+	}
+	return nil
 }
 
 // State manages shared configuration and open *tsd.Dictionary handles across all bound services.
@@ -126,9 +140,7 @@ func (s *State) resetLocked(resetDictionaries bool) error {
 	s.cfg = profile.DefaultConfig()
 	if resetDictionaries {
 		for _, ld := range s.dicts {
-			if ld.dict != nil {
-				_ = ld.dict.Close()
-			}
+			_ = ld.release()
 		}
 		s.dicts = nil
 	}
@@ -155,16 +167,14 @@ func (s *State) Bridge() HostBridge {
 	return s.bridge
 }
 
-// Close closes all open .tsd file handles cleanly on shutdown.
+// Close releases all registered .tsd file handles cleanly on shutdown.
 func (s *State) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var firstErr error
 	for _, ld := range s.dicts {
-		if ld.dict != nil {
-			if err := ld.dict.Close(); err != nil && firstErr == nil {
-				firstErr = err
-			}
+		if err := ld.release(); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
 	s.dicts = nil
@@ -217,6 +227,7 @@ func (s *State) openAndAppendLocked(path string, customName string, enabled bool
 			Enabled:        enabled,
 		},
 	}
+	ld.refs.Store(1)
 	s.dicts = append(s.dicts, ld)
 	return ld, nil
 }
@@ -247,41 +258,76 @@ func (s *State) listInfosLocked() []DictionaryInfo {
 	return out
 }
 
+func (s *State) cloneConfigLocked() profile.Config {
+	cfgCopy := *s.cfg
+	cfgCopy.DictDirs = append([]string{}, s.cfg.DictDirs...)
+	cfgCopy.Dictionaries = append([]profile.DictConfig{}, s.cfg.Dictionaries...)
+	cfgCopy.EntryFilter = append([]string{}, s.cfg.EntryFilter...)
+	cfgCopy.WebProviders = append([]lookup.WebProvider{}, s.cfg.WebProviders...)
+	cfgCopy.RecentQueries = append([]string{}, s.cfg.RecentQueries...)
+	cfgCopy.SidebarWidth = profile.NormalizeSidebarWidth(s.cfg.SidebarWidth)
+	cfgCopy.Fonts = profile.NormalizeFontConfig(s.cfg.Fonts)
+	return cfgCopy
+}
+
+func makeReleaseFunc(held []*loadedDict) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			for _, ld := range held {
+				_ = ld.release()
+			}
+		})
+	}
+}
+
 // SnapshotSearchDicts returns ordered active search dictionaries, their DictionaryInfo metadata,
-// and all additional definition-bearing dictionaries in the profile.
-func (s *State) SnapshotSearchDicts() (active []*tsd.Dictionary, activeInfos []DictionaryInfo, extraDef []*tsd.Dictionary, cfgCopy profile.Config) {
+// all additional definition-bearing dictionaries in the profile, a deep-copied config, and a
+// release callback that must be called once the caller finishes reading the returned handles.
+func (s *State) SnapshotSearchDicts() (active []*tsd.Dictionary, activeInfos []DictionaryInfo, extraDef []*tsd.Dictionary, cfgCopy profile.Config, release func()) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	activeInfos = []DictionaryInfo{}
+	held := make([]*loadedDict, 0, len(s.dicts))
 	for _, ld := range s.dicts {
 		if ld.info.Enabled {
+			ld.acquire()
+			held = append(held, ld)
 			active = append(active, ld.dict)
 			activeInfos = append(activeInfos, ld.info)
 		} else if ld.info.HasDefinitions {
+			ld.acquire()
+			held = append(held, ld)
 			extraDef = append(extraDef, ld.dict)
 		}
 	}
-	return active, activeInfos, extraDef, *s.cfg
+	return active, activeInfos, extraDef, s.cloneConfigLocked(), makeReleaseFunc(held)
 }
 
-// SnapshotAllDicts returns all loaded dictionaries (enabled first in priority order, then disabled) for LookupService.
-func (s *State) SnapshotAllDicts() ([]*tsd.Dictionary, profile.Config) {
+// SnapshotAllDicts returns all loaded dictionaries (enabled first in priority order, then disabled),
+// a deep-copied config, and a release callback that must be called when done reading the handles.
+func (s *State) SnapshotAllDicts() ([]*tsd.Dictionary, profile.Config, func()) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	out := make([]*tsd.Dictionary, 0, len(s.dicts))
+	held := make([]*loadedDict, 0, len(s.dicts))
 	for _, ld := range s.dicts {
 		if ld.info.Enabled {
+			ld.acquire()
+			held = append(held, ld)
 			out = append(out, ld.dict)
 		}
 	}
 	for _, ld := range s.dicts {
 		if !ld.info.Enabled {
+			ld.acquire()
+			held = append(held, ld)
 			out = append(out, ld.dict)
 		}
 	}
-	return out, *s.cfg
+	return out, s.cloneConfigLocked(), makeReleaseFunc(held)
 }
 
 // RecordRecentQuery prepends query to RecentQueries (deduplicated, max 50) and saves config.

@@ -22,7 +22,8 @@ func NewLookupService(state *State) *LookupService {
 // GetDefinitions queries all registered dictionaries (active first, then reference dictionaries)
 // for local definitions of word and returns sanitized HTML cards + web lookup URLs.
 func (ls *LookupService) GetDefinitions(ctx context.Context, word string, includeMentions bool) (*lookup.Result, error) {
-	dicts, cfg := ls.state.SnapshotAllDicts()
+	dicts, cfg, release := ls.state.SnapshotAllDicts()
+	defer release()
 	return lookup.Lookup(ctx, word, dicts, lookup.Options{
 		CaseInsensitiveFallback: true,
 		IncludeMentions:         includeMentions,
@@ -33,7 +34,8 @@ func (ls *LookupService) GetDefinitions(ctx context.Context, word string, includ
 // OpenWebLookup builds the external lookup URL for word using providerID (or the profile's default provider)
 // and launches it in the user's system browser via Wails Browser.OpenURL.
 func (ls *LookupService) OpenWebLookup(word string, providerID string) (string, error) {
-	_, cfg := ls.state.SnapshotAllDicts()
+	_, cfg, release := ls.state.SnapshotAllDicts()
+	release()
 	providers := cfg.WebProviders
 	if len(providers) == 0 {
 		providers = lookup.DefaultWebProviders()

@@ -81,6 +81,17 @@ type SearchService struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	curID  uint64
+	wg     sync.WaitGroup
+}
+
+// ShutdownSearch cancels any active search and waits for its worker goroutine to exit.
+// Kept as a package function rather than a method on SearchService so Wails does not bind it as an RPC.
+func ShutdownSearch(ss *SearchService) {
+	if ss == nil {
+		return
+	}
+	ss.CancelSearch()
+	ss.wg.Wait()
 }
 
 // NewSearchService creates a SearchService backed by state.
@@ -93,7 +104,8 @@ func NewSearchService(state *State) *SearchService {
 
 // ValidatePattern validates query syntax, optional enumeration, and length compatibility across active dictionaries.
 func (ss *SearchService) ValidatePattern(req ValidateRequest) pattern.ValidationResult {
-	activeDicts, _, _, cfg := ss.state.SnapshotSearchDicts()
+	activeDicts, _, _, cfg, release := ss.state.SnapshotSearchDicts()
+	defer release()
 
 	atMacro := req.AtMacro
 	if atMacro == "" {
@@ -154,7 +166,13 @@ func (ss *SearchService) CancelSearch() bool {
 // StartSearch cancels any prior search, validates inputs synchronously, and launches
 // a background streaming search that emits "search:batch", "search:progress", and "search:complete".
 func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
-	activeDicts, activeInfos, extraDefDicts, cfg := ss.state.SnapshotSearchDicts()
+	activeDicts, activeInfos, extraDefDicts, cfg, release := ss.state.SnapshotSearchDicts()
+	released := false
+	defer func() {
+		if !released {
+			release()
+		}
+	}()
 
 	mode := search.ModeWord
 	if strings.EqualFold(req.Mode, "fts") {
@@ -242,7 +260,9 @@ func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
 	ss.mu.Unlock()
 
 	bridge := ss.state.Bridge()
-	go ss.runSearchWorker(ctx, searchID, sReq, activeInfos, bridge)
+	released = true
+	ss.wg.Add(1)
+	go ss.runSearchWorker(ctx, searchID, sReq, activeInfos, bridge, release)
 	return searchID, nil
 }
 
@@ -256,7 +276,10 @@ func (ss *SearchService) runSearchWorker(
 	sReq search.Request,
 	activeInfos []DictionaryInfo,
 	bridge HostBridge,
+	release func(),
 ) {
+	defer ss.wg.Done()
+	defer release()
 	start := time.Now()
 	ss.recordQuery(sReq.Query)
 	defer func() {

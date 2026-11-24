@@ -270,7 +270,7 @@ func main() {
 			Handler: application.AssetFileServerFS(assets),
 		},
 		OnShutdown: func() {
-			searchSvc.CancelSearch()
+			app.ShutdownSearch(searchSvc)
 			_ = state.Close()
 		},
 	})

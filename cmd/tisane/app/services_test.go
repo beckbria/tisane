@@ -746,3 +746,66 @@ func TestWebProviderURLSchemeSecurity(t *testing.T) {
 		t.Fatalf("expected valid OpenWebLookup, got (%q, %v)", got, err)
 	}
 }
+
+func TestConcurrentDictionaryRemovalDuringSearch(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	bridge := newMockBridge()
+
+	// Build a synthetic .tsd dictionary so the test is self-contained.
+	wordListPath := filepath.Join(tmp, "words.txt")
+	var sb strings.Builder
+	for i := 0; i < 200; i++ {
+		sb.WriteString("alpha" + strings.Repeat("a", i%10) + "\n")
+		sb.WriteString("beta" + strings.Repeat("b", i%10) + "\n")
+	}
+	if err := os.WriteFile(wordListPath, []byte(sb.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tsdPath := filepath.Join(tmp, "test.tsd")
+	if _, _, err := tsd.BuildFileWithParams(tsd.BuildParams{
+		InputPath:  wordListPath,
+		OutputPath: tsdPath,
+	}); err != nil {
+		t.Fatalf("BuildFileWithParams: %v", err)
+	}
+
+	state, err := app.NewState(cfgPath, bridge)
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+	defer state.Close()
+
+	dictSvc := app.NewDictionaryService(state)
+	searchSvc := app.NewSearchService(state)
+	lookupSvc := app.NewLookupService(state)
+
+	infos, err := dictSvc.AddDictionaryPaths([]string{tsdPath})
+	if err != nil || len(infos) == 0 {
+		t.Fatalf("AddDictionaryPaths: %v (len=%d)", err, len(infos))
+	}
+	targetID := infos[len(infos)-1].ID
+
+	// Kick off a search and immediately remove the dictionary while lookup & search run concurrently.
+	if _, err := searchSvc.StartSearch(app.SearchRequest{
+		Query:    "*",
+		Mode:     "word",
+		SortMode: "dict",
+	}); err != nil {
+		t.Fatalf("StartSearch: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = lookupSvc.GetDefinitions(context.Background(), "alpha", false)
+	}()
+
+	if _, err := dictSvc.RemoveDictionary(targetID); err != nil {
+		t.Fatalf("RemoveDictionary: %v", err)
+	}
+
+	wg.Wait()
+	app.ShutdownSearch(searchSvc)
+}

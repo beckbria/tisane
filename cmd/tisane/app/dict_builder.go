@@ -118,9 +118,7 @@ func (ds *DictionaryService) BuildDictionary(req BuildDictionaryRequest) (*Build
 			prevIdx = i
 			prevName = existing.info.Name
 			prevEnabled = existing.info.Enabled
-			if existing.dict != nil {
-				_ = existing.dict.Close()
-			}
+			_ = existing.release()
 			ds.state.dicts = append(ds.state.dicts[:i], ds.state.dicts[i+1:]...)
 			break
 		}
@@ -148,12 +146,21 @@ func (ds *DictionaryService) BuildDictionary(req BuildDictionaryRequest) (*Build
 		// Restore previously loaded dictionary handle if the file is still intact on disk.
 		if prevIdx >= 0 {
 			ds.state.mu.Lock()
-			if ld, reopenErr := ds.state.openAndAppendLocked(absOut, prevName, prevEnabled); reopenErr == nil && prevIdx < len(ds.state.dicts)-1 {
-				// Move restored entry back to its original priority index.
-				ds.state.dicts = ds.state.dicts[:len(ds.state.dicts)-1]
-				ds.state.dicts = append(ds.state.dicts[:prevIdx], append([]*loadedDict{ld}, ds.state.dicts[prevIdx:]...)...)
+			if ld, reopenErr := ds.state.openAndAppendLocked(absOut, prevName, prevEnabled); reopenErr == nil {
+				if prevIdx < len(ds.state.dicts)-1 {
+					// Move restored entry back to its original priority index.
+					ds.state.dicts = ds.state.dicts[:len(ds.state.dicts)-1]
+					ds.state.dicts = append(ds.state.dicts[:prevIdx], append([]*loadedDict{ld}, ds.state.dicts[prevIdx:]...)...)
+				}
+				ds.state.mu.Unlock()
+			} else {
+				ds.state.syncConfigDictionariesLocked()
+				_ = ds.state.saveConfigLocked()
+				infos := ds.state.listInfosLocked()
+				bridge := ds.state.bridge
+				ds.state.mu.Unlock()
+				bridge.EmitEvent("dicts:updated", infos)
 			}
-			ds.state.mu.Unlock()
 		}
 		return nil, buildErr
 	}

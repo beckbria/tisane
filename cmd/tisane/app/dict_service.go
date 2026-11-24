@@ -138,9 +138,7 @@ func (ds *DictionaryService) RemoveDictionary(id string) ([]DictionaryInfo, erro
 	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
-	if removed.dict != nil {
-		_ = removed.dict.Close()
-	}
+	_ = removed.release()
 	bridge.EmitEvent("dicts:updated", infos)
 	return infos, nil
 }

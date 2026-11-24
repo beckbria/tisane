@@ -41,15 +41,7 @@ func NewProfileService(state *State) *ProfileService {
 func (ps *ProfileService) GetConfig() profile.Config {
 	ps.state.mu.RLock()
 	defer ps.state.mu.RUnlock()
-	cfgCopy := *ps.state.cfg
-	cfgCopy.DictDirs = append([]string{}, ps.state.cfg.DictDirs...)
-	cfgCopy.Dictionaries = append([]profile.DictConfig{}, ps.state.cfg.Dictionaries...)
-	cfgCopy.EntryFilter = append([]string{}, ps.state.cfg.EntryFilter...)
-	cfgCopy.WebProviders = append([]lookup.WebProvider{}, ps.state.cfg.WebProviders...)
-	cfgCopy.RecentQueries = append([]string{}, ps.state.cfg.RecentQueries...)
-	cfgCopy.SidebarWidth = profile.NormalizeSidebarWidth(ps.state.cfg.SidebarWidth)
-	cfgCopy.Fonts = profile.NormalizeFontConfig(ps.state.cfg.Fonts)
-	return cfgCopy
+	return ps.state.cloneConfigLocked()
 }
 
 // UpdateConfig applies non-nil fields from patch and persists config.toml atomically.
