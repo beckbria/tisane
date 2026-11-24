@@ -144,9 +144,9 @@ type BuildStats struct {
 }
 
 type wordBuildInfo struct {
-	raw       []byte
-	firstLine int
-	defLines  []int
+	raw      []byte
+	firstSeq int
+	defLines []int
 }
 
 type ftsPosting struct {
@@ -195,24 +195,34 @@ func StripRTFForFTS(rawDef []byte) []byte {
 			continue
 		}
 		if state == 1 {
-			hexVal <<= 4
-			switch {
-			case b >= '0' && b <= '9':
-				hexVal += b - '0'
-			case b >= 'a' && b <= 'f':
-				hexVal += b - 'a' + 10
-			case b >= 'A' && b <= 'F':
-				hexVal += b - 'A' + 10
-			}
-			hexRem--
-			if hexRem == 0 {
-				out = append(out, hexVal)
+			isHex := (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
+			if !isHex {
 				hexRem = 2
 				hexVal = 0
 				state = 0
+				// Fall through to process b normally.
+			} else {
+				hexVal <<= 4
+				switch {
+				case b >= '0' && b <= '9':
+					hexVal += b - '0'
+				case b >= 'a' && b <= 'f':
+					hexVal += b - 'a' + 10
+				case b >= 'A' && b <= 'F':
+					hexVal += b - 'A' + 10
+				}
+				hexRem--
+				if hexRem == 0 {
+					if hexVal != 0 {
+						out = append(out, hexVal)
+					}
+					hexRem = 2
+					hexVal = 0
+					state = 0
+				}
+				i++
+				continue
 			}
-			i++
-			continue
 		}
 
 		if b == '{' || b == '}' {
@@ -231,8 +241,12 @@ func StripRTFForFTS(rawDef []byte) []byte {
 				i++
 			case nb == '*':
 				i++
-			case nb == '-' || nb == '_':
-				out = append(out, '-')
+			case nb == '-' || nb == '_' || nb == '~':
+				if nb == '~' {
+					out = append(out, ' ')
+				} else {
+					out = append(out, '-')
+				}
 				i++
 			case nb == '\\' || nb == '{' || nb == '}':
 				out = append(out, nb)
@@ -242,27 +256,36 @@ func StripRTFForFTS(rawDef []byte) []byte {
 				for i < n && isASCIILetter(rawDef[i]) {
 					i++
 				}
+				endCW := i
+				negParam := false
 				if i < n && rawDef[i] == '-' {
+					negParam = true
 					i++
 				}
 				numPos := i
 				for i < n && isASCIIDigit(rawDef[i]) {
 					i++
 				}
-				if i-startCW < 10 {
+				endNum := i
+				if endCW-startCW < 12 {
 					var needle [16]byte
 					needle[0] = '|'
-					copy(needle[1:], rawDef[startCW:i])
-					needleLen := 1 + (i - startCW)
+					copy(needle[1:], rawDef[startCW:endCW])
+					needleLen := 1 + (endCW - startCW)
 					needle[needleLen] = '|'
 					needleLen++
 					idx := bytes.Index(rtfSpaceWords, needle[:needleLen])
 					if idx >= 0 {
 						out = append(out, ' ')
-						if idx == 0 {
+						if idx == 0 && !negParam && endNum > numPos {
 							val := 0
-							for _, d := range rawDef[numPos:i] {
-								val = val*10 + int(d-'0')
+							for _, d := range rawDef[numPos:endNum] {
+								if val <= n {
+									val = val*10 + int(d-'0')
+								}
+							}
+							if val > n {
+								val = n
 							}
 							binRem = val
 							if binRem > 0 {
@@ -275,7 +298,7 @@ func StripRTFForFTS(rawDef []byte) []byte {
 					i++
 				}
 			default:
-				i += 2
+				i++
 			}
 			continue
 		}
@@ -290,7 +313,11 @@ func StripRTFForFTS(rawDef []byte) []byte {
 }
 
 func splitNormalizedLines(data []byte) [][]byte {
-	norm := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	norm := data
+	if bytes.IndexByte(norm, '\r') >= 0 {
+		norm = bytes.ReplaceAll(norm, []byte("\r\n"), []byte("\n"))
+		norm = bytes.ReplaceAll(norm, []byte("\r"), []byte("\n"))
+	}
 	if len(norm) == 0 {
 		return nil
 	}
@@ -456,15 +483,29 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 	tsm[0x00] = 0
 	tsm[0x0A] = 0
 	tsm[0x0D] = 0
+	for b := 1; b < 256; b++ {
+		if tsm[b] == 0x0A || tsm[b] == 0x0D {
+			tsm[b] = 0
+		}
+	}
+	for b := 1; b < 256; b++ {
+		if m := tsm[b]; m != 0 && tsm[m] != m {
+			return nil, nil, fmt.Errorf("tsd: alphabet map is not idempotent at byte 0x%02X -> 0x%02X", b, m)
+		}
+	}
 	if classes := tsm.NumClasses(); classes < 1 || classes >= 254 {
 		return nil, nil, fmt.Errorf("tsd: alphabet map defines %d letter classes (must be 1..253)", classes)
 	}
 
 	cp1252Data := normalizeBuilderInput(rawInput, opts.Encoding)
+	if bytes.IndexByte(cp1252Data, 0) >= 0 {
+		cp1252Data = bytes.ReplaceAll(cp1252Data, []byte{0}, nil)
+	}
 	lines := splitNormalizedLines(cp1252Data)
 	totalLines := len(lines)
 
 	var freq [256]uint64
+	nextWordSeq := 0
 	mapA := make([]map[string]*wordBuildInfo, opts.MaxLen+1)
 	for L := opts.MinLen; L <= opts.MaxLen; L++ {
 		mapA[L] = make(map[string]*wordBuildInfo)
@@ -543,7 +584,7 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 						}
 						continue
 					}
-					if line[q] == '\\' && q+1 < n {
+					if line[q] == '\\' && q+1 < tokEnd {
 						q++
 					}
 					b := line[q]
@@ -565,10 +606,11 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 					if info, exists := dmap[key]; exists {
 						info.defLines = append(info.defLines, lineIdx)
 					} else {
+						nextWordSeq++
 						dmap[key] = &wordBuildInfo{
-							raw:       append([]byte(nil), trimmed...),
-							firstLine: lineIdx,
-							defLines:  []int{lineIdx},
+							raw:      append([]byte(nil), trimmed...),
+							firstSeq: nextWordSeq,
+							defLines: []int{lineIdx},
 						}
 					}
 
@@ -720,7 +762,7 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 			})
 		} else {
 			sort.Slice(items, func(i, j int) bool {
-				return items[i].firstLine < items[j].firstLine
+				return items[i].firstSeq < items[j].firstSeq
 			})
 		}
 		sortedWords[L] = items
@@ -760,7 +802,7 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 				if c == 0 || wc == 0 {
 					calBytes = append(calBytes, 0x80) // -128
 				} else {
-					val := math.Log2(float64(c*K) / float64(wc))
+					val := math.Log2((float64(c) * float64(K)) / float64(wc))
 					var iv int
 					if val >= 0 {
 						iv = int(val + 0.5)
@@ -841,7 +883,7 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 					var hwBytes []byte
 					canonLen := 0
 					for q := tokStart; q < wEnd; {
-						if line[q] == '\\' && q+1 < n {
+						if line[q] == '\\' && q+1 < wEnd {
 							q++
 						}
 						b := line[q]
@@ -854,7 +896,7 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 					var qualBytes []byte
 					if plus2 >= 0 {
 						for q := plus2 + 1; q < p; {
-							if line[q] == '\\' && q+1 < n {
+							if line[q] == '\\' && q+1 < p {
 								q++
 							}
 							qualBytes = append(qualBytes, line[q])
@@ -923,6 +965,9 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 				}
 			}
 		}
+	}
+	if uint64(headerSize)+uint64(len(defsBuf)) >= uint64(FTSOverflowSentinel) {
+		return nil, nil, fmt.Errorf("tsd: definitions section exceeds 2 GiB TSD1 offset limit")
 	}
 	defPassOffsets[2] = headerSize + uint32(len(defsBuf))
 
@@ -1096,6 +1141,10 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 				bodyBuf = binary.LittleEndian.AppendUint32(bodyBuf, x)
 			}
 		}
+	}
+
+	if uint64(headerSize)+uint64(len(bodyBuf)) >= uint64(FTSOverflowSentinel) {
+		return nil, nil, fmt.Errorf("tsd: compiled dictionary exceeds 2 GiB TSD1 offset limit")
 	}
 
 	// Backward-fill interior zero word_stream_offsets[1..numLengths-2].

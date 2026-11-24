@@ -545,3 +545,59 @@ func TestReaderHardeningAgainstCorruptHeadersAndShortReads(t *testing.T) {
 		}
 	})
 }
+
+func TestStripRTFForFTSAndBuilderDeterminism(t *testing.T) {
+	t.Run("strip_rtf_bin_and_control_symbols", func(t *testing.T) {
+		raw := []byte(`{\rtf1\ansi foo\~bar\par0 baz\bin4 ZZZZqux\'41}`)
+		plain := string(tsd.StripRTFForFTS(raw))
+		for _, want := range []string{"foo", "bar", "baz", "quxA"} {
+			if !bytes.Contains([]byte(plain), []byte(want)) {
+				t.Errorf("StripRTFForFTS(%q) = %q, missing %q", raw, plain, want)
+			}
+		}
+		if bytes.Contains([]byte(plain), []byte("ZZZZ")) {
+			t.Errorf("StripRTFForFTS failed to skip \\bin4 payload: %q", plain)
+		}
+	})
+
+	t.Run("sort_alphabetically_false_is_deterministic_on_same_line", func(t *testing.T) {
+		opts := tsd.DefaultBuildOptions()
+		opts.SortAlphabetically = false
+		input := []byte("zeta:alpha:mu:beta:omega|Greek letters\n")
+		first, _, err := tsd.BuildBytes(input, opts)
+		if err != nil {
+			t.Fatalf("BuildBytes: %v", err)
+		}
+		for i := 0; i < 16; i++ {
+			again, _, err := tsd.BuildBytes(input, opts)
+			if err != nil {
+				t.Fatalf("BuildBytes iter %d: %v", i, err)
+			}
+			if !bytes.Equal(first, again) {
+				t.Fatalf("non-deterministic BuildBytes output at iter %d", i)
+			}
+		}
+	})
+
+	t.Run("tsm_mapping_to_cr_and_negative_rune_handled", func(t *testing.T) {
+		if _, ok := tsd.EncodeCP1252Rune(-1); ok {
+			t.Fatal("expected EncodeCP1252Rune(-1) to return false")
+		}
+		tsm, err := tsd.ParseTSM([]byte{'x', '=', 0x0D, '\n', 'a', '=', 'A', '\n'})
+		if err != nil {
+			t.Fatalf("ParseTSM: %v", err)
+		}
+		if tsm['x'] != 0 {
+			t.Fatalf("expected 'x' mapped to CR to resolve to 0, got 0x%02X", tsm['x'])
+		}
+		opts := tsd.DefaultBuildOptions()
+		opts.Alphabet = tsm
+		out, _, err := tsd.BuildBytes([]byte("ax\x00a|def\x00text\n"), opts)
+		if err != nil {
+			t.Fatalf("BuildBytes with custom TSM and NULs: %v", err)
+		}
+		if _, err := tsd.OpenBytes(out, "test"); err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+	})
+}

@@ -93,6 +93,10 @@ func ParseTSM(data []byte) (TSM, error) {
 		}
 	}
 
+	temp[0x00] = 0
+	temp[0x0A] = 0
+	temp[0x0D] = 0
+
 	var out TSM
 	for c := 0; c < 256; c++ {
 		var visited [256]bool
@@ -103,9 +107,12 @@ func ParseTSM(data []byte) (TSM, error) {
 		}
 		out[c] = a
 	}
-	out[0x00] = 0
-	out[0x0A] = 0
-	out[0x0D] = 0
+	// If a chain led into a cycle (e.g. x -> a <-> b), ensure every non-zero entry maps directly to its canonical self-mapped root.
+	for c := 1; c < 256; c++ {
+		if m := out[c]; m != 0 && out[m] != m {
+			out[c] = out[m]
+		}
+	}
 
 	classes := out.NumClasses()
 	if classes < 1 || classes >= 254 {

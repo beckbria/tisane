@@ -88,6 +88,9 @@ func DecodeCP1252Byte(b byte) rune {
 // EncodeCP1252Rune converts a Unicode rune to its Windows-1252 byte,
 // returning false if the rune is not representable in Windows-1252.
 func EncodeCP1252Rune(r rune) (byte, bool) {
+	if r < 0 {
+		return 0, false
+	}
 	if r < 0x80 {
 		return byte(r), true
 	}
