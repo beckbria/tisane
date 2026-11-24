@@ -164,6 +164,42 @@ func TestSidebarConfigRoundTripAndNormalization(t *testing.T) {
 	}
 }
 
+func TestDefinitionPaneConfigRoundTripAndNormalization(t *testing.T) {
+	cfg := profile.DefaultConfig()
+	if cfg.DefinitionHeight != profile.DefaultDefinitionHeight || cfg.DefinitionCollapsed {
+		t.Fatalf("unexpected definition pane defaults: height=%d collapsed=%v", cfg.DefinitionHeight, cfg.DefinitionCollapsed)
+	}
+
+	cfg.DefinitionHeight = 360
+	cfg.DefinitionCollapsed = true
+
+	raw := profile.MarshalTOML(cfg)
+	parsed, err := profile.ParseTOML(raw)
+	if err != nil {
+		t.Fatalf("ParseTOML: %v", err)
+	}
+	if parsed.DefinitionHeight != 360 || !parsed.DefinitionCollapsed {
+		t.Fatalf("unexpected parsed definition pane config: height=%d collapsed=%v", parsed.DefinitionHeight, parsed.DefinitionCollapsed)
+	}
+
+	// Out-of-range heights are clamped to [MinDefinitionHeight, MaxDefinitionHeight].
+	clampedLow, err := profile.ParseTOML([]byte("definition_height = 40\n"))
+	if err != nil {
+		t.Fatalf("ParseTOML low: %v", err)
+	}
+	if clampedLow.DefinitionHeight != profile.MinDefinitionHeight {
+		t.Fatalf("expected clamped low height %d, got %d", profile.MinDefinitionHeight, clampedLow.DefinitionHeight)
+	}
+
+	clampedHigh, err := profile.ParseTOML([]byte("definition_height = 9999\n"))
+	if err != nil {
+		t.Fatalf("ParseTOML high: %v", err)
+	}
+	if clampedHigh.DefinitionHeight != profile.MaxDefinitionHeight {
+		t.Fatalf("expected clamped high height %d, got %d", profile.MaxDefinitionHeight, clampedHigh.DefinitionHeight)
+	}
+}
+
 func TestSaveAtomicAndDoesNotClobberPredictableTmp(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "sub", "config.toml")

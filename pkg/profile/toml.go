@@ -38,6 +38,8 @@ func MarshalTOML(cfg *Config) []byte {
 	fmt.Fprintf(&sb, "layout_mode = %s\n", quoteTOMLString(NormalizeLayoutMode(cfg.LayoutMode)))
 	fmt.Fprintf(&sb, "sidebar_width = %d\n", NormalizeSidebarWidth(cfg.SidebarWidth))
 	fmt.Fprintf(&sb, "sidebar_collapsed = %t\n", cfg.SidebarCollapsed)
+	fmt.Fprintf(&sb, "definition_height = %d\n", NormalizeDefinitionHeight(cfg.DefinitionHeight))
+	fmt.Fprintf(&sb, "definition_collapsed = %t\n", cfg.DefinitionCollapsed)
 	fmt.Fprintf(&sb, "auto_web_fallback = %t\n", cfg.AutoWebFallback)
 	fmt.Fprintf(&sb, "default_web_provider = %s\n", quoteTOMLString(cfg.DefaultWebProvider))
 	fmt.Fprintf(&sb, "dict_dirs = %s\n", formatStringArray(cfg.DictDirs))
@@ -259,6 +261,7 @@ func ParseTOML(data []byte) (*Config, error) {
 	cfg.LayoutMode = NormalizeLayoutMode(cfg.LayoutMode)
 	cfg.EntryFilter = NormalizeEntryFilter(cfg.EntryFilter)
 	cfg.SidebarWidth = NormalizeSidebarWidth(cfg.SidebarWidth)
+	cfg.DefinitionHeight = NormalizeDefinitionHeight(cfg.DefinitionHeight)
 	cfg.Fonts = NormalizeFontConfig(cfg.Fonts)
 	if sawWebProviders {
 		validWeb := make([]lookup.WebProvider, 0, len(parsedWeb))
@@ -453,6 +456,18 @@ func applyTopKey(cfg *Config, key, val string, lineNum int) error {
 			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
 		}
 		cfg.SidebarCollapsed = b
+	case "definition_height":
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		cfg.DefinitionHeight = NormalizeDefinitionHeight(v)
+	case "definition_collapsed":
+		b, err := strconv.ParseBool(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		cfg.DefinitionCollapsed = b
 	case "auto_web_fallback":
 		b, err := strconv.ParseBool(val)
 		if err != nil {

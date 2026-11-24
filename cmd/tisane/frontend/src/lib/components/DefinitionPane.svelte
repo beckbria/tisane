@@ -2,6 +2,8 @@
   import type { LookupResult } from '../types';
 
   interface Props {
+    height?: number;
+    collapsed?: boolean;
     selectedWord: string | null;
     lookupResult: LookupResult | null;
     isLoading: boolean;
@@ -15,9 +17,12 @@
     onCrossLookupWord: (word: string) => void;
     onOpenWebLookup: (word: string, providerId: string) => void;
     onOpenExternalURL: (url: string) => void;
+    onCollapse?: () => void;
   }
 
   let {
+    height = 256,
+    collapsed = false,
     selectedWord,
     lookupResult,
     isLoading,
@@ -30,7 +35,8 @@
     onToggleIncludeMentions,
     onCrossLookupWord,
     onOpenWebLookup,
-    onOpenExternalURL
+    onOpenExternalURL,
+    onCollapse
   }: Props = $props();
 
   function handleDefClick(e: MouseEvent) {
@@ -54,12 +60,14 @@
   }
 </script>
 
+{#if !collapsed}
 <section
   data-testid="definition-pane"
-  class="flex h-64 shrink-0 flex-col border-t border-slate-800 bg-slate-900/90"
+  style={`height: ${height}px;`}
+  class="flex max-h-[65%] shrink-0 flex-col overflow-hidden border-t border-slate-800 bg-slate-900/90"
 >
   <!-- Definition Header Bar -->
-  <div class="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-1.5 select-none">
+  <div class="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 px-4 py-1.5 select-none">
     <div class="flex items-center gap-2 min-w-0">
       <div class="inline-flex rounded bg-slate-950 ring-1 ring-slate-800">
         <button
@@ -100,7 +108,7 @@
       {/if}
     </div>
 
-    <div class="flex items-center gap-3 text-xs">
+    <div class="flex shrink-0 items-center gap-3 text-xs">
       <label class="flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-200" title="Also show dictionary entries that mention this word inside their definition body">
         <input
           type="checkbox"
@@ -128,11 +136,41 @@
           {/each}
         </div>
       {/if}
+
+      {#if onCollapse}
+        <button
+          type="button"
+          data-testid="collapse-definition-btn"
+          onclick={onCollapse}
+          aria-label="Collapse definitions panel"
+          title="Collapse definitions panel (Ctrl+D)"
+          class="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            class="h-3.5 w-3.5"
+            aria-hidden="true"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z"
+              clip-rule="evenodd"
+            />
+            <path
+              fill-rule="evenodd"
+              d="M4.22 9.72a.75.75 0 0 1 1.06 0L8 12.44l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 10.78a.75.75 0 0 1 0-1.06Z"
+              clip-rule="evenodd"
+            />
+          </svg>
+        </button>
+      {/if}
     </div>
   </div>
 
   <!-- Definition Body -->
-  <div class="flex-1 overflow-y-auto px-4 py-3">
+  <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
     {#if !selectedWord}
       <div class="flex h-full items-center justify-center text-xs text-slate-500">
         Select any matched word above to view local definitions or launch a web search. Double-click any word inside a definition to cross-lookup.
@@ -227,3 +265,4 @@
     {/if}
   </div>
 </section>
+{/if}

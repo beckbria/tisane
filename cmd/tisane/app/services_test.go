@@ -519,24 +519,35 @@ func TestProfileServiceSidebarSettingsPersistence(t *testing.T) {
 
 	profSvc := app.NewProfileService(state)
 	w := 340
+	h := 380
 	collapsed := true
 	updated, err := profSvc.UpdateConfig(app.ConfigPatch{
-		SidebarWidth:     &w,
-		SidebarCollapsed: &collapsed,
+		SidebarWidth:        &w,
+		SidebarCollapsed:    &collapsed,
+		DefinitionHeight:    &h,
+		DefinitionCollapsed: &collapsed,
 	})
 	if err != nil {
 		t.Fatalf("UpdateConfig: %v", err)
 	}
-	if updated.SidebarWidth != 340 || !updated.SidebarCollapsed {
-		t.Fatalf("unexpected updated sidebar config: %+v", updated)
+	if updated.SidebarWidth != 340 || !updated.SidebarCollapsed || updated.DefinitionHeight != 380 || !updated.DefinitionCollapsed {
+		t.Fatalf("unexpected updated panel config: %+v", updated)
 	}
 
 	diskCfg, err := profile.Load(cfgPath)
 	if err != nil {
 		t.Fatalf("profile.Load: %v", err)
 	}
-	if diskCfg.SidebarWidth != 340 || !diskCfg.SidebarCollapsed {
-		t.Fatalf("unexpected persisted sidebar config: %+v", diskCfg)
+	if diskCfg.SidebarWidth != 340 || !diskCfg.SidebarCollapsed || diskCfg.DefinitionHeight != 380 || !diskCfg.DefinitionCollapsed {
+		t.Fatalf("unexpected persisted panel config: %+v", diskCfg)
+	}
+
+	resetCfg, err := profSvc.ResetConfig(false)
+	if err != nil {
+		t.Fatalf("ResetConfig: %v", err)
+	}
+	if resetCfg.DefinitionHeight != profile.DefaultDefinitionHeight || resetCfg.DefinitionCollapsed {
+		t.Fatalf("expected definition pane config reset to defaults, got height=%d collapsed=%v", resetCfg.DefinitionHeight, resetCfg.DefinitionCollapsed)
 	}
 }
 

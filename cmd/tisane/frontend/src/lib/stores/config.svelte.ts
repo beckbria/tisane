@@ -7,11 +7,23 @@ export const MIN_SIDEBAR_WIDTH = 180;
 export const MAX_SIDEBAR_WIDTH = 560;
 export const SIDEBAR_COLLAPSE_THRESHOLD = 100;
 
+export const DEFAULT_DEFINITION_HEIGHT = 256;
+export const MIN_DEFINITION_HEIGHT = 120;
+export const MAX_DEFINITION_HEIGHT = 640;
+export const DEFINITION_COLLAPSE_THRESHOLD = 72;
+
 export function clampSidebarWidth(w: unknown): number {
   if (typeof w !== 'number' || !Number.isFinite(w) || w <= 0) {
     return DEFAULT_SIDEBAR_WIDTH;
   }
   return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, Math.round(w)));
+}
+
+export function clampDefinitionHeight(h: unknown): number {
+  if (typeof h !== 'number' || !Number.isFinite(h) || h <= 0) {
+    return DEFAULT_DEFINITION_HEIGHT;
+  }
+  return Math.max(MIN_DEFINITION_HEIGHT, Math.min(MAX_DEFINITION_HEIGHT, Math.round(h)));
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -31,6 +43,8 @@ export const DEFAULT_CONFIG: Config = {
   layoutMode: 'tiled',
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   sidebarCollapsed: false,
+  definitionHeight: DEFAULT_DEFINITION_HEIGHT,
+  definitionCollapsed: false,
   autoWebFallback: false,
   defaultWebProvider: 'onelook',
   webProviders: [
@@ -65,6 +79,11 @@ export function normalizeConfig(raw: Partial<Config> | null | undefined): Config
     sidebarWidth: clampSidebarWidth(raw.sidebarWidth),
     sidebarCollapsed:
       typeof raw.sidebarCollapsed === 'boolean' ? raw.sidebarCollapsed : DEFAULT_CONFIG.sidebarCollapsed,
+    definitionHeight: clampDefinitionHeight(raw.definitionHeight),
+    definitionCollapsed:
+      typeof raw.definitionCollapsed === 'boolean'
+        ? raw.definitionCollapsed
+        : DEFAULT_CONFIG.definitionCollapsed,
     fonts: normalizeFontConfig(raw.fonts)
   };
 }

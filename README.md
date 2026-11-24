@@ -47,6 +47,7 @@ A limited number of publicly available dictionaries are included in the releases
   - Constrain **Enum** (e.g., `4,3` or `4-2-2` in Word Search mode), **Min / Max Length** (`1–100`, click `–` to pin `=` exact length), **Entry Categories** (`abc` lowercase, `Abc` capitalized, `a-b` punctuated, `a b` phrases), **Dedupe**, and **Sort** (`Dictionary Order`, `Smart Balance`, `A → Z`, `Z → A`, `Length ↑`, `Length ↓`).
 - **Definitions & Web Search Fallback (Bottom)**:
   - Click any matched word to view sanitized RTF definitions across your dictionaries.
+  - Drag the top divider to resize the definition pane, or collapse/expand it (`Ctrl+D` or the toolbar **Defs** toggle) to give more vertical space to the results panes. Double-clicking a match while collapsed re-opens the definition pane.
   - Double-click any word inside a definition to cross-lookup that word; navigate lookup history with the arrow buttons.
   - Toggle **Include mentions** to also surface entries where the word appears in the definition body via FTS.
   - When no local definition is available (or from the header bar at any time), click on a dictionary provider to do a web search. You can configure your own custom `{entry}` URL templates in Settings.
@@ -60,6 +61,8 @@ A limited number of publicly available dictionaries are included in the releases
 | `Alt+Down` | Open recent queries dropdown |
 | `Ctrl+1` / `Cmd+1` | Switch results to **Separate Tiled Panes** (`⊞ Tiled`) |
 | `Ctrl+2` / `Cmd+2` | Switch results to **Unified Merged List** (`≡ Unified`) |
+| `Ctrl+B` / `Cmd+B` | Toggle **Dictionaries** sidebar panel |
+| `Ctrl+D` / `Cmd+D` | Toggle **Definitions** bottom panel |
 | `Ctrl+O` / `Cmd+O` | Add `.tsd` dictionary files |
 | `Ctrl+,` / `Cmd+,` | Open **Preferences** (macros & web search providers) |
 | `F1` | Toggle **Pattern Syntax Quick Reference** |

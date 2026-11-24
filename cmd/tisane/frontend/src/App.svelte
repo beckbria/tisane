@@ -3,8 +3,12 @@
   import { getBackend, isDesktopWebview } from './lib/bindings';
   import {
     createConfigStore,
+    DEFAULT_DEFINITION_HEIGHT,
     DEFAULT_SIDEBAR_WIDTH,
+    DEFINITION_COLLAPSE_THRESHOLD,
+    MAX_DEFINITION_HEIGHT,
     MAX_SIDEBAR_WIDTH,
+    MIN_DEFINITION_HEIGHT,
     MIN_SIDEBAR_WIDTH,
     SIDEBAR_COLLAPSE_THRESHOLD
   } from './lib/stores/config.svelte';
@@ -62,9 +66,18 @@
   let isResizingSidebar = $state(false);
   let dragSidebarWidth: number | null = $state(null);
   let cleanupSidebarDrag: (() => void) | null = null;
+
+  // Resizable & collapsible definition pane state
+  let isResizingDefinition = $state(false);
+  let dragDefinitionHeight: number | null = $state(null);
+  let cleanupDefinitionDrag: (() => void) | null = null;
+
   let patternBarRef: ReturnType<typeof PatternBar> | undefined = $state();
 
   const effectiveSidebarWidth = $derived(dragSidebarWidth ?? cfgStore.value.sidebarWidth);
+  const effectiveDefinitionHeight = $derived(
+    dragDefinitionHeight ?? cfgStore.value.definitionHeight
+  );
 
   const displayedTiledDicts = $derived(
     (searchStore.isSearching || searchStore.hasCompletedSearch) &&
@@ -125,6 +138,8 @@
       (!defStore.lookupResult || (defStore.lookupResult.entries ?? []).length === 0)
     ) {
       await defStore.openWebLookup(m.word, cfgStore.value.defaultWebProvider);
+    } else if (cfgStore.value.definitionCollapsed) {
+      setDefinitionCollapsed(false);
     }
   }
 
@@ -235,6 +250,109 @@
     }
   }
 
+  function setDefinitionCollapsed(collapsed: boolean) {
+    if (cleanupDefinitionDrag) {
+      cleanupDefinitionDrag();
+    }
+    void applyConfigPatch({ definitionCollapsed: collapsed }, false);
+  }
+
+  function toggleDefinitionCollapsed() {
+    setDefinitionCollapsed(!cfgStore.value.definitionCollapsed);
+  }
+
+  function getMaxDefinitionHeight(): number {
+    if (typeof window === 'undefined' || !window.innerHeight) {
+      return MAX_DEFINITION_HEIGHT;
+    }
+    return Math.min(
+      MAX_DEFINITION_HEIGHT,
+      Math.max(MIN_DEFINITION_HEIGHT, Math.floor(window.innerHeight * 0.6))
+    );
+  }
+
+  function handleDefinitionResizeStart(e: MouseEvent) {
+    if (e.button !== 0 || cfgStore.value.definitionCollapsed) return;
+    e.preventDefault();
+
+    if (cleanupDefinitionDrag) {
+      cleanupDefinitionDrag();
+    }
+
+    const startY = e.clientY;
+    const startHeight = cfgStore.value.definitionHeight;
+    let collapsedDuringDrag = false;
+    let latestHeight = startHeight;
+
+    isResizingDefinition = true;
+    dragDefinitionHeight = startHeight;
+
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+
+    const finishDrag = (commit: boolean) => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('blur', onBlur);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+      cleanupDefinitionDrag = null;
+      isResizingDefinition = false;
+      dragDefinitionHeight = null;
+
+      if (commit && !collapsedDuringDrag && latestHeight !== cfgStore.value.definitionHeight) {
+        void applyConfigPatch({ definitionHeight: latestHeight }, false);
+      }
+    };
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const rawHeight = startHeight + (startY - moveEvent.clientY);
+      if (rawHeight < DEFINITION_COLLAPSE_THRESHOLD) {
+        collapsedDuringDrag = true;
+        finishDrag(false);
+        void applyConfigPatch({ definitionCollapsed: true }, false);
+        return;
+      }
+      const maxAllowed = getMaxDefinitionHeight();
+      latestHeight = Math.max(MIN_DEFINITION_HEIGHT, Math.min(maxAllowed, Math.round(rawHeight)));
+      dragDefinitionHeight = latestHeight;
+    };
+
+    const onMouseUp = () => finishDrag(true);
+    const onBlur = () => finishDrag(true);
+
+    cleanupDefinitionDrag = () => finishDrag(false);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('blur', onBlur);
+  }
+
+  function handleDefinitionResizeReset() {
+    void applyConfigPatch({ definitionHeight: DEFAULT_DEFINITION_HEIGHT }, false);
+  }
+
+  function handleDefinitionResizeKeydown(e: KeyboardEvent) {
+    const step = e.shiftKey ? 32 : 16;
+    const maxAllowed = getMaxDefinitionHeight();
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = Math.min(maxAllowed, cfgStore.value.definitionHeight + step);
+      void applyConfigPatch({ definitionHeight: next }, false);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = Math.max(MIN_DEFINITION_HEIGHT, cfgStore.value.definitionHeight - step);
+      void applyConfigPatch({ definitionHeight: next }, false);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      void applyConfigPatch({ definitionHeight: MIN_DEFINITION_HEIGHT }, false);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      void applyConfigPatch({ definitionHeight: maxAllowed }, false);
+    }
+  }
+
   function handleWindowKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       if (showAbout) {
@@ -277,9 +395,12 @@
     } else if (mod && e.shiftKey && e.key.toLowerCase() === 'm') {
       e.preventDefault();
       showWordListMerger = true;
-    } else if (mod && e.key.toLowerCase() === 'b') {
+    } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       toggleSidebarCollapsed();
+    } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'd') {
+      e.preventDefault();
+      toggleDefinitionCollapsed();
     } else if (mod && e.key === ',') {
       e.preventDefault();
       showSettings = true;
@@ -332,6 +453,9 @@
       }),
       backend.onEvent('ui:toggle-sidebar', () => {
         toggleSidebarCollapsed();
+      }),
+      backend.onEvent('ui:toggle-definitions', () => {
+        toggleDefinitionCollapsed();
       })
     ];
 
@@ -345,6 +469,7 @@
       for (const off of unsubs) off();
       searchStore.dispose();
       if (cleanupSidebarDrag) cleanupSidebarDrag();
+      if (cleanupDefinitionDrag) cleanupDefinitionDrag();
     };
   });
 </script>
@@ -394,6 +519,7 @@
     sortMode={cfgStore.value.sortMode}
     layoutMode={cfgStore.value.layoutMode}
     sidebarCollapsed={cfgStore.value.sidebarCollapsed}
+    definitionCollapsed={cfgStore.value.definitionCollapsed}
     activeDictCount={dictStore.activeCount}
     totalDictCount={dictStore.list.length}
     onLengthChange={(min, max) => applyConfigPatch({ minLength: min, maxLength: max }, true)}
@@ -403,6 +529,7 @@
     onSortChange={(s: SortMode) => applyConfigPatch({ sortMode: s }, true)}
     onLayoutChange={(l: LayoutMode) => applyConfigPatch({ layoutMode: l }, false)}
     onToggleSidebar={toggleSidebarCollapsed}
+    onToggleDefinitions={toggleDefinitionCollapsed}
   />
 
   <!-- Main Workspace: Dictionary Sidebar + Results Workspace + Definition Pane -->
@@ -515,8 +642,36 @@
         {/if}
       </div>
 
+      {#if !cfgStore.value.definitionCollapsed}
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize definitions panel"
+          aria-valuenow={effectiveDefinitionHeight}
+          aria-valuemin={MIN_DEFINITION_HEIGHT}
+          aria-valuemax={MAX_DEFINITION_HEIGHT}
+          tabindex="0"
+          data-testid="definition-resizer"
+          title="Drag to resize definitions panel (double-click to reset, drag down to collapse)"
+          onmousedown={handleDefinitionResizeStart}
+          ondblclick={handleDefinitionResizeReset}
+          onkeydown={handleDefinitionResizeKeydown}
+          class="group relative z-20 -mt-1 -mb-1 flex h-2 shrink-0 cursor-row-resize items-center select-none focus:outline-none"
+        >
+          <div
+            class="h-0.5 w-full transition-colors {isResizingDefinition
+              ? 'bg-amber-400'
+              : 'bg-transparent group-hover:bg-amber-400/60 group-focus-visible:bg-amber-400'}"
+          ></div>
+        </div>
+      {/if}
+
       <!-- Definitions & Web Search Fallback Pane -->
       <DefinitionPane
+        height={effectiveDefinitionHeight}
+        collapsed={cfgStore.value.definitionCollapsed}
         selectedWord={defStore.selectedWord}
         lookupResult={defStore.lookupResult}
         isLoading={defStore.isLoading}
@@ -534,6 +689,7 @@
         onOpenExternalURL={(u) => {
           void defStore.openExternalURL(u);
         }}
+        onCollapse={() => setDefinitionCollapsed(true)}
       />
     </main>
   </div>

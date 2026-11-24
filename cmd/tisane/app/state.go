@@ -270,6 +270,7 @@ func (s *State) cloneConfigLocked() profile.Config {
 	cfgCopy.WebProviders = append([]lookup.WebProvider{}, s.cfg.WebProviders...)
 	cfgCopy.RecentQueries = append([]string{}, s.cfg.RecentQueries...)
 	cfgCopy.SidebarWidth = profile.NormalizeSidebarWidth(s.cfg.SidebarWidth)
+	cfgCopy.DefinitionHeight = profile.NormalizeDefinitionHeight(s.cfg.DefinitionHeight)
 	cfgCopy.Fonts = profile.NormalizeFontConfig(s.cfg.Fonts)
 	return cfgCopy
 }

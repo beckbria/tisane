@@ -68,6 +68,8 @@ function createMockHarness() {
     layoutMode: 'tiled',
     sidebarWidth: 272,
     sidebarCollapsed: false,
+    definitionHeight: 256,
+    definitionCollapsed: false,
     autoWebFallback: false,
     defaultWebProvider: 'onelook',
     webProviders: [
@@ -287,6 +289,8 @@ function createMockHarness() {
         layoutMode: 'tiled',
         sidebarWidth: 272,
         sidebarCollapsed: false,
+        definitionHeight: 256,
+        definitionCollapsed: false,
         autoWebFallback: false,
         defaultWebProvider: 'onelook',
         webProviders: [
@@ -501,6 +505,8 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       layoutMode: 'tiled',
       sidebarWidth: 0,
       sidebarCollapsed: false,
+      definitionHeight: 0,
+      definitionCollapsed: false,
       autoWebFallback: false,
       defaultWebProvider: 'onelook',
       webProviders: null as unknown as Config['webProviders'],
@@ -892,6 +898,139 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     });
   });
 
+  it('resizes the definition pane via drag, keyboard, and double-click reset', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(h.backend.listDictionaries).toHaveBeenCalled());
+
+    const defPane = screen.getByTestId('definition-pane');
+    const resizer = screen.getByTestId('definition-resizer');
+    expect(defPane).toHaveStyle('height: 256px');
+
+    // Drag upward by 80px (clientY 500 -> 420) -> increases height to 336px
+    await fireEvent.mouseDown(resizer, { button: 0, clientY: 500 });
+    await fireEvent.mouseMove(window, { clientY: 420 });
+    expect(defPane).toHaveStyle('height: 336px');
+    await fireEvent.mouseUp(window);
+
+    await waitFor(() => {
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ definitionHeight: 336 });
+    });
+
+    // Keyboard ArrowDown shrinks by 16px -> 320px; ArrowUp grows by 16px -> 336px
+    await fireEvent.keyDown(resizer, { key: 'ArrowDown' });
+    await waitFor(() => {
+      expect(defPane).toHaveStyle('height: 320px');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ definitionHeight: 320 });
+    });
+
+    await fireEvent.keyDown(resizer, { key: 'ArrowUp' });
+    await waitFor(() => {
+      expect(defPane).toHaveStyle('height: 336px');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ definitionHeight: 336 });
+    });
+
+    // Double-clicking the resizer resets to default 256px
+    await fireEvent.dblClick(resizer);
+    await waitFor(() => {
+      expect(defPane).toHaveStyle('height: 256px');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ definitionHeight: 256 });
+    });
+  });
+
+  it('collapses and expands the definition pane via button, drag-to-collapse, Ctrl+D, menu event, and result double-click', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(h.backend.listDictionaries).toHaveBeenCalled());
+
+    // Resize first so we can verify expanded height is remembered across collapse/expand
+    const resizer = screen.getByTestId('definition-resizer');
+    await fireEvent.mouseDown(resizer, { button: 0, clientY: 500 });
+    await fireEvent.mouseMove(window, { clientY: 436 });
+    await fireEvent.mouseUp(window);
+    await waitFor(() => expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 320px'));
+
+    // Collapse via definition header button -> pane and resizer are removed from DOM
+    await fireEvent.click(screen.getByTestId('collapse-definition-btn'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('definition-resizer')).not.toBeInTheDocument();
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ definitionCollapsed: true });
+    });
+
+    // Toolbar toggle button reflects collapsed state and expands back to remembered 320px height
+    const toggleBtn = screen.getByTestId('toggle-definitions-btn');
+    expect(toggleBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(toggleBtn).toHaveTextContent('Definitions');
+
+    await fireEvent.click(toggleBtn);
+    await waitFor(() => {
+      expect(screen.getByTestId('definition-pane')).toBeInTheDocument();
+      expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 320px');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ definitionCollapsed: false });
+    });
+
+    // Dragging the resizer far down past the threshold collapses the pane while preserving 320px height
+    await fireEvent.mouseDown(screen.getByTestId('definition-resizer'), { button: 0, clientY: 440 });
+    await fireEvent.mouseMove(window, { clientY: 720 });
+    await waitFor(() => {
+      expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+    });
+
+    // Ctrl+D expands it again at 320px
+    await fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
+    await waitFor(() => {
+      expect(screen.getByTestId('definition-pane')).toBeInTheDocument();
+      expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 320px');
+    });
+
+    // Native View menu event ui:toggle-definitions toggles collapse
+    h.emit('ui:toggle-definitions', null);
+    await tick();
+    await waitFor(() => {
+      expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+    });
+
+    // Double-clicking a match while collapsed re-opens the definition pane for that word
+    const input = screen.getByTestId('pattern-input');
+    await fireEvent.input(input, { target: { value: 'cynic' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(h.searchRequests.length).toBe(1));
+
+    h.emit('search:batch', {
+      searchId: 1,
+      matches: [{ word: 'cynic', length: 5, dictIndex: 1, dict: "The Devil's Dictionary", hasDefinition: true }],
+      progress: { dictIndex: 1, dictName: "The Devil's Dictionary", wordsScanned: 1580, totalCandidateWords: 1580 }
+    });
+    h.emit('search:complete', {
+      searchId: 1,
+      totalMatches: 1,
+      wordsScanned: 1580,
+      totalCandidateWords: 1580,
+      elapsedMs: 1.0,
+      usedIndexedFTS: false,
+      activeDicts: await h.backend.listDictionaries()
+    });
+    await tick();
+
+    // Single-click does not force-expand while collapsed
+    await fireEvent.click(screen.getByText('cynic'));
+    await tick();
+    expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+
+    // Double-click expands the definition pane at its remembered 320px height
+    await fireEvent.dblClick(screen.getByText('cynic'));
+    await waitFor(() => {
+      expect(screen.getByTestId('definition-pane')).toBeInTheDocument();
+      expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 320px');
+      expect(screen.getByTestId('definition-entries')).toHaveTextContent('faulty vision sees things as they are');
+    });
+  });
+
   it('opens the Dictionary Builder modal, exposes all tisane-build options, validates inputs, and builds a dictionary', async () => {
     const h = createMockHarness();
     setBackendForTesting(h.backend);
@@ -1192,17 +1331,23 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     h.emit('search:cancelled', { searchId: 2 });
     await waitFor(() => expect(screen.getByTestId('status-bar')).not.toHaveTextContent('Scanning'));
 
-    // In desktop WebView mode, Ctrl+B in the webview is ignored so native menu ui:toggle-sidebar does not double-fire.
+    // In desktop WebView mode, Ctrl+B and Ctrl+D in the webview are ignored so native menu accelerators do not double-fire.
     const w = window as unknown as { _wails?: { environment?: { OS?: string } } };
     const prevEnv = w._wails?.environment;
     w._wails = { ...(w._wails ?? {}), environment: { OS: 'linux' } };
     try {
       await fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
+      await fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
       await tick();
       expect(screen.getByTestId('dictionary-sidebar')).toBeInTheDocument();
+      expect(screen.getByTestId('definition-pane')).toBeInTheDocument();
 
       h.emit('ui:toggle-sidebar', null);
-      await waitFor(() => expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument());
+      h.emit('ui:toggle-definitions', null);
+      await waitFor(() => {
+        expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+      });
     } finally {
       if (w._wails) {
         w._wails.environment = prevEnv;

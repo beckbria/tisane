@@ -245,6 +245,11 @@ func buildAppMenu(
 		OnClick(func(*application.Context) {
 			wailsApp.Event.Emit(app.EventUIToggleSidebar, nil)
 		})
+	viewMenu.Add("Toggle Definitions Panel").
+		SetAccelerator("CmdOrCtrl+D").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit(app.EventUIToggleDefinitions, nil)
+		})
 	viewMenu.AddSeparator()
 	viewMenu.Add("Pattern Syntax Reference").
 		SetAccelerator("F1").

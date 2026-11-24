@@ -91,7 +91,7 @@ All code must follow idiomatic conventions and best practices for its language a
 - **Bound service method hygiene**: Every exported method on a service registered in `cmd/tisane/main.go` (`DictionaryService`, `ToolsService`, `SearchService`, `LookupService`, `ProfileService`) is automatically exposed to the WebView. Keep internal helpers unexported (such as `addDictionaryPaths` and `scanDirectory`) or as package-level functions (e.g., `app.ShutdownSearch`). Accept `ctx context.Context` as the first parameter on cancellable I/O methods (Wails v3 injects it automatically without changing JS signatures).
 - **Typed event contracts & `searchId` correlation**: Define all event names in `cmd/tisane/app/events.go` and mirror their payload types in `WailsEventMap` (`cmd/tisane/frontend/src/lib/bindings.ts`). Because `StartSearch` streams asynchronously, the frontend generates and sends `searchId` up front so fast `search:batch`/`search:complete`/`search:cancelled` events cannot race the RPC return value.
 - **Dictionary handle lifetimes**: `*tsd.Dictionary` handles in `app.State` are reference-counted (`acquire`/`release`). Never call `dict.Close()` directly on a dictionary that may still be held by an in-flight search or lookup; always use `SnapshotSearchDicts`/`SnapshotAllDicts` and `defer release()`.
-- **Shortcut ownership**: Native Wails menu accelerators (`cmd/tisane/main.go`) own global desktop shortcuts (`CmdOrCtrl+W/F/B/Shift+B/Shift+M/,/1/2`, `F1`), while `App.svelte` owns `Escape` exclusively and gates its `<svelte:window>` fallback on `!isDesktopWebview()` so toggles never double-fire on desktop while server mode and Vitest remain testable.
+- **Shortcut ownership**: Native Wails menu accelerators (`cmd/tisane/main.go`) own global desktop shortcuts (`CmdOrCtrl+W/F/B/D/Shift+B/Shift+M/,/1/2`, `F1`), while `App.svelte` owns `Escape` exclusively and gates its `<svelte:window>` fallback on `!isDesktopWebview()` so toggles never double-fire on desktop while server mode and Vitest remain testable.
 - **Security invariants**:
   - Any URL passed to `HostBridge.OpenURL` (including `WebProvider.URLTemplate` in `OpenWebLookup` and `UpdateConfig`) must be validated to `http`/`https` (plus `mailto` for `OpenExternalURL`).
   - Any `{@html ...}` rendering (such as `DefinitionPane.svelte`) must only receive backend-sanitized HTML, and `cmd/tisane/frontend/index.html` must retain its strict Content Security Policy.
@@ -159,6 +159,8 @@ CGO_ENABLED=0 go test -tags purego,gtk3 -v ./cmd/tisane
 
 #### Frontend Type-Check & Component Tests
 ```bash
+# If node/npm are not on host PATH, add Bazel's hermetic Node 22 toolchain first:
+# export PATH="$(bazel info output_base)/external/rules_nodejs++node+nodejs_linux_amd64/bin:$PATH"
 cd cmd/tisane/frontend
 npm run check   # svelte-check + strict TypeScript check
 npm test        # Vitest suite

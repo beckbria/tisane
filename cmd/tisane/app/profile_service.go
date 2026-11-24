@@ -23,6 +23,8 @@ type ConfigPatch struct {
 	LayoutMode              *string              `json:"layoutMode,omitempty"` // "tiled" or "unified"
 	SidebarWidth            *int                 `json:"sidebarWidth,omitempty"`
 	SidebarCollapsed        *bool                `json:"sidebarCollapsed,omitempty"`
+	DefinitionHeight        *int                 `json:"definitionHeight,omitempty"`
+	DefinitionCollapsed     *bool                `json:"definitionCollapsed,omitempty"`
 	AutoWebFallback         *bool                `json:"autoWebFallback,omitempty"`
 	DefaultWebProvider      *string              `json:"defaultWebProvider,omitempty"`
 	WebProviders            []lookup.WebProvider `json:"webProviders,omitempty"`
@@ -115,6 +117,12 @@ func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error
 	}
 	if patch.SidebarCollapsed != nil {
 		cfg.SidebarCollapsed = *patch.SidebarCollapsed
+	}
+	if patch.DefinitionHeight != nil {
+		cfg.DefinitionHeight = profile.NormalizeDefinitionHeight(*patch.DefinitionHeight)
+	}
+	if patch.DefinitionCollapsed != nil {
+		cfg.DefinitionCollapsed = *patch.DefinitionCollapsed
 	}
 	if patch.AutoWebFallback != nil {
 		cfg.AutoWebFallback = *patch.AutoWebFallback

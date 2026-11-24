@@ -38,6 +38,7 @@ export interface WailsEventMap {
   'ui:set-layout': LayoutMode;
   'ui:toggle-cheatsheet': null;
   'ui:toggle-sidebar': null;
+  'ui:toggle-definitions': null;
 }
 
 export interface TisaneBackend {

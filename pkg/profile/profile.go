@@ -33,6 +33,13 @@ const (
 	// MaxSidebarWidth is the maximum expanded pixel width of the dictionary sidebar.
 	MaxSidebarWidth = 560
 
+	// DefaultDefinitionHeight is the default pixel height of the definition pane.
+	DefaultDefinitionHeight = 256
+	// MinDefinitionHeight is the minimum expanded pixel height of the definition pane.
+	MinDefinitionHeight = 120
+	// MaxDefinitionHeight is the maximum expanded pixel height of the definition pane.
+	MaxDefinitionHeight = 640
+
 	// DefaultMaxRecentQueries is the default cap on Config.RecentQueries.
 	DefaultMaxRecentQueries = 50
 
@@ -52,6 +59,21 @@ func NormalizeSidebarWidth(w int) int {
 		return MaxSidebarWidth
 	}
 	return w
+}
+
+// NormalizeDefinitionHeight clamps a definition pane pixel height into [MinDefinitionHeight, MaxDefinitionHeight],
+// falling back to DefaultDefinitionHeight when non-positive.
+func NormalizeDefinitionHeight(h int) int {
+	if h <= 0 {
+		return DefaultDefinitionHeight
+	}
+	if h < MinDefinitionHeight {
+		return MinDefinitionHeight
+	}
+	if h > MaxDefinitionHeight {
+		return MaxDefinitionHeight
+	}
+	return h
 }
 
 // DictConfig represents one configured .tsd dictionary in user priority order.
@@ -131,11 +153,13 @@ type Config struct {
 	ShowBalances            bool                 `json:"showBalances"`
 	ShowAnnotations         bool                 `json:"showAnnotations"`
 	SuppressDuplicates      bool                 `json:"suppressDuplicates"`
-	EntryFilter             []string             `json:"entryFilter"`      // "lowercase", "capitalized", "punctuated", "phrase"
-	SortMode                string               `json:"sortMode"`         // "dict", "alpha", "alpha-desc", "len", "len-desc", "smart"
-	LayoutMode              string               `json:"layoutMode"`       // "tiled" (default) or "unified"
-	SidebarWidth            int                  `json:"sidebarWidth"`     // expanded pixel width of the dictionary sidebar
-	SidebarCollapsed        bool                 `json:"sidebarCollapsed"` // whether the dictionary sidebar is collapsed
+	EntryFilter             []string             `json:"entryFilter"`         // "lowercase", "capitalized", "punctuated", "phrase"
+	SortMode                string               `json:"sortMode"`            // "dict", "alpha", "alpha-desc", "len", "len-desc", "smart"
+	LayoutMode              string               `json:"layoutMode"`          // "tiled" (default) or "unified"
+	SidebarWidth            int                  `json:"sidebarWidth"`        // expanded pixel width of the dictionary sidebar
+	SidebarCollapsed        bool                 `json:"sidebarCollapsed"`    // whether the dictionary sidebar is collapsed
+	DefinitionHeight        int                  `json:"definitionHeight"`    // expanded pixel height of the definition pane
+	DefinitionCollapsed     bool                 `json:"definitionCollapsed"` // whether the definition pane is collapsed
 	AutoWebFallback         bool                 `json:"autoWebFallback"`
 	DefaultWebProvider      string               `json:"defaultWebProvider"`
 	WebProviders            []lookup.WebProvider `json:"webProviders"`
@@ -272,6 +296,8 @@ func DefaultConfig() *Config {
 		LayoutMode:              "tiled",
 		SidebarWidth:            DefaultSidebarWidth,
 		SidebarCollapsed:        false,
+		DefinitionHeight:        DefaultDefinitionHeight,
+		DefinitionCollapsed:     false,
 		AutoWebFallback:         false,
 		DefaultWebProvider:      "onelook",
 		WebProviders:            lookup.DefaultWebProviders(),

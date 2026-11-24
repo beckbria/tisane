@@ -186,6 +186,8 @@ export interface Config {
   layoutMode: LayoutMode;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
+  definitionHeight: number;
+  definitionCollapsed: boolean;
   autoWebFallback: boolean;
   defaultWebProvider: string;
   webProviders: WebProvider[];
@@ -208,6 +210,8 @@ export interface ConfigPatch {
   layoutMode?: LayoutMode;
   sidebarWidth?: number;
   sidebarCollapsed?: boolean;
+  definitionHeight?: number;
+  definitionCollapsed?: boolean;
   autoWebFallback?: boolean;
   defaultWebProvider?: string;
   webProviders?: WebProvider[];
