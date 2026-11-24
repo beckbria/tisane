@@ -58,6 +58,23 @@ func (lt *LinkTable) Resolve(groupIndex int) (LinkResolution, error) {
 	return lt.dict.classifyLinkGroupSlice(slice)
 }
 
+// HasDirectDefinition reports in O(1) time whether link group groupIndex contains at least one
+// direct Pass 1 or Pass 2 definition offset (as opposed to only FTS body mentions).
+func (lt *LinkTable) HasDirectDefinition(groupIndex int) bool {
+	if lt == nil || lt.dict == nil || groupIndex < 0 || groupIndex >= lt.NumGroups() {
+		return false
+	}
+	slice := lt.raw[lt.groupStarts[groupIndex]:lt.groupStarts[groupIndex+1]]
+	if len(slice) == 0 {
+		return false
+	}
+	if len(slice) > 1 {
+		return true
+	}
+	lastVal := slice[0] & 0x7FFFFFFF
+	return lastVal >= lt.dict.defPassOffsets[0] && lastVal < lt.dict.defPassOffsets[2]
+}
+
 func (d *Dictionary) classifyLinkGroupSlice(group []uint32) (LinkResolution, error) {
 	if len(group) == 0 {
 		return LinkResolution{}, fmt.Errorf("%w: empty link group", ErrInvalidOffset)

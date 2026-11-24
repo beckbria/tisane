@@ -1,7 +1,7 @@
 package search
 
 import (
-	"sort"
+	"slices"
 
 	"tisane/pkg/tsd"
 )
@@ -26,6 +26,10 @@ func isCP1252Uppercase(b byte) bool {
 func ClassifyEntry(wordBytes []byte, dict *tsd.Dictionary) EntryTypeMask {
 	hasPunct := false
 	hasUpper := false
+	var defTSM tsd.TSM
+	if dict == nil {
+		defTSM = tsd.DefaultTSM()
+	}
 	for _, b := range wordBytes {
 		if b == ' ' {
 			return EntryPhrase
@@ -35,7 +39,7 @@ func ClassifyEntry(wordBytes []byte, dict *tsd.Dictionary) EntryTypeMask {
 				hasPunct = true
 				continue
 			}
-		} else if !tsd.DefaultTSM().IsAlpha(b) {
+		} else if !defTSM.IsAlpha(b) {
 			hasPunct = true
 			continue
 		}
@@ -52,51 +56,59 @@ func ClassifyEntry(wordBytes []byte, dict *tsd.Dictionary) EntryTypeMask {
 	return EntryLowercase
 }
 
+func countBalanceRunes(bal string) int {
+	n := 0
+	for _, r := range bal {
+		if r != '+' && r != '-' {
+			n++
+		}
+	}
+	return n
+}
+
 // SortMatches sorts matches in-place according to mode using TEA's collation rules.
 func SortMatches(matches []Match, mode SortMode) {
 	if mode == SortDict || len(matches) <= 1 {
 		return
 	}
 
-	ensureRaw := func(m *Match) []byte {
-		if m.rawWord != nil {
-			return m.rawWord
-		}
-		cp, _ := tsd.EncodeCP1252(m.Word)
-		m.rawWord = cp
-		return cp
-	}
 	for i := range matches {
-		ensureRaw(&matches[i])
+		m := &matches[i]
+		if m.rawWord == nil {
+			cp, _ := tsd.EncodeCP1252(m.Word)
+			m.rawWord = cp
+		}
+		if mode == SortLenSmart && m.balanceLen == 0 && m.AnagramBalance != "" {
+			m.balanceLen = countBalanceRunes(m.AnagramBalance)
+		}
 	}
 
-	sort.SliceStable(matches, func(i, j int) bool {
-		a, b := &matches[i], &matches[j]
+	slices.SortStableFunc(matches, func(a, b Match) int {
 		switch mode {
 		case SortAlphaAsc:
-			return tsd.CompareWordsAlpha(a.rawWord, b.rawWord) < 0
+			return tsd.CompareWordsAlpha(a.rawWord, b.rawWord)
 		case SortAlphaDesc:
-			return tsd.CompareWordsAlpha(a.rawWord, b.rawWord) > 0
+			return tsd.CompareWordsAlpha(b.rawWord, a.rawWord)
 		case SortLenAsc:
 			if a.Length != b.Length {
-				return a.Length < b.Length
+				return a.Length - b.Length
 			}
-			return tsd.CompareWordsAlpha(a.rawWord, b.rawWord) < 0
+			return tsd.CompareWordsAlpha(a.rawWord, b.rawWord)
 		case SortLenDesc:
 			if a.Length != b.Length {
-				return a.Length > b.Length
+				return b.Length - a.Length
 			}
-			return tsd.CompareWordsAlpha(a.rawWord, b.rawWord) < 0
+			return tsd.CompareWordsAlpha(a.rawWord, b.rawWord)
 		case SortLenSmart:
 			if a.balanceLen != b.balanceLen {
-				return a.balanceLen < b.balanceLen
+				return a.balanceLen - b.balanceLen
 			}
 			if a.Length != b.Length {
-				return a.Length < b.Length
+				return a.Length - b.Length
 			}
-			return tsd.CompareWordsAlpha(a.rawWord, b.rawWord) < 0
+			return tsd.CompareWordsAlpha(a.rawWord, b.rawWord)
 		default:
-			return false
+			return 0
 		}
 	})
 }

@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"iter"
+	"slices"
 
 	"tisane/pkg/pattern"
 	"tisane/pkg/tsd"
@@ -76,11 +77,15 @@ func (c *defPresenceCache) hasDef(foldedKey string, length int) bool {
 			if d.WordCount(length) == 0 {
 				continue
 			}
+			lt, ltErr := d.ReadLinkTable(length)
+			if ltErr != nil || lt.NumGroups() == 0 {
+				continue
+			}
 			for raw, err := range d.ScanRawWords(length) {
 				if err != nil {
 					break
 				}
-				if raw.LinkGroupIndex >= 0 {
+				if raw.LinkGroupIndex >= 0 && lt.HasDirectDefinition(int(raw.LinkGroupIndex)) {
 					m[tsd.FoldCP1252(raw.WordBytes)] = true
 				}
 			}
@@ -90,21 +95,31 @@ func (c *defPresenceCache) hasDef(foldedKey string, length int) bool {
 	return m[foldedKey]
 }
 
+type mergeEntryState struct {
+	firstDict int
+	indices   []int // indices into *mergeTarget emitted by firstDict
+}
+
 // Search executes req to completion, applying cross-dictionary deduplication, sorting, and Limit,
 // and returns a consolidated Summary.
 func (e *Engine) Search(ctx context.Context, req Request) (*Summary, error) {
 	req = normalizeRequest(req)
 	sum := &Summary{}
 
-	// Note: when Sort != SortDict and Limit > 0, we must collect all matches before sorting & slicing,
-	// EXCEPT in legacy TEACON SortDict mode where Limit stops scanning early!
+	// When Sort != SortDict or DedupeMergeSources is active with Limit > 0, collect all matches before slicing.
 	streamReq := req
-	if req.Sort != SortDict && req.Limit > 0 {
+	if (req.Sort != SortDict || req.DedupeMode == DedupeMergeSources) && req.Limit > 0 {
 		streamReq.Limit = 0
 	}
 
-	mergeMap := make(map[string]int) // word -> index in sum.Matches when DedupeMergeSources
-	for batch, err := range e.searchStreamInternal(ctx, streamReq, mergeMap, &sum.Matches, &sum.UsedIndexedFTS) {
+	var mergeMap map[string]*mergeEntryState
+	var mergeTarget *[]Match
+	if req.DedupeMode == DedupeMergeSources {
+		mergeMap = make(map[string]*mergeEntryState)
+		mergeTarget = &sum.Matches
+	}
+
+	for batch, err := range e.searchStreamInternal(ctx, streamReq, mergeMap, mergeTarget, &sum.UsedIndexedFTS) {
 		if err != nil {
 			return nil, err
 		}
@@ -119,23 +134,57 @@ func (e *Engine) Search(ctx context.Context, req Request) (*Summary, error) {
 		SortMatches(sum.Matches, req.Sort)
 	}
 	if req.Limit > 0 && len(sum.Matches) > req.Limit {
-		sum.Matches = sum.Matches[:req.Limit]
+		sum.Matches = slices.Clone(sum.Matches[:req.Limit])
+	}
+	if sum.Matches == nil {
+		sum.Matches = []Match{}
 	}
 	return sum, nil
 }
 
 // SearchStream streams batches of Matches and scan Progress across req.Dictionaries in priority order,
 // halting immediately if the caller stops iterating or cancels ctx.
+// Note: DedupeMergeSources requires buffering across dictionaries; in streaming mode it suppresses
+// lower-priority duplicates identically to DedupeSuppress.
 func (e *Engine) SearchStream(ctx context.Context, req Request) iter.Seq2[Batch, error] {
 	req = normalizeRequest(req)
-	var dummyUsed bool
-	return e.searchStreamInternal(ctx, req, nil, nil, &dummyUsed)
+	if req.DedupeMode == DedupeMergeSources {
+		req.DedupeMode = DedupeSuppress
+	}
+	return func(yield func(Batch, error) bool) {
+		var dummyUsed bool
+		for batch, err := range e.searchStreamInternal(ctx, req, nil, nil, &dummyUsed) {
+			if !yield(batch, err) {
+				return
+			}
+		}
+	}
+}
+
+// SearchStreamWithStats behaves like SearchStream and also populates *usedIndexedFTS when non-nil.
+func (e *Engine) SearchStreamWithStats(ctx context.Context, req Request, usedIndexedFTS *bool) iter.Seq2[Batch, error] {
+	req = normalizeRequest(req)
+	if req.DedupeMode == DedupeMergeSources {
+		req.DedupeMode = DedupeSuppress
+	}
+	return func(yield func(Batch, error) bool) {
+		var localUsed bool
+		target := &localUsed
+		if usedIndexedFTS != nil {
+			target = usedIndexedFTS
+		}
+		for batch, err := range e.searchStreamInternal(ctx, req, nil, nil, target) {
+			if !yield(batch, err) {
+				return
+			}
+		}
+	}
 }
 
 func (e *Engine) searchStreamInternal(
 	ctx context.Context,
 	req Request,
-	mergeIdxMap map[string]int,
+	mergeIdxMap map[string]*mergeEntryState,
 	mergeTarget *[]Match,
 	usedIndexedFTS *bool,
 ) iter.Seq2[Batch, error] {
@@ -188,7 +237,11 @@ func (e *Engine) searchStreamInternal(
 		}
 
 		defCache := newDefPresenceCache(&req)
-		seenWords := make(map[string]bool)
+		var firstSeenDict map[string]int
+		if req.DedupeMode == DedupeSuppress && len(req.Dictionaries) > 1 {
+			firstSeenDict = make(map[string]int)
+		}
+		activeFilter := req.EntryFilter & EntryAll
 		var wordsScanned uint64
 		totalEmitted := 0
 
@@ -219,6 +272,19 @@ func (e *Engine) searchStreamInternal(
 					continue
 				}
 
+				var lt *tsd.LinkTable
+				ltLoaded := false
+				hasDirectInCur := func(linkGroup int32) bool {
+					if !d.HasDefinitions() || linkGroup < 0 {
+						return false
+					}
+					if !ltLoaded {
+						lt, _ = d.ReadLinkTable(L)
+						ltLoaded = true
+					}
+					return lt != nil && lt.HasDirectDefinition(int(linkGroup))
+				}
+
 				for raw, sErr := range d.ScanRawWords(L) {
 					if sErr != nil {
 						yield(Batch{}, sErr)
@@ -227,23 +293,29 @@ func (e *Engine) searchStreamInternal(
 					wordsScanned++
 					scannedSinceYield++
 
-					if matcher.MatchEntry(raw) && (ClassifyEntry(raw.WordBytes, d)&req.EntryFilter) != 0 {
+					if matcher.MatchEntry(raw) && (ClassifyEntry(raw.WordBytes, d)&activeFilter) != 0 {
 						wordUTF8 := tsd.DecodeCP1252(raw.WordBytes)
 						foldedKey := tsd.FoldCP1252(raw.WordBytes)
 
-						if req.DedupeMode == DedupeSuppress {
-							if seenWords[foldedKey] {
-								goto checkBatchFlush
-							}
-							seenWords[foldedKey] = true
-						} else if req.DedupeMode == DedupeMergeSources && mergeTarget != nil {
-							if prevIdx, exists := mergeIdxMap[foldedKey]; exists {
-								prev := &(*mergeTarget)[prevIdx]
-								if len(prev.AllDictIndices) == 0 || prev.AllDictIndices[len(prev.AllDictIndices)-1] != dictIdx {
-									prev.AllDictIndices = append(prev.AllDictIndices, dictIdx)
+						if firstSeenDict != nil {
+							if prevDict, seen := firstSeenDict[foldedKey]; seen {
+								if prevDict < dictIdx {
+									goto checkBatchFlush
 								}
-								if !prev.HasDefinition && d.HasDefinitions() && raw.LinkGroupIndex >= 0 {
-									prev.HasDefinition = true
+							} else {
+								firstSeenDict[foldedKey] = dictIdx
+							}
+						} else if req.DedupeMode == DedupeMergeSources && mergeTarget != nil {
+							if st, exists := mergeIdxMap[foldedKey]; exists && st.firstDict < dictIdx {
+								directHere := hasDirectInCur(raw.LinkGroupIndex)
+								for _, mIdx := range st.indices {
+									prev := &(*mergeTarget)[mIdx]
+									if len(prev.AllDictIndices) == 0 || prev.AllDictIndices[len(prev.AllDictIndices)-1] != dictIdx {
+										prev.AllDictIndices = append(prev.AllDictIndices, dictIdx)
+									}
+									if !prev.HasDefinition && directHere {
+										prev.HasDefinition = true
+									}
 								}
 								goto checkBatchFlush
 							}
@@ -263,7 +335,7 @@ func (e *Engine) searchStreamInternal(
 							}
 						}
 
-						hasDef := d.HasDefinitions() && raw.LinkGroupIndex >= 0
+						hasDef := hasDirectInCur(raw.LinkGroupIndex)
 						if !hasDef {
 							hasDef = defCache.hasDef(foldedKey, L)
 						}
@@ -280,14 +352,18 @@ func (e *Engine) searchStreamInternal(
 							rawWord:        append([]byte(nil), raw.WordBytes...),
 							balanceLen:     balLen,
 						}
-						if req.DedupeMode == DedupeMergeSources {
+						if req.DedupeMode == DedupeMergeSources && mergeTarget != nil {
 							hit.AllDictIndices = []int{dictIdx}
-							if mergeTarget != nil {
-								mergeIdxMap[foldedKey] = len(*mergeTarget)
-								*mergeTarget = append(*mergeTarget, hit)
+							st, exists := mergeIdxMap[foldedKey]
+							if !exists {
+								st = &mergeEntryState{firstDict: dictIdx}
+								mergeIdxMap[foldedKey] = st
 							}
+							st.indices = append(st.indices, len(*mergeTarget))
+							*mergeTarget = append(*mergeTarget, hit)
+						} else {
+							batchMatches = append(batchMatches, hit)
 						}
-						batchMatches = append(batchMatches, hit)
 						totalEmitted++
 
 						if req.Limit > 0 && totalEmitted >= req.Limit {
@@ -352,11 +428,14 @@ func (e *Engine) streamFTS(
 	ctx context.Context,
 	req *Request,
 	pq *pattern.ParsedQuery,
-	mergeIdxMap map[string]int,
+	mergeIdxMap map[string]*mergeEntryState,
 	mergeTarget *[]Match,
 	usedIndexedFTS *bool,
 	yield func(Batch, error) bool,
 ) {
+	if req.MinLength > req.MaxLength {
+		return
+	}
 	// Note: in Full Text Search, leaf patterns match words of ANY length 1..100 inside definitions,
 	// while req.MinLength..req.MaxLength filters the emitted dictionary headwords!
 	ftsCompOpts := pattern.CompileOptions{
@@ -367,28 +446,44 @@ func (e *Engine) streamFTS(
 		ComputeBalances:         false,
 	}
 
-	seenWords := make(map[string]bool)
+	var firstSeenDict map[string]int
+	if req.DedupeMode == DedupeSuppress && len(req.Dictionaries) > 1 {
+		firstSeenDict = make(map[string]int)
+	}
 	totalEmitted := 0
 	var defsScanned uint64
+	var recHits []Match
 
 	emitHit := func(hit Match, batch *[]Match) bool {
 		foldedKey := tsd.FoldCP1252(hit.rawWord)
-		if req.DedupeMode == DedupeSuppress {
-			if seenWords[foldedKey] {
-				return false
+		if firstSeenDict != nil {
+			if prevDict, seen := firstSeenDict[foldedKey]; seen {
+				if prevDict < hit.DictIndex {
+					return false
+				}
+			} else {
+				firstSeenDict[foldedKey] = hit.DictIndex
 			}
-			seenWords[foldedKey] = true
 		} else if req.DedupeMode == DedupeMergeSources && mergeTarget != nil {
-			if prevIdx, exists := mergeIdxMap[foldedKey]; exists {
-				prev := &(*mergeTarget)[prevIdx]
-				if len(prev.AllDictIndices) == 0 || prev.AllDictIndices[len(prev.AllDictIndices)-1] != hit.DictIndex {
-					prev.AllDictIndices = append(prev.AllDictIndices, hit.DictIndex)
+			if st, exists := mergeIdxMap[foldedKey]; exists && st.firstDict < hit.DictIndex {
+				for _, mIdx := range st.indices {
+					prev := &(*mergeTarget)[mIdx]
+					if len(prev.AllDictIndices) == 0 || prev.AllDictIndices[len(prev.AllDictIndices)-1] != hit.DictIndex {
+						prev.AllDictIndices = append(prev.AllDictIndices, hit.DictIndex)
+					}
 				}
 				return false
 			}
 			hit.AllDictIndices = []int{hit.DictIndex}
-			mergeIdxMap[foldedKey] = len(*mergeTarget)
+			st, exists := mergeIdxMap[foldedKey]
+			if !exists {
+				st = &mergeEntryState{firstDict: hit.DictIndex}
+				mergeIdxMap[foldedKey] = st
+			}
+			st.indices = append(st.indices, len(*mergeTarget))
 			*mergeTarget = append(*mergeTarget, hit)
+			totalEmitted++
+			return req.Limit > 0 && totalEmitted >= req.Limit
 		}
 		*batch = append(*batch, hit)
 		totalEmitted++
@@ -421,8 +516,9 @@ func (e *Engine) streamFTS(
 			}
 			if exact {
 				*usedIndexedFTS = true
+				totalCand := uint64(len(offsets))
 				var batchMatches []Match
-				for _, off := range offsets {
+				for idxOff, off := range offsets {
 					if err := ctx.Err(); err != nil {
 						yield(Batch{}, err)
 						return
@@ -433,19 +529,48 @@ func (e *Engine) streamFTS(
 						return
 					}
 					defsScanned++
-					if hit, ok := makeFTSMatchFromRecord(dictIdx, d, rec, req, req.EntryFilter); ok {
+					recHits = appendFTSMatchesFromRecord(recHits[:0], dictIdx, d, rec, req, req.EntryFilter)
+					for _, hit := range recHits {
 						if emitHit(hit, &batchMatches) {
 							yield(Batch{
-								Matches:  batchMatches,
-								Progress: Progress{DictIndex: dictIdx, DictName: d.Name(), WordsScanned: defsScanned},
+								Matches: batchMatches,
+								Progress: Progress{
+									DictIndex:           dictIdx,
+									DictName:            d.Name(),
+									WordsScanned:        defsScanned,
+									TotalCandidateWords: totalCand,
+								},
 							}, nil)
 							return
 						}
 					}
+					if (idxOff+1)%500 == 0 {
+						if !yield(Batch{
+							Matches: batchMatches,
+							Progress: Progress{
+								DictIndex:           dictIdx,
+								DictName:            d.Name(),
+								WordsScanned:        defsScanned,
+								TotalCandidateWords: totalCand,
+							},
+						}, nil) {
+							return
+						}
+						batchMatches = nil
+					}
+				}
+				if err := ctx.Err(); err != nil {
+					yield(Batch{}, err)
+					return
 				}
 				if !yield(Batch{
-					Matches:  batchMatches,
-					Progress: Progress{DictIndex: dictIdx, DictName: d.Name(), WordsScanned: defsScanned},
+					Matches: batchMatches,
+					Progress: Progress{
+						DictIndex:           dictIdx,
+						DictName:            d.Name(),
+						WordsScanned:        defsScanned,
+						TotalCandidateWords: totalCand,
+					},
 				}, nil) {
 					return
 				}
@@ -455,8 +580,8 @@ func (e *Engine) streamFTS(
 
 		// Sequential Pass 2 definition scan fallback.
 		leafMatched := make([]bool, cq.NumLeaves())
-		idxScratch := make([]byte, 0, 64)
-		rawScratch := make([]byte, 0, 64)
+		idxScratch := make([]byte, 0, tsd.MaxWordLengthLimit)
+		rawScratch := make([]byte, 0, tsd.MaxWordLengthLimit)
 		var batchMatches []Match
 		sinceYield := 0
 
@@ -469,7 +594,8 @@ func (e *Engine) streamFTS(
 			sinceYield++
 
 			if testDefinitionRecordSequential(d, &rec, cq, matcher, leafMatched, idxScratch, rawScratch) {
-				if hit, ok := makeFTSMatchFromRecord(dictIdx, d, &rec, req, req.EntryFilter); ok {
+				recHits = appendFTSMatchesFromRecord(recHits[:0], dictIdx, d, &rec, req, req.EntryFilter)
+				for _, hit := range recHits {
 					if emitHit(hit, &batchMatches) {
 						yield(Batch{
 							Matches:  batchMatches,
@@ -497,6 +623,10 @@ func (e *Engine) streamFTS(
 		}
 
 		if len(batchMatches) > 0 || sinceYield > 0 {
+			if err := ctx.Err(); err != nil {
+				yield(Batch{}, err)
+				return
+			}
 			if !yield(Batch{
 				Matches:  batchMatches,
 				Progress: Progress{DictIndex: dictIdx, DictName: d.Name(), WordsScanned: defsScanned},

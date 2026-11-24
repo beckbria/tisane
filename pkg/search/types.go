@@ -37,19 +37,27 @@ const (
 	EntryPunctuated  EntryTypeMask = 1 << 2 // Single-token with non-space punctuation (e.g. "don't", "by-law")
 	EntryPhrase      EntryTypeMask = 1 << 3 // Multi-word entry containing space ' ' (e.g. "ice cream")
 
-	EntryAll EntryTypeMask = EntryLowercase | EntryCapitalized | EntryPunctuated | EntryPhrase
+	EntryAll  EntryTypeMask = EntryLowercase | EntryCapitalized | EntryPunctuated | EntryPhrase
+	EntryNone EntryTypeMask = 1 << 7 // Explicit empty filter sentinel (distinguished from zero-value default)
 )
 
 // ParseEntryFilter parses a comma-separated filter spec (such as "lower,upper,punct,phrase")
-// into an EntryTypeMask. Empty string returns EntryAll.
+// into an EntryTypeMask. Empty string returns EntryAll; "none" returns EntryNone.
 func ParseEntryFilter(spec string) (EntryTypeMask, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" || strings.EqualFold(spec, "all") {
 		return EntryAll, nil
 	}
+	if strings.EqualFold(spec, "none") {
+		return EntryNone, nil
+	}
 	var mask EntryTypeMask
 	for _, tok := range strings.Split(spec, ",") {
 		switch strings.ToLower(strings.TrimSpace(tok)) {
+		case "all":
+			mask |= EntryAll
+		case "none":
+			// Explicit none token without categories leaves mask empty -> EntryNone below.
 		case "lower", "lowercase", "abc":
 			mask |= EntryLowercase
 		case "upper", "cap", "capitalized", "proper":
@@ -61,8 +69,11 @@ func ParseEntryFilter(spec string) (EntryTypeMask, error) {
 		case "":
 			continue
 		default:
-			return 0, fmt.Errorf("unknown entry filter category %q (valid: lower, upper, punct, phrase)", tok)
+			return 0, fmt.Errorf("unknown entry filter category %q (valid: lower, upper, punct, phrase, all, none)", tok)
 		}
+	}
+	if mask == 0 {
+		return EntryNone, nil
 	}
 	return mask, nil
 }
@@ -74,7 +85,14 @@ func EntryFilterFromProfile(names []string) EntryTypeMask {
 	}
 	var mask EntryTypeMask
 	for _, n := range names {
-		if m, err := ParseEntryFilter(n); err == nil {
+		trimmed := strings.TrimSpace(n)
+		if trimmed == "" {
+			continue
+		}
+		if m, err := ParseEntryFilter(trimmed); err == nil {
+			if m == EntryNone {
+				continue
+			}
 			mask |= m
 		}
 	}

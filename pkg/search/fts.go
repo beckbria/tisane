@@ -2,7 +2,7 @@ package search
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"strings"
 
 	"tisane/pkg/pattern"
@@ -80,15 +80,8 @@ func sortAndDedupeUint32(s []uint32) []uint32 {
 	if len(s) <= 1 {
 		return s
 	}
-	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
-	w := 1
-	for r := 1; r < len(s); r++ {
-		if s[r] != s[w-1] {
-			s[w] = s[r]
-			w++
-		}
-	}
-	return s[:w]
+	slices.Sort(s)
+	return slices.Compact(s)
 }
 
 // collectIndexedLeafOffsets resolves all Pass 2 definition offsets matching leafIdx via dict's
@@ -224,11 +217,15 @@ func evalFTSIndexedAST(
 			if err != nil {
 				return nil, false, err
 			}
+			if !leftOK {
+				advanceLeafCursor(v.Right, leafCursor)
+				return nil, false, nil
+			}
 			rightOffs, rightOK, err := evalFTSIndexedAST(ctx, v.Right, dict, cq, matcher, leafCursor)
 			if err != nil {
 				return nil, false, err
 			}
-			if !leftOK || !rightOK {
+			if !rightOK {
 				return nil, false, nil
 			}
 			return unionUint32(leftOffs, rightOffs), true, nil
@@ -244,6 +241,9 @@ func evalFTSIndexedAST(
 			if err != nil {
 				return nil, false, err
 			}
+			if rightOK && len(rightOffs) == 0 {
+				return nil, true, nil
+			}
 			if negOK && rightOK {
 				return differenceUint32(rightOffs, negOffs), true, nil
 			}
@@ -258,6 +258,10 @@ func evalFTSIndexedAST(
 			leftOffs, leftOK, err := evalFTSIndexedAST(ctx, v.Left, dict, cq, matcher, leafCursor)
 			if err != nil {
 				return nil, false, err
+			}
+			if leftOK && len(leftOffs) == 0 {
+				advanceLeafCursor(rightNot.Inner, leafCursor)
+				return nil, true, nil
 			}
 			negOffs, negOK, err := evalFTSIndexedAST(ctx, rightNot.Inner, dict, cq, matcher, leafCursor)
 			if err != nil {
@@ -276,6 +280,10 @@ func evalFTSIndexedAST(
 		leftOffs, leftOK, err := evalFTSIndexedAST(ctx, v.Left, dict, cq, matcher, leafCursor)
 		if err != nil {
 			return nil, false, err
+		}
+		if leftOK && len(leftOffs) == 0 {
+			advanceLeafCursor(v.Right, leafCursor)
+			return nil, true, nil
 		}
 		rightOffs, rightOK, err := evalFTSIndexedAST(ctx, v.Right, dict, cq, matcher, leafCursor)
 		if err != nil {
@@ -341,43 +349,69 @@ func populateRecordLeafMatches(
 	clear(leafMatched[:numLeaves])
 	remaining := numLeaves
 
-	feedBytes := func(src []byte) {
-		idxScratch = idxScratch[:0]
-		rawScratch = rawScratch[:0]
-		for k := 0; k <= len(src) && remaining > 0; k++ {
-			var li int16 = -1
-			var b byte
-			if k < len(src) {
-				b = src[k]
-				li = dict.LetterIndex(b)
-			}
-			if li >= 0 {
-				if len(idxScratch) < tsd.MaxWordLengthLimit {
-					idxScratch = append(idxScratch, byte(li))
-					rawScratch = append(rawScratch, b)
-				}
-			} else if len(idxScratch) > 0 {
-				for leafIdx := 0; leafIdx < numLeaves; leafIdx++ {
-					if !leafMatched[leafIdx] && matcher.MatchLeafToken(leafIdx, idxScratch, rawScratch) {
-						leafMatched[leafIdx] = true
-						remaining--
-					}
-				}
-				idxScratch = idxScratch[:0]
-				rawScratch = rawScratch[:0]
-			}
-		}
-	}
-
+	// Headwords in TSD1 are indexed as complete canonical entries (e.g. "Crossword Man" -> CROSSWORDMAN),
+	// not split on spaces or hyphens.
 	for _, hq := range rec.Headwords {
 		if remaining == 0 {
 			break
 		}
-		feedBytes(hq.RawHeadword)
+		idxScratch = idxScratch[:0]
+		overflow := false
+		for _, b := range hq.RawHeadword {
+			if li := dict.LetterIndex(b); li >= 0 {
+				if len(idxScratch) >= tsd.MaxWordLengthLimit {
+					overflow = true
+					break
+				}
+				idxScratch = append(idxScratch, byte(li))
+			}
+		}
+		if overflow || len(idxScratch) == 0 {
+			continue
+		}
+		for leafIdx := 0; leafIdx < numLeaves; leafIdx++ {
+			if !leafMatched[leafIdx] && matcher.MatchLeafToken(leafIdx, idxScratch, hq.RawHeadword) {
+				leafMatched[leafIdx] = true
+				remaining--
+			}
+		}
 	}
+
 	if remaining > 0 {
 		plain := tsd.StripRTFForFTS(rec.RawBody)
-		feedBytes(plain)
+		idxScratch = idxScratch[:0]
+		rawScratch = rawScratch[:0]
+		overflow := false
+		for k := 0; k <= len(plain) && remaining > 0; k++ {
+			var li int16 = -1
+			var b byte
+			if k < len(plain) {
+				b = plain[k]
+				li = dict.LetterIndex(b)
+			}
+			if li >= 0 {
+				if !overflow {
+					if len(idxScratch) >= tsd.MaxWordLengthLimit {
+						overflow = true
+					} else {
+						idxScratch = append(idxScratch, byte(li))
+						rawScratch = append(rawScratch, b)
+					}
+				}
+			} else if len(idxScratch) > 0 || overflow {
+				if !overflow {
+					for leafIdx := 0; leafIdx < numLeaves; leafIdx++ {
+						if !leafMatched[leafIdx] && matcher.MatchLeafToken(leafIdx, idxScratch, rawScratch) {
+							leafMatched[leafIdx] = true
+							remaining--
+						}
+					}
+				}
+				idxScratch = idxScratch[:0]
+				rawScratch = rawScratch[:0]
+				overflow = false
+			}
+		}
 	}
 }
 
@@ -404,8 +438,8 @@ func filterOffsetsSequentially(
 	candidates []uint32,
 ) ([]uint32, error) {
 	leafMatched := make([]bool, cq.NumLeaves())
-	idxScratch := make([]byte, 0, 64)
-	rawScratch := make([]byte, 0, 64)
+	idxScratch := make([]byte, 0, tsd.MaxWordLengthLimit)
+	rawScratch := make([]byte, 0, tsd.MaxWordLengthLimit)
 	out := make([]uint32, 0, len(candidates))
 
 	for _, off := range candidates {
@@ -425,44 +459,43 @@ func filterOffsetsSequentially(
 	return out, nil
 }
 
-func makeFTSMatchFromRecord(
+func appendFTSMatchesFromRecord(
+	dst []Match,
 	dictIdx int,
 	dict *tsd.Dictionary,
 	rec *tsd.DefinitionRecord,
 	req *Request,
 	filter EntryTypeMask,
-) (Match, bool) {
-	if len(rec.Headwords) == 0 {
-		return Match{}, false
-	}
-	primary := rec.Headwords[0]
-	// Count canonical length of primary headword
-	canonLen := 0
-	for _, b := range primary.RawHeadword {
-		if dict.IsLetter(b) {
-			canonLen++
+) []Match {
+	activeFilter := filter & EntryAll
+	for _, hq := range rec.Headwords {
+		canonLen := 0
+		for _, b := range hq.RawHeadword {
+			if dict.IsLetter(b) {
+				canonLen++
+			}
 		}
+		if canonLen < req.MinLength || canonLen > req.MaxLength {
+			continue
+		}
+		if ClassifyEntry(hq.RawHeadword, dict)&activeFilter == 0 {
+			continue
+		}
+		var annot string
+		if req.ShowAnnotations {
+			annot = strings.TrimSpace(hq.Qualifier)
+		}
+		dst = append(dst, Match{
+			Word:          hq.Headword,
+			Annotation:    annot,
+			Length:        canonLen,
+			DictIndex:     dictIdx,
+			DictName:      dict.Name(),
+			LinkIndex:     -1,
+			DefOffset:     rec.Offset,
+			HasDefinition: true,
+			rawWord:       append([]byte(nil), hq.RawHeadword...),
+		})
 	}
-	if canonLen < req.MinLength || canonLen > req.MaxLength {
-		return Match{}, false
-	}
-	if ClassifyEntry(primary.RawHeadword, dict)&filter == 0 {
-		return Match{}, false
-	}
-
-	var annot string
-	if req.ShowAnnotations {
-		annot = strings.TrimSpace(primary.Qualifier)
-	}
-	return Match{
-		Word:          primary.Headword,
-		Annotation:    annot,
-		Length:        canonLen,
-		DictIndex:     dictIdx,
-		DictName:      dict.Name(),
-		LinkIndex:     -1,
-		DefOffset:     rec.Offset,
-		HasDefinition: true,
-		rawWord:       append([]byte(nil), primary.RawHeadword...),
-	}, true
+	return dst
 }

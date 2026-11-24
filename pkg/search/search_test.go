@@ -59,28 +59,41 @@ func TestMultiDictDedupeSortingFiltersEnumerationAndDefEnrichment(t *testing.T) 
 	eng := search.NewEngine()
 
 	// 1. Cross-dictionary deduplication & HasDefinition enrichment on wordlist-only match!
+	// WordNet contains both "Cynic" and "cynic" (2 intra-dict entries), while defs also contains "cynic".
+	// DedupeNone yields 3 matches; DedupeSuppress preserves both WordNet entries (DictIndex 0) and suppresses defs's duplicate.
+	reqNone := search.DefaultRequest("cynic", wordnet, defs)
+	reqNone.DedupeMode = search.DedupeNone
+	sumNone, err := eng.Search(context.Background(), reqNone)
+	if err != nil {
+		t.Fatalf("Search(cynic, DedupeNone): %v", err)
+	}
+	if len(sumNone.Matches) != 3 {
+		t.Fatalf("expected 3 un-deduplicated matches for 'cynic', got %d (%+v)", len(sumNone.Matches), sumNone.Matches)
+	}
+
 	req := search.DefaultRequest("cynic", wordnet, defs)
 	req.DedupeMode = search.DedupeSuppress
 	sum, err := eng.Search(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Search(cynic): %v", err)
 	}
-	if len(sum.Matches) != 1 {
-		t.Fatalf("expected 1 deduplicated match for 'cynic', got %d (%+v)", len(sum.Matches), sum.Matches)
+	if got := matchWords(sum.Matches); !slices.Equal(got, []string{"Cynic", "cynic"}) {
+		t.Fatalf("expected intra-dict [Cynic, cynic] preserved and cross-dict duplicate suppressed, got %v", got)
 	}
-	// Won by WordNet (DictIndex 0), enriched with HasDefinition=true from defs!
-	if sum.Matches[0].DictIndex != 0 || !sum.Matches[0].HasDefinition {
-		t.Fatalf("expected DictIndex=0 with HasDefinition=true, got %+v", sum.Matches[0])
+	for _, m := range sum.Matches {
+		if m.DictIndex != 0 || !m.HasDefinition {
+			t.Fatalf("expected DictIndex=0 with HasDefinition=true, got %+v", m)
+		}
 	}
 
-	// DedupeMergeSources records both sources [0, 1].
+	// DedupeMergeSources records both sources [0, 1] without dropping WordNet's lowercase twin.
 	req.DedupeMode = search.DedupeMergeSources
 	sumMerge, err := eng.Search(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sumMerge.Matches) != 1 || !slices.Equal(sumMerge.Matches[0].AllDictIndices, []int{0, 1}) {
-		t.Fatalf("expected AllDictIndices=[0, 1], got %+v", sumMerge.Matches)
+	if len(sumMerge.Matches) != 2 || !slices.Equal(sumMerge.Matches[0].AllDictIndices, []int{0, 1}) || !slices.Equal(sumMerge.Matches[1].AllDictIndices, []int{0, 1}) {
+		t.Fatalf("expected 2 merged matches with AllDictIndices=[0, 1], got %+v", sumMerge.Matches)
 	}
 
 	// 2. Smart Balance Sort on sub-anagram rack play `.....*;aadmort`
@@ -166,9 +179,11 @@ func TestMultiDictDedupeSortingFiltersEnumerationAndDefEnrichment(t *testing.T) 
 func TestFullTextSearchIndexedVsSequentialParity(t *testing.T) {
 	tsb2 := buildSynthDict(t, "fts-sample", strings.Join([]string{
 		"tap|A 3-letter word",
+		"word|A 4-letter entry enabling length-4 FTS index",
 		"alias|A synonym for another word",
 		"agonize|To suffer extreme pain",
 		"agonise|British spelling of agonize",
+		"colour:color|Visual hue sensation",
 		"Crossword Man|Author of TEA",
 		"TEA Support|{\\rtf1\\ansi Contact CrosswordMan for rtf help via mailto:support@crosswordman.com }",
 		"Web Help|{\\rtf1\\ansi Visit our rtf web page over http }",
@@ -178,6 +193,7 @@ func TestFullTextSearchIndexedVsSequentialParity(t *testing.T) {
 		"listen|To pay attention to sound",
 		"silent|Making no sound",
 		"quiet|listen or silent without music",
+		"longbody|contains " + strings.Repeat("z", 105) + " overlong token",
 	}, "\n")+"\n")
 
 	eng := search.NewEngine()
@@ -189,18 +205,20 @@ func TestFullTextSearchIndexedVsSequentialParity(t *testing.T) {
 	}{
 		{tsb2, "synonym*", false},            // Unbounded '*' exceeds indexed length buckets -> Sequential FTS fallback
 		{tsb2, "agoni[sz]e", true},           // Bounded length 7 -> Indexed FTS!
-		{tsb2, "crosswordman & !http", true}, // Exercises Indexed set_difference (A & !B)!
+		{tsb2, "crosswordman & !http", true}, // Exercises pure Indexed set_difference (A & !B)!
 		{tsb2, "rtf & (web | mailto)", true},
 		{tsb2, "dictionary & !lexicographer", true},
 		{tsb2, "(;listen | ;silent) & !music", true},
-		{tsb2, `dictionary & !\Lexicographer`, false}, // Hybrid indexed + case-exact sequential filter
+		{tsb2, "visual", true},                       // Multi-headword Pass 2 record (colour:color, length 6 indexed)
+		{tsb2, `dictionary & !\Lexicographer`, true}, // Hybrid indexed LHS + case-exact sequential filter!
+		{tsb2, strings.Repeat("z", 100), false},      // 105-letter body token must be ignored, not truncated to 100!
 	}
 
 	for _, tc := range queries {
 		t.Run(tc.dict.Name()+"/"+tc.query, func(t *testing.T) {
 			idxReq := search.DefaultRequest(tc.query, tc.dict)
 			idxReq.Mode = search.ModeFullText
-			idxReq.DedupeMode = search.DedupeNone
+			idxReq.DedupeMode = search.DedupeSuppress
 			idxSum, err := eng.Search(context.Background(), idxReq)
 			if err != nil {
 				t.Fatalf("Indexed FTS(%q): %v", tc.query, err)
@@ -223,11 +241,86 @@ func TestFullTextSearchIndexedVsSequentialParity(t *testing.T) {
 					tc.query, len(gotIdx), gotIdx, len(gotSeq), gotSeq)
 			}
 			if tc.dict == tsb2 && tc.query == "crosswordman & !http" {
-				if !slices.Equal(gotIdx, []string{"TEA Support"}) {
-					t.Fatalf("expected [TEA Support], got %v", gotIdx)
+				if !slices.Equal(gotIdx, []string{"Crossword Man", "TEA Support"}) {
+					t.Fatalf("expected [Crossword Man, TEA Support], got %v", gotIdx)
 				}
 			}
+			if tc.dict == tsb2 && tc.query == "visual" {
+				if !slices.Equal(gotIdx, []string{"colour", "color"}) {
+					t.Fatalf("expected multi-headword [colour, color], got %v", gotIdx)
+				}
+			}
+			if tc.query == strings.Repeat("z", 100) && len(gotSeq) != 0 {
+				t.Fatalf("expected >100-letter body token to be skipped, got %v", gotSeq)
+			}
 		})
+	}
+}
+
+func TestIntraDictTwinsMentionOnlyHasDefinitionAndSortModes(t *testing.T) {
+	d1 := buildSynthDict(t, "d1", strings.Join([]string{
+		"March",
+		"march|walk in step",
+		"unlinked",
+		"other|mentions unlinked in body",
+	}, "\n")+"\n")
+	d2 := buildSynthDict(t, "d2", "march|duplicate in lower-priority dict\nbeta\nalpha\n")
+
+	eng := search.NewEngine()
+
+	// 1. DedupeSuppress preserves intra-dict "March" + "march" in d1 while suppressing d2's "march"!
+	req := search.DefaultRequest("march", d1, d2)
+	req.DedupeMode = search.DedupeSuppress
+	sum, err := eng.Search(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := matchWords(sum.Matches); !slices.Equal(got, []string{"March", "march"}) {
+		t.Fatalf("DedupeSuppress on 'march' = %v, want [March, march]", got)
+	}
+
+	// 2. Mention-only word "unlinked" must report HasDefinition == false!
+	uReq := search.DefaultRequest("unlinked", d1)
+	uSum, err := eng.Search(context.Background(), uReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(uSum.Matches) != 1 || uSum.Matches[0].HasDefinition {
+		t.Fatalf("expected HasDefinition=false on mention-only word 'unlinked', got %+v", uSum.Matches)
+	}
+
+	// 3. EntryNone rejects all matches cleanly instead of defaulting to EntryAll
+	noneMask, err := search.ParseEntryFilter("none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	noneReq := search.DefaultRequest("*", d1)
+	noneReq.EntryFilter = noneMask
+	noneSum, err := eng.Search(context.Background(), noneReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(noneSum.Matches) != 0 {
+		t.Fatalf("expected 0 matches with EntryNone, got %v", matchWords(noneSum.Matches))
+	}
+
+	// 4. SortMatches modes including external SortLenSmart balanceLen backfill
+	ext := []search.Match{
+		{Word: "zebra", Length: 5, AnagramBalance: "+AB"},
+		{Word: "ant", Length: 3, AnagramBalance: ""},
+		{Word: "cat", Length: 3, AnagramBalance: "-D"},
+	}
+	search.SortMatches(ext, search.SortLenSmart)
+	if got := matchWords(ext); !slices.Equal(got, []string{"ant", "cat", "zebra"}) {
+		t.Fatalf("SortLenSmart external = %v, want [ant, cat, zebra]", got)
+	}
+	search.SortMatches(ext, search.SortAlphaDesc)
+	if got := matchWords(ext); !slices.Equal(got, []string{"zebra", "cat", "ant"}) {
+		t.Fatalf("SortAlphaDesc = %v, want [zebra, cat, ant]", got)
+	}
+	search.SortMatches(ext, search.SortLenDesc)
+	if got := matchWords(ext); !slices.Equal(got, []string{"zebra", "ant", "cat"}) {
+		t.Fatalf("SortLenDesc = %v, want [zebra, ant, cat]", got)
 	}
 }
 
