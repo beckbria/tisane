@@ -145,6 +145,20 @@ Run `./tisane-build --help` for all builder flags (`--min-len`, `--max-len`, `--
 
 Run `./tisane-extract --help` for all extractor options (`--no-header`, `--no-dedupe`, `--sort`, `--encoding`).
 
+### Word List Merger (`tisane-merge`)
+
+`tisane-merge` converts and combines two plain-text word lists using set operations (`or` union, `and` intersection, `exclude` difference) after optional ASCII transliteration/case normalization (`none`, `ascii`, `ascii-letters`, `ascii-lower`, `ascii-upper`).
+
+```bash
+# Intersect two lists after ASCII lowercase normalization
+./tisane-merge --op and --convert ascii-lower list1.txt list2.txt common.txt
+
+# Subtract secondary words from a primary list and print to stdout
+./tisane-merge --op exclude -c ascii-letters primary.txt blacklist.txt -
+```
+
+Run `./tisane-merge --help` for all merger options.
+
 ## Pattern Matching Tools
 
 ### Comparison to TEA
@@ -182,8 +196,8 @@ To build the Windows installer (`bazel build //:windows-release`), **NSIS** (`ma
 
 #### Frameworks used in Tisane
 
-1. **Go 1.24+** (`go version`)
-2. **Node.js 20+ and npm** (required when building or developing the `cmd/tisane` Svelte 5 frontend bundle)
+1. **Go 1.26+** (`go version`, managed hermetically when building with Bazel)
+2. **Node.js 22+ and npm** (managed hermetically via `rules_nodejs` during Bazel builds; required on `PATH` only for standalone `npm` / `go build ./cmd/tisane` workflows)
 3. **Desktop WebView runtime** (for running the `tisane` desktop window):
    - **Linux (Ubuntu / Debian)**: `libgtk-3-0` and `libwebkit2gtk-4.1-0` (installed by default on most desktop distributions).
      - *Note*: Tisane supports Wails v3's **PureGo** Linux backend (`-tags purego,gtk3`), so **no C compiler (`gcc`), `pkg-config`, or `-dev` header packages** are required to build on Linux.
@@ -203,11 +217,14 @@ To build the Windows installer (`bazel build //:windows-release`), **NSIS** (`ma
 | `cmd/tisane-cli` | **Command-line & interactive REPL search tool** (compatible with legacy `TEACON` switches plus JSON/CSV, FTS, `--define`, and `--enum`) |
 | `cmd/tisane-build` | **Dictionary compiler & inspector** (replaces `TSBuild.exe`; compiles plain-text/RTF word lists into `.tsd` files) |
 | `cmd/tisane-extract` | **Word list & metadata extractor** (exports `.tsd` dictionaries to plain one-word-per-line lists or `tisane-build` source files) |
+| `cmd/tisane-merge` | **Word list merger** (replaces `TSMerge.exe`; ASCII conversion and `or`/`and`/`exclude` set operations) |
+| `internal/` | Release archive packager (`releasepkg`), NSIS installer builder (`wininstaller`), and shared build helpers (`buildutil`) |
 | `pkg/tsd` | Pure-Go reader, streaming bit-unpacker, RTF/zlib definition decoder, and byte-accurate `TSD1` writer |
 | `pkg/pattern` | Macro expander, boolean expression parser, live span validator, calibration-sorted compiler, and backtracking VM |
 | `pkg/search` | Concurrent multi-dictionary word & indexed/sequential Full-Text Search (FTS) engine with 6 sort modes |
 | `pkg/lookup` | Sanitized `.tsd` RTF-to-HTML / plain-text converter and `{entry}` web lookup URL builder |
 | `pkg/profile` | Portable configuration (`~/.config/tisane/config.toml`) and `.tsd` dictionary discovery |
+| `pkg/wordlist` | Streaming word list ASCII transliteration and set-operation merger |
 
 ---
 
@@ -363,8 +380,8 @@ bazel test //...
 #### Go Unit, Integration & Race Tests
 
 ```bash
-# Core libraries, CLI, Builder, Extractor, and Desktop backend services (with race detector)
-go test -race ./pkg/... ./cmd/tisane-build ./cmd/tisane-extract ./cmd/tisane-cli ./cmd/tisane/app
+# Core libraries, CLIs, desktop backend services, and internal build tools (with race detector)
+go test -race ./pkg/... ./cmd/tisane-build ./cmd/tisane-extract ./cmd/tisane-merge ./cmd/tisane-cli ./cmd/tisane/app ./internal/...
 
 # Wails v3 service FQN bindings & embedded asset server check (Linux PureGo)
 CGO_ENABLED=0 go test -tags purego,gtk3 -v ./cmd/tisane

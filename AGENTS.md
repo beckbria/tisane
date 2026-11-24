@@ -55,6 +55,7 @@ Tisane is a high-speed crossword, cryptic, anagram, and dictionary pattern-match
 | `cmd/tisane-extract/` | `.tsd` word list and metadata extractor |
 | `cmd/tisane-merge/` | Word list conversion and set-operation merge tool (replaces `TSMerge.exe`) |
 | `dictionaries/` | Bundled open-source `.tsd` dictionaries included in release archives |
+| `internal/buildutil/` | Shared destination path validation, regular-file staging, and version quad parsing |
 | `internal/releasepkg/` | Cross-platform release archive packager (`.tar.gz` and `.zip`) invoked by Bazel |
 | `internal/wininstaller/` | NSIS Windows installer builder wrapper invoked by Bazel |
 | `pkg/tsd/` | Pure-Go `TSD0`/`TSD1` reader, streaming bit-unpacker, Huffman/zlib/RTF decoder, `.tsm` parser, exporter, and `TSD1` writer |
@@ -87,8 +88,8 @@ All code must follow idiomatic conventions and best practices for its language a
 - Whenever a Go service method signature, FQN, or DTO JSON field changes in `cmd/tisane/app`, update `cmd/tisane/frontend/src/lib/bindings.ts`, `src/lib/types.ts`, and `cmd/tisane/main_test.go` in the same change—and rebuild `cmd/tisane/frontend/dist` (`npm run build`) if verifying the embedded desktop binary.
 
 ### Desktop UI & Wails v3 Conventions
-- **Bound service method hygiene**: Every exported method on a service registered in `cmd/tisane/main.go` (`DictionaryService`, `ToolsService`, `SearchService`, `LookupService`, `ProfileService`) is automatically exposed to the WebView. Keep internal helpers unexported or as package-level functions (e.g., `app.ShutdownSearch`). Accept `ctx context.Context` as the first parameter on cancellable I/O methods (Wails v3 injects it automatically without changing JS signatures).
-- **Typed event contracts & `searchId` correlation**: Define all event names in `cmd/tisane/app/events.go` and mirror their payload types in `WailsEventMap` (`cmd/tisane/frontend/src/lib/bindings.ts`). Because `StartSearch` streams asynchronously, the frontend generates and sends `searchId` up front so fast `search:batch`/`search:complete` events cannot race the RPC return value.
+- **Bound service method hygiene**: Every exported method on a service registered in `cmd/tisane/main.go` (`DictionaryService`, `ToolsService`, `SearchService`, `LookupService`, `ProfileService`) is automatically exposed to the WebView. Keep internal helpers unexported (such as `addDictionaryPaths` and `scanDirectory`) or as package-level functions (e.g., `app.ShutdownSearch`). Accept `ctx context.Context` as the first parameter on cancellable I/O methods (Wails v3 injects it automatically without changing JS signatures).
+- **Typed event contracts & `searchId` correlation**: Define all event names in `cmd/tisane/app/events.go` and mirror their payload types in `WailsEventMap` (`cmd/tisane/frontend/src/lib/bindings.ts`). Because `StartSearch` streams asynchronously, the frontend generates and sends `searchId` up front so fast `search:batch`/`search:complete`/`search:cancelled` events cannot race the RPC return value.
 - **Dictionary handle lifetimes**: `*tsd.Dictionary` handles in `app.State` are reference-counted (`acquire`/`release`). Never call `dict.Close()` directly on a dictionary that may still be held by an in-flight search or lookup; always use `SnapshotSearchDicts`/`SnapshotAllDicts` and `defer release()`.
 - **Shortcut ownership**: Native Wails menu accelerators (`cmd/tisane/main.go`) own global desktop shortcuts (`CmdOrCtrl+W/F/B/Shift+B/Shift+M/,/1/2`, `F1`), while `App.svelte` owns `Escape` exclusively and gates its `<svelte:window>` fallback on `!isDesktopWebview()` so toggles never double-fire on desktop while server mode and Vitest remain testable.
 - **Security invariants**:
@@ -99,6 +100,7 @@ All code must follow idiomatic conventions and best practices for its language a
 
 ### Bazel / Starlark
 - Keep `BUILD.bazel` files accurate and minimal. Respect `# keep` comments so Gazelle does not clobber custom attributes.
+- Bazel (`cmd/tisane:frontend_dist` via `@rules_nodejs`) builds the Svelte 5 frontend bundle hermetically from source using a pinned Node.js 22 toolchain, so Bazel releases never embed stale local `cmd/tisane/frontend/dist` artifacts. When verifying standalone `go build ./cmd/tisane`, refresh `cmd/tisane/frontend/dist` via `npm run build`.
 - For `genrule`s that may execute on Windows as well as Linux/macOS, provide both `cmd` (POSIX) and `cmd_ps` (PowerShell).
 
 ### Commit Messages & Comments
@@ -130,7 +132,7 @@ The repository root [`VERSION`](VERSION) file is the single source of truth for 
 ### Writing Tests
 - **Go unit & integration tests (`*_test.go`)**:
   - Prefer table-driven tests with clear subtest names (`t.Run(...)`).
-  - Isolate filesystem access with `t.TempDir()`; never rely on user home directories (construct synthetic word lists or `.tsd` fixtures in tests).
+  - Isolate filesystem and environment state with `t.TempDir()` and `t.Setenv(...)` (`TISANE_CONFIG`, `TISANE_DICT_PATH`, `BUILD_WORKING_DIRECTORY`); never rely on user home directories or external host paths (construct synthetic word lists or `.tsd` fixtures via `tsd.BuildBytes`/`tsd.BuildFile` in tests).
   - Test `cmd/tisane/app` services by injecting a mock `HostBridge` rather than starting a live Wails window.
   - Test CLI tools (`cmd/tisane-*`) by invoking their runnable entry functions with captured `stdout`/`stderr` buffers and checking exit codes.
   - Add regression tests for every bug fix and unit tests for every new feature.
