@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalTrap } from '../actions/modalTrap';
   import { getBackend } from '../bindings';
   import type {
     BuildInputEncoding,
@@ -163,6 +164,7 @@
 
 {#if open}
   <div
+    use:modalTrap={{ onClose, disabled: isMerging }}
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs"
     role="dialog"
     aria-modal="true"
@@ -377,6 +379,7 @@
         <!-- Error / Success Feedback -->
         {#if errorMessage}
           <div
+            role="alert"
             data-testid="merge-error"
             class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
           >
@@ -386,6 +389,8 @@
 
         {#if mergeResult}
           <div
+            role="status"
+            aria-live="polite"
             data-testid="merge-success"
             class="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-100"
           >

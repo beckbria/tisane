@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalTrap } from '../actions/modalTrap';
   import {
     DEFAULT_FONTS,
     FONT_ELEMENTS,
@@ -120,6 +121,7 @@
 
 {#if open}
   <div
+    use:modalTrap={{ onClose }}
     class="fixed inset-0 z-60 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
     role="dialog"
     aria-modal="true"

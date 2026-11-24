@@ -79,11 +79,31 @@
     }
   }
 
-  const categoryButtons: { id: EntryCategory; code: string; title: string }[] = [
-    { id: 'lowercase', code: 'abc', title: 'Include all-lowercase entries (e.g. apple)' },
-    { id: 'capitalized', code: 'Abc', title: 'Include capitalized / proper-noun entries (e.g. London)' },
-    { id: 'punctuated', code: 'a-b', title: 'Include hyphenated & punctuated single words (e.g. by-law)' },
-    { id: 'phrase', code: 'a b', title: 'Include multi-word phrases containing spaces' }
+  const categoryButtons: { id: EntryCategory; code: string; label: string; title: string }[] = [
+    {
+      id: 'lowercase',
+      code: 'abc',
+      label: 'Include lowercase entries',
+      title: 'Include all-lowercase entries (e.g. apple)'
+    },
+    {
+      id: 'capitalized',
+      code: 'Abc',
+      label: 'Include capitalized entries',
+      title: 'Include capitalized / proper-noun entries (e.g. London)'
+    },
+    {
+      id: 'punctuated',
+      code: 'a-b',
+      label: 'Include punctuated entries',
+      title: 'Include hyphenated & punctuated single words (e.g. by-law)'
+    },
+    {
+      id: 'phrase',
+      code: 'a b',
+      label: 'Include multi-word phrases',
+      title: 'Include multi-word phrases containing spaces'
+    }
   ];
 </script>
 
@@ -185,12 +205,16 @@
         type="button"
         onclick={toggleExactPin}
         data-testid="exact-length-pin"
+        aria-pressed={exactPin}
+        aria-label={exactPin
+          ? 'Unpin exact word length'
+          : 'Pin minimum and maximum word length together'}
         class="rounded px-1.5 py-0.5 font-mono text-[11px] transition {exactPin
           ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40'
           : 'text-slate-400 hover:text-slate-200'}"
         title={exactPin ? 'Pinned to exact length (click to unpin)' : 'Pin Min = Max for exact word length'}
       >
-        {exactPin ? '=' : '–'}
+        <span aria-hidden="true">{exactPin ? '=' : '–'}</span>
       </button>
       <input
         type="number"
@@ -227,13 +251,15 @@
         <button
           type="button"
           data-testid={`cat-${cb.id}`}
+          aria-pressed={active}
+          aria-label={cb.label}
           onclick={() => onToggleCategory(cb.id)}
           title={cb.title}
           class="rounded px-2 py-0.5 font-mono text-[11px] font-medium transition {active
             ? 'bg-slate-800 text-amber-300 ring-1 ring-amber-500/40'
             : 'bg-slate-950/60 text-slate-400 line-through ring-1 ring-slate-600/60 hover:text-slate-200'}"
         >
-          {cb.code}
+          <span aria-hidden="true">{cb.code}</span>
         </button>
       {/each}
     </div>
@@ -244,13 +270,18 @@
     <button
       type="button"
       data-testid="toggle-dedupe-btn"
+      aria-pressed={suppressDuplicates}
       onclick={onToggleSuppressDuplicates}
       title="Suppress duplicate matches already found in a higher-priority dictionary"
       class="rounded px-2 py-0.5 text-[11px] font-medium transition {suppressDuplicates
         ? 'bg-slate-800 text-emerald-300 ring-1 ring-emerald-500/35'
         : 'bg-slate-950/60 text-slate-400 hover:text-slate-200'}"
     >
-      {suppressDuplicates ? '✓ Dedupe' : 'Dedupe Off'}
+      {#if suppressDuplicates}
+        <span aria-hidden="true">✓ </span>Dedupe
+      {:else}
+        Dedupe Off
+      {/if}
     </button>
   </div>
 
@@ -282,24 +313,26 @@
       <button
         type="button"
         data-testid="layout-tiled-btn"
+        aria-pressed={layoutMode === 'tiled'}
         onclick={() => onLayoutChange('tiled')}
         title="Separate tiled pane per active dictionary (Ctrl+1)"
         class="rounded px-2 py-0.5 text-[11px] font-medium transition {layoutMode === 'tiled'
           ? 'bg-amber-500 text-neutral-950'
           : 'text-slate-400 hover:text-slate-200'}"
       >
-        ⊞ Tiled
+        <span aria-hidden="true">⊞ </span>Tiled
       </button>
       <button
         type="button"
         data-testid="layout-unified-btn"
+        aria-pressed={layoutMode === 'unified'}
         onclick={() => onLayoutChange('unified')}
         title="Unified merged list across dictionaries (Ctrl+2)"
         class="rounded px-2 py-0.5 text-[11px] font-medium transition {layoutMode === 'unified'
           ? 'bg-amber-500 text-neutral-950'
           : 'text-slate-400 hover:text-slate-200'}"
       >
-        ≡ Unified
+        <span aria-hidden="true">≡ </span>Unified
       </button>
     </div>
   </div>

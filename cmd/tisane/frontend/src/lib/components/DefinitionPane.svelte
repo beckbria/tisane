@@ -62,6 +62,7 @@
 
 {#if !collapsed}
 <section
+  aria-label="Word definitions"
   data-testid="definition-pane"
   style={`height: ${height}px;`}
   class="flex max-h-[65%] shrink-0 flex-col overflow-hidden border-t border-slate-800 bg-slate-900/90"
@@ -79,7 +80,7 @@
           title="Previous looked-up word"
           aria-label="Back"
         >
-          ←
+          <span aria-hidden="true">←</span>
         </button>
         <button
           type="button"
@@ -90,7 +91,7 @@
           title="Next looked-up word"
           aria-label="Forward"
         >
-          →
+          <span aria-hidden="true">→</span>
         </button>
       </div>
 
@@ -131,7 +132,7 @@
               class="rounded bg-slate-800/90 px-2 py-0.5 text-[11px] text-slate-300 transition hover:bg-amber-500/20 hover:text-amber-200"
               title={`Look up "${selectedWord}" on ${wl.name}`}
             >
-              {wl.name} ↗
+              {wl.name} <span aria-hidden="true">↗</span>
             </button>
           {/each}
         </div>
@@ -170,7 +171,7 @@
   </div>
 
   <!-- Definition Body -->
-  <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+  <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3" aria-busy={isLoading}>
     {#if !selectedWord}
       <div class="flex h-full items-center justify-center text-xs text-slate-400">
         Select any matched word above to view local definitions or launch a web search. Double-click any word inside a definition to cross-lookup.
@@ -256,7 +257,7 @@
                   : 'border-slate-700 bg-slate-800/80 text-slate-200 hover:border-slate-600 hover:bg-slate-800'}"
               >
                 <span>{wl.name}</span>
-                <span class="text-[10px] opacity-75">↗</span>
+                <span aria-hidden="true" class="text-[10px] opacity-75">↗</span>
               </button>
             {/each}
           </div>

@@ -1415,4 +1415,131 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(cssSource).toContain('[data-theme="light"]');
     expect(cssSource).toContain('prefers-reduced-motion: reduce');
   });
+
+  it('provides WAI-ARIA single-tab-stop listbox navigation, aria-pressed states, live regions, and stacked modal focus trapping', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+    // Mode, category, dedupe, and layout buttons expose aria-pressed
+    expect(screen.getByTestId('mode-word-btn')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('mode-fts-btn')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('cat-lowercase')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('cat-lowercase')).toHaveAttribute('aria-label', 'Include lowercase entries');
+    expect(screen.getByTestId('toggle-dedupe-btn')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('layout-tiled-btn')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('layout-unified-btn')).toHaveAttribute('aria-pressed', 'false');
+
+    // Invalid syntax sets aria-invalid and role="alert" on validation banner
+    (h.backend.validatePattern as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      valid: false,
+      code: 2,
+      message: 'Unclosed character class',
+      span: { start: 0, end: 2 },
+      minMatchedLength: 0,
+      maxMatchedLength: 0,
+      hasWarning: false
+    });
+    const patternInput = screen.getByTestId('pattern-input');
+    await fireEvent.input(patternInput, { target: { value: '[a' } });
+    await waitFor(() => {
+      expect(patternInput).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByTestId('validation-banner')).toHaveAttribute('role', 'alert');
+    });
+
+    // Stream matches into Unified view and verify single-tab-stop listbox + Home/End + setsize
+    await fireEvent.click(screen.getByTestId('layout-unified-btn'));
+    await fireEvent.input(patternInput, { target: { value: 'c*' } });
+    await fireEvent.keyDown(patternInput, { key: 'Enter' });
+    await waitFor(() => expect(h.backend.startSearch).toHaveBeenCalled());
+
+    const sid = 1;
+    h.emit('search:batch', {
+      searchId: sid,
+      matches: [
+        { word: 'alpha', length: 5, dictIndex: 0, dict: 'Core English', hasDefinition: false },
+        { word: 'bravo', annotation: 'n.', balance: '-Z', length: 5, dictIndex: 0, dict: 'Core English', hasDefinition: false },
+        { word: 'cynic', length: 5, dictIndex: 1, dict: "The Devil's Dictionary", hasDefinition: true }
+      ],
+      progress: { dictIndex: 1, dictName: "The Devil's Dictionary", wordsScanned: 100, totalCandidateWords: 100 }
+    });
+    h.emit('search:complete', {
+      searchId: sid,
+      totalMatches: 3,
+      wordsScanned: 100,
+      totalCandidateWords: 100,
+      elapsedMs: 1.5,
+      usedIndexedFTS: false,
+      activeDicts: []
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('sr-search-status')).toHaveTextContent('Search complete: 3 matches');
+    });
+
+    const rows = screen.getAllByTestId('result-row');
+    expect(rows[0]).toHaveAttribute('tabindex', '-1');
+    expect(rows[0]).toHaveAttribute('aria-posinset', '1');
+    expect(rows[0]).toHaveAttribute('aria-setsize', '3');
+    expect(rows[1]).toHaveAttribute('aria-label', 'bravo, n., omits Z, Core English, 5 letters');
+
+    // Skip-to-results link focuses the listbox, and End/Home navigate to last/first match
+    await fireEvent.click(screen.getByTestId('skip-to-results-link'));
+    const listbox = screen.getByRole('listbox', { name: 'Unified Results matches' });
+    expect(document.activeElement).toBe(listbox);
+
+    await fireEvent.keyDown(listbox, { key: 'End' });
+    await waitFor(() => {
+      expect(listbox).toHaveAttribute('aria-activedescendant', 'unified-pane-opt-2');
+      expect(screen.getByTestId('definition-word-heading')).toHaveTextContent('cynic');
+    });
+
+    await fireEvent.keyDown(listbox, { key: 'Home' });
+    await waitFor(() => {
+      expect(listbox).toHaveAttribute('aria-activedescendant', 'unified-pane-opt-0');
+    });
+
+    // Stacked modal focus trap & Escape isolation:
+    // Focus Settings trigger button, open Settings -> opens Font Settings -> Escape closes ONLY Font Settings
+    const settingsBtn = screen.getByTestId('open-settings-btn');
+    settingsBtn.focus();
+    await fireEvent.click(settingsBtn);
+
+    const settingsModal = screen.getByTestId('settings-modal');
+    expect(settingsModal).toBeInTheDocument();
+    await tick();
+    expect(settingsModal.contains(document.activeElement)).toBe(true);
+
+    // Edit @ macro inside Settings, then open nested Customize Fonts dialog
+    const macroInputs = settingsModal.querySelectorAll<HTMLInputElement>('input[type="text"]');
+    await fireEvent.input(macroInputs[0], { target: { value: '[aeiouy]' } });
+
+    const openFontBtn = screen.getByTestId('open-font-settings-btn');
+    openFontBtn.focus();
+    await fireEvent.click(openFontBtn);
+    const fontModal = screen.getByTestId('font-settings-modal');
+    expect(fontModal).toBeInTheDocument();
+    await tick();
+    expect(fontModal.contains(document.activeElement)).toBe(true);
+
+    // Tab wraps within FontSettingsModal (from last focusable back to first)
+    const saveFontBtn = screen.getByTestId('save-font-settings-btn');
+    saveFontBtn.focus();
+    await fireEvent.keyDown(fontModal, { key: 'Tab' });
+    expect(document.activeElement).toBe(screen.getByTestId('scale-all-down-btn'));
+
+    // Pressing Escape closes ONLY FontSettingsModal, keeping SettingsModal and its unsaved edit intact
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('font-settings-modal')).not.toBeInTheDocument());
+    expect(screen.getByTestId('settings-modal')).toBeInTheDocument();
+    expect(macroInputs[0].value).toBe('[aeiouy]');
+    await waitFor(() => expect(document.activeElement).toBe(openFontBtn));
+
+    // Pressing Escape again closes SettingsModal and restores focus to open-settings-btn
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(settingsBtn));
+  });
 });

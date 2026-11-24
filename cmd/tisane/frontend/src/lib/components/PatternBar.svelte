@@ -39,10 +39,55 @@
 
   let showHistory = $state(false);
   let inputEl: HTMLInputElement | undefined = $state();
+  let historyContainerEl: HTMLDivElement | undefined = $state();
+  let historyMenuEl: HTMLDivElement | undefined = $state();
+  let syntaxBtnEl: HTMLButtonElement | undefined = $state();
+  let cheatsheetEl: HTMLDivElement | undefined = $state();
 
   export function focusInput() {
     inputEl?.focus();
     inputEl?.select();
+  }
+
+  function handleWindowClick(e: MouseEvent) {
+    const target = e.target as Node | null;
+    if (!target) return;
+    if (showHistory && historyContainerEl && !historyContainerEl.contains(target)) {
+      showHistory = false;
+    }
+    if (
+      showCheatsheet &&
+      cheatsheetEl &&
+      !cheatsheetEl.contains(target) &&
+      syntaxBtnEl &&
+      !syntaxBtnEl.contains(target)
+    ) {
+      onToggleCheatsheet();
+    }
+  }
+
+  function handleHistoryMenuKeydown(e: KeyboardEvent) {
+    if (!historyMenuEl) return;
+    const items = Array.from(historyMenuEl.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+    if (items.length === 0) return;
+    const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(idx + 1) % items.length]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      items[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      showHistory = false;
+      inputEl?.focus();
+    }
   }
 
   const examples = [
@@ -70,6 +115,11 @@
     } else if (e.key === 'ArrowDown' && e.altKey && recentQueries.length > 0) {
       e.preventDefault();
       showHistory = !showHistory;
+      if (showHistory) {
+        queueMicrotask(() => {
+          historyMenuEl?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+        });
+      }
     }
   }
 
@@ -84,6 +134,8 @@
     };
   });
 </script>
+
+<svelte:window onclick={handleWindowClick} />
 
 <header class="relative z-20 border-b border-slate-800 bg-slate-900/95 px-4 py-2.5 shadow-sm">
   <div class="flex flex-wrap items-center gap-2.5">
@@ -114,6 +166,7 @@
       <button
         type="button"
         data-testid="mode-word-btn"
+        aria-pressed={mode === 'word'}
         class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors {mode === 'word'
           ? 'bg-amber-500 text-neutral-950 shadow-xs'
           : 'text-slate-400 hover:text-slate-200'}"
@@ -125,6 +178,7 @@
       <button
         type="button"
         data-testid="mode-fts-btn"
+        aria-pressed={mode === 'fts'}
         class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors {mode === 'fts'
           ? 'bg-amber-500 text-neutral-950 shadow-xs'
           : 'text-slate-400 hover:text-slate-200'}"
@@ -136,7 +190,7 @@
     </div>
 
     <!-- Main Pattern Input + History Dropdown -->
-    <div class="relative min-w-[260px] flex-1">
+    <div class="relative min-w-[260px] flex-1" bind:this={historyContainerEl}>
       <div class="flex items-center rounded-lg bg-slate-950 ring-1 transition-shadow {validation && !validation.valid && query.trim() !== ''
         ? 'ring-rose-500/70 focus-within:ring-2 focus-within:ring-rose-400'
         : 'ring-slate-600 focus-within:ring-2 focus-within:ring-amber-400'}">
@@ -150,6 +204,8 @@
             ? 'Enter pattern (e.g. c.o..w.rd, ;anagram, *(sub)*, 123321)...'
             : 'Full-text query in definitions (e.g. eagle & !bald, myth*)...'}
           aria-label="Search pattern"
+          aria-invalid={validation !== null && !validation.valid && query.trim() !== '' ? 'true' : undefined}
+          aria-describedby={query.trim() !== '' && validation ? 'pattern-validation-banner' : undefined}
           data-testid="pattern-input"
           spellcheck="false"
           autocomplete="off"
@@ -168,36 +224,53 @@
             title="Clear pattern"
             aria-label="Clear pattern"
           >
-            ×
+            <span aria-hidden="true">×</span>
           </button>
         {/if}
 
         {#if recentQueries.length > 0}
           <button
             type="button"
-            onclick={() => (showHistory = !showHistory)}
+            aria-haspopup="menu"
+            aria-expanded={showHistory}
+            aria-controls="recent-queries-menu"
+            onclick={() => {
+              showHistory = !showHistory;
+              if (showHistory) {
+                queueMicrotask(() => {
+                  historyMenuEl?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+                });
+              }
+            }}
             class="border-l border-slate-700 px-2 py-1.5 text-xs text-slate-400 hover:text-slate-200"
             title="Recent queries (Alt+Down)"
             aria-label="Recent queries"
           >
-            ▾
+            <span aria-hidden="true">▾</span>
           </button>
         {/if}
       </div>
 
       {#if showHistory && recentQueries.length > 0}
         <div
+          bind:this={historyMenuEl}
+          id="recent-queries-menu"
+          role="menu"
+          aria-label="Recent queries"
+          tabindex="-1"
+          onkeydown={handleHistoryMenuKeydown}
           class="absolute right-0 left-0 z-40 mt-1 max-h-64 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl"
           data-testid="recent-queries-menu"
         >
-          <div class="px-3 py-1 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+          <div class="px-3 py-1 text-[11px] font-semibold tracking-wider text-slate-400 uppercase" aria-hidden="true">
             Recent Queries
           </div>
           {#each recentQueries as rq}
             <button
               type="button"
+              role="menuitem"
               style="font-family: var(--tisane-font-pattern-family); font-size: var(--tisane-font-pattern-size);"
-              class="flex w-full items-center justify-between px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800"
+              class="flex w-full items-center justify-between px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 focus:bg-slate-800 focus:outline-none"
               onclick={() => {
                 onQueryChange(rq);
                 showHistory = false;
@@ -259,13 +332,16 @@
 
     <!-- Syntax Help & Settings Buttons -->
     <button
+      bind:this={syntaxBtnEl}
       type="button"
+      aria-expanded={showCheatsheet}
+      aria-controls="syntax-cheatsheet-popover"
       onclick={onToggleCheatsheet}
       data-testid="syntax-help-btn"
       class="rounded-lg border border-slate-600 bg-slate-800/70 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-slate-100"
       title="Pattern syntax reference (F1)"
     >
-      ? Syntax
+      <span aria-hidden="true">?</span> Syntax
     </button>
 
     <button
@@ -275,16 +351,22 @@
       class="rounded-lg border border-slate-600 bg-slate-800/70 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-slate-100"
       title="Macros & Web Search Settings (Ctrl+,)"
     >
-      ⚙ Settings
+      <span aria-hidden="true">⚙</span> Settings
     </button>
   </div>
 
   <!-- Live Validation Status Strip -->
   {#if query.trim() !== '' && validation}
-    <div class="mt-1.5 flex items-center justify-between text-xs" data-testid="validation-banner">
+    <div
+      id="pattern-validation-banner"
+      role={!validation.valid ? 'alert' : 'status'}
+      aria-live="polite"
+      class="mt-1.5 flex items-center justify-between text-xs"
+      data-testid="validation-banner"
+    >
       {#if !validation.valid}
         <div class="flex flex-wrap items-center gap-2 text-rose-400">
-          <span class="font-medium">⚠ {validation.message}</span>
+          <span class="font-medium"><span aria-hidden="true">⚠</span> {validation.message}</span>
           {#if highlightedError}
             <code class="rounded bg-slate-950 px-1.5 py-0.5 font-mono text-[11px] text-slate-300 ring-1 ring-rose-500/40">
               {highlightedError.before}<span class="rounded bg-rose-500/30 px-0.5 font-bold text-rose-200 underline decoration-rose-400">{highlightedError.bad}</span>{highlightedError.after}
@@ -293,11 +375,11 @@
         </div>
       {:else if validation.hasWarning}
         <div class="text-amber-400">
-          ⚠ {validation.message}
+          <span aria-hidden="true">⚠</span> {validation.message}
         </div>
       {:else}
         <div class="flex items-center gap-3 text-slate-400">
-          <span class="text-emerald-400">✓ Valid pattern</span>
+          <span class="text-emerald-400"><span aria-hidden="true">✓</span> Valid pattern</span>
           {#if mode === 'word' && validation.minMatchedLength > 0}
             <span>
               Matches length
@@ -316,6 +398,10 @@
   <!-- Syntax Reference Popover -->
   {#if showCheatsheet}
     <div
+      bind:this={cheatsheetEl}
+      id="syntax-cheatsheet-popover"
+      role="region"
+      aria-label="Tisane pattern syntax quick reference"
       class="absolute right-4 z-50 mt-2 w-full max-w-xl rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-2xl"
       data-testid="syntax-cheatsheet"
     >

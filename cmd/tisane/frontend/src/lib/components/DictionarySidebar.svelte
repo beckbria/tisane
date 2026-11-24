@@ -48,6 +48,32 @@
   let dropTargetIndex: number | null = $state(null);
   let addMenuOpen = $state(false);
   let addMenuContainer: HTMLDivElement | undefined = $state();
+  let addMenuEl: HTMLDivElement | undefined = $state();
+  let addMenuBtnEl: HTMLButtonElement | undefined = $state();
+
+  function handleAddMenuKeydown(e: KeyboardEvent) {
+    if (!addMenuEl) return;
+    const items = Array.from(addMenuEl.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+    if (items.length === 0) return;
+    const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(idx + 1) % items.length]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      items[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      addMenuOpen = false;
+      addMenuBtnEl?.focus();
+    }
+  }
 
   function formatCount(n: number): string {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -96,6 +122,7 @@
 
 {#if !collapsed}
 <aside
+  aria-label="Dictionaries"
   data-testid="dictionary-sidebar"
   style={`width: ${width}px;`}
   class="flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-800 bg-slate-900/75 select-none"
@@ -113,21 +140,34 @@
     <div class="flex shrink-0 items-center gap-1">
       <div class="relative" bind:this={addMenuContainer}>
         <button
+          bind:this={addMenuBtnEl}
           type="button"
           data-testid="add-dict-btn"
+          aria-label="Add or build dictionaries"
           aria-haspopup="menu"
           aria-expanded={addMenuOpen}
-          onclick={() => (addMenuOpen = !addMenuOpen)}
+          onclick={() => {
+            addMenuOpen = !addMenuOpen;
+            if (addMenuOpen) {
+              queueMicrotask(() => {
+                addMenuEl?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+              });
+            }
+          }}
           class="flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700"
           title="Add .tsd dictionary files or directory (Ctrl+O)"
         >
           <span>+ Add</span>
-          <span class="text-[10px] text-amber-300/80">▾</span>
+          <span aria-hidden="true" class="text-[10px] text-amber-300/80">▾</span>
         </button>
 
         {#if addMenuOpen}
           <div
+            bind:this={addMenuEl}
             role="menu"
+            aria-label="Add or build dictionaries"
+            tabindex="-1"
+            onkeydown={handleAddMenuKeydown}
             data-testid="add-dict-menu"
             class="absolute right-0 z-40 mt-1 w-44 rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl"
           >
@@ -264,6 +304,7 @@
           >
             <!-- Drag Handle -->
             <span
+              aria-hidden="true"
               class="cursor-grab text-slate-400 hover:text-slate-200"
               title="Drag to reorder priority"
             >

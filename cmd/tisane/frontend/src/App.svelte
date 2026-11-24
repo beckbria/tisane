@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getBackend, isDesktopWebview } from './lib/bindings';
+  import { closeTopModalOnEscape, hasActiveModal } from './lib/actions/modalTrap';
   import {
     createConfigStore,
     DEFAULT_DEFINITION_HEIGHT,
@@ -78,6 +79,17 @@
   const effectiveDefinitionHeight = $derived(
     dragDefinitionHeight ?? cfgStore.value.definitionHeight
   );
+  const anyModalOpen = $derived(
+    showSettings || showFontSettings || showAbout || showDictBuilder || showWordListMerger
+  );
+
+  function handleSkipToResults(e: MouseEvent) {
+    e.preventDefault();
+    const firstListbox = document.querySelector<HTMLElement>(
+      '[data-testid="results-workspace"] [role="listbox"]'
+    );
+    firstListbox?.focus();
+  }
 
   const displayedTiledDicts = $derived(
     (searchStore.isSearching || searchStore.hasCompletedSearch) &&
@@ -355,6 +367,10 @@
 
   function handleWindowKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
+      if (closeTopModalOnEscape()) {
+        e.preventDefault();
+        return;
+      }
       if (showAbout) {
         showAbout = false;
       } else if (showWordListMerger) {
@@ -468,7 +484,9 @@
     void (async () => {
       const [, activeDicts] = await Promise.all([cfgStore.load(), dictStore.load()]);
       searchStore.initActiveDicts(activeDicts);
-      patternBarRef?.focusInput();
+      if (!hasActiveModal()) {
+        patternBarRef?.focusInput();
+      }
     })();
 
     return () => {
@@ -487,7 +505,21 @@
   style={cfgStore.rootFontVars}
   class="flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-slate-100"
 >
-  <!-- Top Pattern Bar -->
+  <div
+    class="flex min-h-0 flex-1 flex-col overflow-hidden"
+    inert={anyModalOpen ? true : undefined}
+    aria-hidden={anyModalOpen ? 'true' : undefined}
+  >
+    <a
+      href="#results-workspace"
+      onclick={handleSkipToResults}
+      data-testid="skip-to-results-link"
+      class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-amber-500 focus:px-3 focus:py-1.5 focus:text-xs focus:font-semibold focus:text-neutral-950 focus:shadow-lg"
+    >
+      Skip to results
+    </a>
+
+    <!-- Top Pattern Bar -->
   <PatternBar
     bind:this={patternBarRef}
     query={searchStore.query}
@@ -587,7 +619,7 @@
 
     <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <!-- Results Area: Separate Tiled Panes per Dictionary (Default) vs Unified Merged List -->
-      <div class="min-h-0 flex-1 overflow-hidden p-2.5" data-testid="results-workspace">
+      <div id="results-workspace" class="min-h-0 flex-1 overflow-hidden p-2.5" data-testid="results-workspace">
         {#if cfgStore.value.layoutMode === 'tiled'}
           {#if displayedTiledDicts.length === 0}
             <div class="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-700 text-xs text-slate-400">
@@ -708,7 +740,7 @@
   >
     <div class="flex items-center gap-3 truncate">
       {#if searchStore.errorMessage}
-        <span class="font-medium text-rose-400">Error: {searchStore.errorMessage}</span>
+        <span role="alert" class="font-medium text-rose-400">Error: {searchStore.errorMessage}</span>
         <button
           type="button"
           data-testid="dismiss-error-btn"
@@ -716,11 +748,11 @@
           class="rounded px-1 text-[10px] text-rose-300/80 hover:bg-rose-500/20 hover:text-rose-200"
           aria-label="Dismiss error"
         >
-          ✕
+          <span aria-hidden="true">✕</span>
         </button>
       {:else if searchStore.isSearching}
         <span class="flex items-center gap-1.5 text-amber-300">
-          <span class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-amber-400"></span>
+          <span aria-hidden="true" class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-amber-400"></span>
           Scanning… {searchStore.allMatches.length.toLocaleString()} matches ({searchStore.wordsScanned.toLocaleString()}
           {#if searchStore.totalCandidateWords > 0}/ {searchStore.totalCandidateWords.toLocaleString()}{/if} words)
         </span>
@@ -729,7 +761,7 @@
           <strong class="font-mono text-amber-300">{searchStore.allMatches.length.toLocaleString()}</strong>
           {searchStore.allMatches.length === 1 ? 'match' : 'matches'}
         </span>
-        <span>·</span>
+        <span aria-hidden="true">·</span>
         <span>
           Scanned {searchStore.wordsScanned.toLocaleString()} words in
           <strong class="font-mono text-slate-200">{searchStore.elapsedMs.toFixed(1)} ms</strong>
@@ -744,6 +776,13 @@
       {/if}
     </div>
 
+    <!-- Screen-reader live announcement on search completion (avoids 25ms streaming progress chatter) -->
+    <div role="status" aria-live="polite" aria-atomic="true" class="sr-only" data-testid="sr-search-status">
+      {#if searchStore.hasCompletedSearch && !searchStore.isSearching && !searchStore.errorMessage}
+        Search complete: {searchStore.allMatches.length.toLocaleString()} {searchStore.allMatches.length === 1 ? 'match' : 'matches'} found across {displayedTiledDicts.length} {displayedTiledDicts.length === 1 ? 'dictionary' : 'dictionaries'}.
+      {/if}
+    </div>
+
     <div
       style="font-family: var(--tisane-font-status-family); font-size: var(--tisane-font-status-size);"
       class="flex items-center gap-3 text-slate-400"
@@ -754,6 +793,7 @@
       <span class="uppercase">{cfgStore.value.layoutMode}</span>
     </div>
   </footer>
+  </div>
 
   <!-- Preferences Modal -->
   <SettingsModal

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalTrap } from '../actions/modalTrap';
   import { APP_VERSION } from '../version';
 
   interface Props {
@@ -19,19 +20,14 @@
 </script>
 
 {#if open}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
+    use:modalTrap={{ onClose }}
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs"
     role="dialog"
     aria-modal="true"
     aria-label="About Tisane"
     tabindex="-1"
     data-testid="about-modal"
-    onclick={(e) => {
-      if (e.target === e.currentTarget) {
-        onClose();
-      }
-    }}
   >
     <div
       class="relative flex w-full max-w-sm flex-col items-center rounded-xl border border-slate-700 bg-slate-900 px-6 py-6 text-center shadow-2xl"

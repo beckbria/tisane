@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalTrap } from '../actions/modalTrap';
   import {
     DEFAULT_FONTS,
     FONT_ELEMENTS,
@@ -141,11 +142,14 @@
 
 {#if open}
   <div
+    use:modalTrap={{ onClose }}
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs"
     role="dialog"
     aria-modal="true"
     aria-label="Tisane Settings"
     data-testid="settings-modal"
+    inert={showFontDialog || showResetConfirm ? true : undefined}
+    aria-hidden={showFontDialog || showResetConfirm ? 'true' : undefined}
   >
     <form
       onsubmit={handleSubmit}
@@ -345,7 +349,7 @@
               </button>
             </div>
             {#if providerError}
-              <p data-testid="settings-provider-error" class="text-[11px] text-rose-400">
+              <p role="alert" data-testid="settings-provider-error" class="text-[11px] text-rose-400">
                 {providerError}
               </p>
             {/if}
@@ -388,6 +392,7 @@
 
   {#if showResetConfirm}
     <div
+      use:modalTrap={{ onClose: () => (showResetConfirm = false) }}
       class="fixed inset-0 z-60 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
