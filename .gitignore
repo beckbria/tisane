@@ -6,7 +6,8 @@ dictionaries/private/*
 /tisane-cli
 /tisane-build
 /tisane-extract
-*.exe
+/*.exe
+/*.tar.gz
 cmd/tisane/frontend/node_modules/
 cmd/tisane/frontend/dist/
 cmd/tisane/rsrc_windows_*.syso
