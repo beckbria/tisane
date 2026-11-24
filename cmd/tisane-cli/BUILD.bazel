@@ -60,6 +60,7 @@ genrule(
 go_test(
     name = "tisane-cli_test",
     srcs = ["main_test.go"],
+    data = ["//:dictionaries"],
     embed = [":tisane-cli_lib"],
     deps = [
         "//pkg/profile",

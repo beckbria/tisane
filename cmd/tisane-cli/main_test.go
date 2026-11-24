@@ -15,19 +15,62 @@ import (
 	"tisane/pkg/tsd"
 )
 
-const testBinDir = "/home/brian/tea/binary"
-
-func requireCorpus(t testing.TB) {
+func isolateCLITestEnv(t *testing.T) {
 	t.Helper()
-	if _, err := os.Stat(testBinDir); os.IsNotExist(err) {
-		t.Skip("binary test corpus not present")
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+	t.Setenv(profile.EnvConfigPath, tmpCfg)
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
+}
+
+func buildCLIFixtures(t *testing.T) (tsb2Path, corePath, devilPath string) {
+	t.Helper()
+	dir := t.TempDir()
+
+	tsb2Src := strings.Join([]string{
+		`aid|assistance and support given to someone`,
+		`rich|{\rtf1 \b rich\b0  \i adj.\i0  has a definition in Rich Text Format}`,
+		`tap++ 1 v.|first definition for tap as verb`,
+		`tap++ 3 n.|third definition for tap as noun`,
+		`Crossword Man|creator of TEA at http://www.crosswordman.com`,
+		`TEA Support|contact crosswordman for dictionary format help`,
+		`spoon|utensil with a shallow bowl`,
+		`plate|flat dish from which food is served`,
+	}, "\n") + "\n"
+	tsb2Opts := tsd.DefaultBuildOptions()
+	tsb2Opts.MaxFTSPercent = 50
+	tsb2Bytes, _, err := tsd.BuildBytes([]byte(tsb2Src), tsb2Opts)
+	if err != nil {
+		t.Fatal(err)
 	}
+	tsb2Path = filepath.Join(dir, "tsbuild2.tsd")
+	if err := os.WriteFile(tsb2Path, tsb2Bytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	coreBytes, _, err := tsd.BuildBytes([]byte("aorta\ndrama\nmatador\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	corePath = filepath.Join(dir, "Core English.tsd")
+	if err := os.WriteFile(corePath, coreBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	devilBytes, _, err := tsd.BuildBytes([]byte("matador|bullfighter\ncynic|faulty vision\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	devilPath = filepath.Join(dir, "The Devil's Dictionary.tsd")
+	if err := os.WriteFile(devilPath, devilBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return tsb2Path, corePath, devilPath
 }
 
 func TestLegacyTEACONSwitchesAndBatchStdin(t *testing.T) {
-	requireCorpus(t)
+	isolateCLITestEnv(t)
 
-	// Build a small accented/punctuated dictionary to verify /O:0..4 & /N:0|1 & /U:0|1 transforms.
 	rawSrc := strings.Join([]string{
 		"café-bar+ n.",
 		"Œuvre+ n.",
@@ -105,11 +148,8 @@ func TestLegacyTEACONSwitchesAndBatchStdin(t *testing.T) {
 }
 
 func TestFTSDefineStructuredFormatsAndEnumeration(t *testing.T) {
-	requireCorpus(t)
-
-	tsb2Path := filepath.Join(testBinDir, "tsbuild2.tsd")
-	corePath := filepath.Join(testBinDir, "Dictionaries", "Core English.tsd")
-	devilPath := filepath.Join(testBinDir, "Dictionaries", "The Devil's Dictionary.tsd")
+	isolateCLITestEnv(t)
+	tsb2Path, corePath, devilPath := buildCLIFixtures(t)
 
 	// 1. Full Text Search (-F) with set_difference ("crosswordman & !http") -> JSON output
 	var stdout, stderr bytes.Buffer
@@ -178,7 +218,7 @@ func TestFTSDefineStructuredFormatsAndEnumeration(t *testing.T) {
 		t.Fatalf("unexpected --define output:\n%s", defOut)
 	}
 
-	// 4. --enum shorthand ("9,3" -> matches "Crossword Man" in tsbuild2.tsd!)
+	// 4. --enum shorthand ("9,3" -> matches "Crossword Man")
 	stdout.Reset()
 	stderr.Reset()
 	code = run(
@@ -208,9 +248,9 @@ func TestFTSDefineStructuredFormatsAndEnumeration(t *testing.T) {
 }
 
 func TestInteractiveREPLSession(t *testing.T) {
-	requireCorpus(t)
+	isolateCLITestEnv(t)
+	tsb2Path, _, _ := buildCLIFixtures(t)
 
-	tsb2Path := filepath.Join(testBinDir, "tsbuild2.tsd")
 	replInput := strings.Join([]string{
 		":dicts",
 		":val c.t",
@@ -253,6 +293,8 @@ func TestInteractiveREPLSession(t *testing.T) {
 }
 
 func TestCLIDiscoversExecutableDirAndDictionariesSubdir(t *testing.T) {
+	isolateCLITestEnv(t)
+
 	exeDir := t.TempDir()
 	dictsSubdir := filepath.Join(exeDir, "dictionaries")
 	if err := os.MkdirAll(dictsSubdir, 0o755); err != nil {
@@ -283,9 +325,7 @@ func TestCLIDiscoversExecutableDirAndDictionariesSubdir(t *testing.T) {
 		profile.ExecutablePathFunc = origExeFunc
 	}()
 
-	// Run from an empty working directory with an isolated empty config path and no -d flag.
 	t.Chdir(t.TempDir())
-	t.Setenv(profile.EnvConfigPath, filepath.Join(t.TempDir(), "config.toml"))
 
 	var stdout, stderr bytes.Buffer
 	code := run(
@@ -324,8 +364,6 @@ func TestCLIHardeningConfigIsolationDefineJSONAndSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 1. REPL with auto-discovered dictionary must NOT pollute cfg.Dictionaries on exit,
-	// while persisting RecentQueries cleanly.
 	t.Chdir(tmp)
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"-i", "-q"}, strings.NewReader("alpha\n:q\n"), &stdout, &stderr)
@@ -343,7 +381,6 @@ func TestCLIHardeningConfigIsolationDefineJSONAndSignals(t *testing.T) {
 		t.Fatalf("expected RecentQueries=[alpha], got %v", reloaded.RecentQueries)
 	}
 
-	// 2. Multi-word --define --format=json emits a single valid JSON array, and '--' allows words starting with '-'.
 	stdout.Reset()
 	stderr.Reset()
 	code = run(
@@ -361,7 +398,6 @@ func TestCLIHardeningConfigIsolationDefineJSONAndSignals(t *testing.T) {
 		t.Fatalf("expected valid 2-element JSON array from multi --define, err=%v raw=%s", err, stdout.String())
 	}
 
-	// 3. --count with --format=json and boolean =false flag (--dedupe=false).
 	stdout.Reset()
 	stderr.Reset()
 	code = run(
@@ -379,7 +415,6 @@ func TestCLIHardeningConfigIsolationDefineJSONAndSignals(t *testing.T) {
 		t.Fatalf("unexpected --count JSON: err=%v rec=%+v raw=%s", err, cntRec, stdout.String())
 	}
 
-	// 4. Pre-canceled context returns exit 130 without emitting truncated/empty JSON array.
 	canceledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	stdout.Reset()
@@ -390,9 +425,9 @@ func TestCLIHardeningConfigIsolationDefineJSONAndSignals(t *testing.T) {
 	}
 }
 
-func BenchmarkSearchCoreEnglish(b *testing.B) {
-	requireCorpus(b)
-	d, err := tsd.Open(filepath.Join(testBinDir, "Dictionaries", "Core English.tsd"))
+func BenchmarkSearchWordNet(b *testing.B) {
+	wordnetPath := filepath.Join("..", "..", "dictionaries", "english-wordnet-2025-plus.tsd")
+	d, err := tsd.Open(wordnetPath)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -418,9 +453,9 @@ func BenchmarkSearchCoreEnglish(b *testing.B) {
 	}
 }
 
-func BenchmarkFixedTemplateEditedEnglish(b *testing.B) {
-	requireCorpus(b)
-	d, err := tsd.Open(filepath.Join(testBinDir, "Dictionaries", "Edited English.tsd"))
+func BenchmarkFixedTemplateWordNet(b *testing.B) {
+	wordnetPath := filepath.Join("..", "..", "dictionaries", "english-wordnet-2025-plus.tsd")
+	d, err := tsd.Open(wordnetPath)
 	if err != nil {
 		b.Fatal(err)
 	}

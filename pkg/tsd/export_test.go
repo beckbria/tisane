@@ -2,8 +2,6 @@ package tsd_test
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,15 +9,35 @@ import (
 )
 
 func TestExportSimpleAndMetadataRoundTrip(t *testing.T) {
-	const binDir = "/home/brian/tea/binary"
-	if _, err := os.Stat(binDir); os.IsNotExist(err) {
-		t.Skip("binary corpus not available")
-	}
-
 	t.Run("tsbuild1_simple_and_metadata", func(t *testing.T) {
-		d1, err := tsd.Open(filepath.Join(binDir, "tsbuild1.tsd"))
+		src1 := strings.Join([]string{
+			`| Example Word List 1`,
+			`aardvark`,
+			`abacus`,
+			`abalone`,
+			`abandon+ n.`,
+			`abandon+ v.`,
+			`Aberdeen+ \| City in Scotland`,
+			`C\+`,
+			`C\+\++ A programming language`,
+			`Visual J\+\+`,
+		}, "\n") + "\n"
+
+		orig1Bytes, _, err := tsd.BuildBytes([]byte(src1), tsd.BuildOptions{
+			MinLen:             1,
+			MaxLen:             100,
+			MaxFTSPercent:      10,
+			SortAlphabetically: true,
+			Description:        "Example Word List 1",
+			Alphabet:           tsd.DefaultTSM(),
+		})
 		if err != nil {
-			t.Fatalf("Open tsbuild1.tsd: %v", err)
+			t.Fatalf("BuildBytes tsbuild1 fixture: %v", err)
+		}
+
+		d1, err := tsd.OpenBytes(orig1Bytes, "tsbuild1")
+		if err != nil {
+			t.Fatalf("OpenBytes tsbuild1: %v", err)
 		}
 		defer d1.Close()
 
@@ -68,7 +86,6 @@ func TestExportSimpleAndMetadataRoundTrip(t *testing.T) {
 			}
 		}
 
-		// Compile extracted metadata back into a .tsd and verify identical word & annotation set!
 		rebuiltBytes, stats, err := tsd.BuildBytes(metaBuf.Bytes(), tsd.BuildOptions{
 			MinLen:             1,
 			MaxLen:             100,
@@ -83,42 +100,54 @@ func TestExportSimpleAndMetadataRoundTrip(t *testing.T) {
 		if uint64(stats.UniqueWords) != d1.TotalWords() {
 			t.Fatalf("rebuilt UniqueWords=%d, want %d", stats.UniqueWords, d1.TotalWords())
 		}
-		d1Rebuilt, err := tsd.OpenBytes(rebuiltBytes, "tsbuild1_rebuilt")
-		if err != nil {
-			t.Fatalf("OpenBytes: %v", err)
-		}
-		if !bytes.Equal(rebuiltBytes, mustReadFile(t, filepath.Join(binDir, "tsbuild1.tsd"))) {
-			// Verify every length bucket entry matches identically
-			for L := 1; L <= d1.MaxWordLength(); L++ {
-				var orig, reb []tsd.WordEntry
-				for w, err := range d1.ScanWords(L) {
-					if err != nil {
-						t.Fatal(err)
-					}
-					orig = append(orig, w)
-				}
-				for w, err := range d1Rebuilt.ScanWords(L) {
-					if err != nil {
-						t.Fatal(err)
-					}
-					reb = append(reb, w)
-				}
-				if len(orig) != len(reb) {
-					t.Fatalf("L=%d count mismatch: %d vs %d", L, len(orig), len(reb))
-				}
-				for i := range orig {
-					if orig[i].Word != reb[i].Word || orig[i].Annotation != reb[i].Annotation {
-						t.Fatalf("L=%d[%d] mismatch: %+v vs %+v", L, i, orig[i], reb[i])
-					}
-				}
-			}
+		if !bytes.Equal(rebuiltBytes, orig1Bytes) {
+			t.Fatalf("rebuilt tsbuild1 from extracted metadata was not byte-identical (%d vs %d bytes)",
+				len(rebuiltBytes), len(orig1Bytes))
 		}
 	})
 
 	t.Run("tsbuild2_definitions_aliases_qualifiers_roundtrip", func(t *testing.T) {
-		d2, err := tsd.Open(filepath.Join(binDir, "tsbuild2.tsd"))
+		// Use higher MaxFTSPercent (50%) on small synthetic fixture so FTS occurrence lists are retained too.
+		src2 := strings.Join([]string{
+			`| Example Word List 2`,
+			`undefined`,
+			`defined|defined has a plain text definition`,
+			`agonise:agonize|shared definition for spelling variants agonise and agonize`,
+			`bear+ n.+ n.;bears|definition for bear annotated as noun with bears as an alias`,
+			`tap++ 1 v.|first definition for tap with part of speech and sense number in qualifier`,
+			`tap++ 2 v.|second definition for tap as verb`,
+			`tap++ 3 n.|third definition for tap as noun`,
+			`knife+ n.+ n.;knives+ n. pl.|knife definition with annotations for both headword and alias`,
+			`fork++ n.;forks|fork definition with qualifier and an alias`,
+			`;elusive| has a shareable definition not found by a Full Text Search`,
+			`rich|{\rtf1 \b rich\b0  \i adj.\i0  has a definition in Rich Text Format}`,
+			`aid|assistance and support given to someone`,
+			`Crossword Man|creator of TEA at http://www.crosswordman.com`,
+			`TEA Support|contact crosswordman for dictionary format help`,
+			`colour:color|visual sensation produced by wavelengths of light`,
+			`spoon|utensil with a shallow bowl`,
+			`plate|flat dish from which food is served`,
+		}, "\n") + "\n"
+
+		buildOpts := tsd.BuildOptions{
+			MinLen:             1,
+			MaxLen:             100,
+			MaxFTSPercent:      50,
+			SortAlphabetically: true,
+			Description:        "Example Word List 2",
+			Alphabet:           tsd.DefaultTSM(),
+		}
+		orig2Bytes, origStats, err := tsd.BuildBytes([]byte(src2), buildOpts)
 		if err != nil {
-			t.Fatalf("Open tsbuild2.tsd: %v", err)
+			t.Fatalf("BuildBytes tsbuild2 fixture: %v", err)
+		}
+		if origStats.Pass1Definitions != 1 || origStats.Pass2Definitions != 15 {
+			t.Fatalf("unexpected initial fixture counts: %+v", origStats)
+		}
+
+		d2, err := tsd.OpenBytes(orig2Bytes, "tsbuild2")
+		if err != nil {
+			t.Fatalf("OpenBytes tsbuild2: %v", err)
 		}
 		defer d2.Close()
 
@@ -128,7 +157,7 @@ func TestExportSimpleAndMetadataRoundTrip(t *testing.T) {
 			t.Fatalf("Export metadata: %v", err)
 		}
 		if metaStats.DefinitionsExport != 16 {
-			t.Fatalf("expected 16 exported definitions from tsbuild2.tsd, got %d", metaStats.DefinitionsExport)
+			t.Fatalf("expected 16 exported definitions, got %d", metaStats.DefinitionsExport)
 		}
 
 		metaText := metaBuf.String()
@@ -144,38 +173,27 @@ func TestExportSimpleAndMetadataRoundTrip(t *testing.T) {
 			`rich|{\rtf1 \b rich\b0  \i adj.\i0  has a definition in Rich Text Format}`,
 		} {
 			if !strings.Contains(metaText, wantLine+"\n") {
-				t.Errorf("tsbuild2 metadata missing expected line %q; got:\n%s", wantLine, metaText)
+				t.Errorf("metadata missing expected line %q; got:\n%s", wantLine, metaText)
 			}
 		}
 
-		// Rebuild a TSD1 binary from the extracted metadata and verify byte-identical match with tsbuild2.tsd!
 		rebuiltBytes, buildStats, err := tsd.BuildBytes(metaBuf.Bytes(), tsd.BuildOptions{
 			MinLen:             1,
 			MaxLen:             100,
-			MaxFTSPercent:      10,
+			MaxFTSPercent:      50,
 			SortAlphabetically: true,
 			Description:        d2.Description(),
 			Alphabet:           d2.AlphabetMap(),
 		})
 		if err != nil {
-			t.Fatalf("BuildBytes from extracted tsbuild2 metadata: %v", err)
+			t.Fatalf("BuildBytes from extracted metadata: %v", err)
 		}
 		if buildStats.Pass1Definitions != 1 || buildStats.Pass2Definitions != 15 {
 			t.Fatalf("unexpected rebuilt definition counts: %+v", buildStats)
 		}
-		origBytes := mustReadFile(t, filepath.Join(binDir, "tsbuild2.tsd"))
-		if !bytes.Equal(rebuiltBytes, origBytes) {
-			t.Fatalf("rebuilt tsbuild2.tsd from extracted metadata was not byte-identical (%d vs %d bytes)",
-				len(rebuiltBytes), len(origBytes))
+		if !bytes.Equal(rebuiltBytes, orig2Bytes) {
+			t.Fatalf("rebuilt TSD1 from extracted metadata was not byte-identical (%d vs %d bytes)",
+				len(rebuiltBytes), len(orig2Bytes))
 		}
 	})
-}
-
-func mustReadFile(t *testing.T, p string) []byte {
-	t.Helper()
-	b, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
 }

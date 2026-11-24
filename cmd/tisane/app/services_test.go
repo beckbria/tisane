@@ -17,8 +17,6 @@ import (
 	"tisane/pkg/tsd"
 )
 
-const repoBinDir = "../../../binary"
-
 type recordedEvent struct {
 	name string
 	data any
@@ -106,11 +104,51 @@ func (m *mockBridge) PickAlphabetMapFile() (string, error) {
 }
 
 func TestDesktopServicesEndToEnd(t *testing.T) {
-	if _, err := os.Stat(repoBinDir); os.IsNotExist(err) {
-		t.Skip("binary test corpus not present")
-	}
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
 
 	tmpDir := t.TempDir()
+	dictsSub := filepath.Join(tmpDir, "Dictionaries")
+	if err := os.MkdirAll(dictsSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	corePath := filepath.Join(dictsSub, "Core English.tsd")
+	devilPath := filepath.Join(dictsSub, "The Devil's Dictionary.tsd")
+	tsb2Path := filepath.Join(tmpDir, "tsbuild2.tsd")
+
+	coreBytes, _, err := tsd.BuildBytes([]byte("aorta\ndrama\nmatador\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(corePath, coreBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	devilBytes, _, err := tsd.BuildBytes([]byte("matador|{\\rtf1 A bullfighter.}\ncynic|{\\rtf1 Faulty vision.}\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(devilPath, devilBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tsb2Opts := tsd.DefaultBuildOptions()
+	tsb2Opts.MaxFTSPercent = 50
+	tsb2Src := strings.Join([]string{
+		`Crossword Man|creator of TEA at http://www.crosswordman.com`,
+		`TEA Support|contact crosswordman for dictionary help`,
+		`plate|flat dish`,
+		`spoon|shallow utensil`,
+	}, "\n") + "\n"
+	tsb2Bytes, _, err := tsd.BuildBytes([]byte(tsb2Src), tsb2Opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tsb2Path, tsb2Bytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	cfgPath := filepath.Join(tmpDir, "config.toml")
 	bridge := newMockBridge()
 
@@ -138,18 +176,13 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 		t.Fatalf("expected non-null slice fields in JSON config, got %s", string(cfgJSON))
 	}
 
-	// Register Core English.tsd and The Devil's Dictionary.tsd via BrowseAndAddDictionaries.
-	corePath := filepath.Join(repoBinDir, "Dictionaries", "Core English.tsd")
-	devilPath := filepath.Join(repoBinDir, "Dictionaries", "The Devil's Dictionary.tsd")
-	tsb2Path := filepath.Join(repoBinDir, "tsbuild2.tsd")
-
 	// Remove any auto-discovered dicts first so test order is exact.
 	for _, info := range dictSvc.ListDictionaries() {
 		_, _ = dictSvc.RemoveDictionary(info.ID)
 	}
 
 	// Verify BrowseAndAddDirectory scans a directory and adds all .tsd files in it.
-	bridge.pickedDir = filepath.Join(repoBinDir, "Dictionaries")
+	bridge.pickedDir = dictsSub
 	dirInfos, err := dictSvc.BrowseAndAddDirectory(context.Background())
 	if err != nil || len(dirInfos) < 2 {
 		t.Fatalf("BrowseAndAddDirectory: len=%d err=%v", len(dirInfos), err)
@@ -860,4 +893,95 @@ func TestContextCancellationAndLengthValidation(t *testing.T) {
 	if _, err := os.Stat(corruptCfg + ".bak"); err != nil {
 		t.Fatalf("expected corrupt config backup %q: %v", corruptCfg+".bak", err)
 	}
+}
+
+func TestConcurrentSearchLookupRemoveAndRebuild(t *testing.T) {
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
+
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	srcWords := filepath.Join(tmp, "words.txt")
+	dictA := filepath.Join(tmp, "dictA.tsd")
+	dictB := filepath.Join(tmp, "dictB.tsd")
+
+	if err := os.WriteFile(srcWords, []byte("alpha|First\nbeta|Second\ngamma|Third\ndelta|Fourth\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{dictA, dictB} {
+		if _, err := tsd.BuildFile(srcWords, p, tsd.DefaultBuildOptions()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bridge := newMockBridge()
+	state, err := app.NewState(cfgPath, bridge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+
+	dictSvc := app.NewDictionaryService(state)
+	toolsSvc := app.NewToolsService(state)
+	searchSvc := app.NewSearchService(state)
+	lookupSvc := app.NewLookupService(state)
+
+	for _, info := range dictSvc.ListDictionaries() {
+		_, _ = dictSvc.RemoveDictionary(info.ID)
+	}
+	bridge.picked = []string{dictA, dictB}
+	infos, err := dictSvc.BrowseAndAddDictionaries(context.Background())
+	if err != nil || len(infos) != 2 {
+		t.Fatalf("BrowseAndAddDictionaries: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 15; i++ {
+			_, _ = searchSvc.StartSearch(app.SearchRequest{
+				SearchID: uint64(i + 1),
+				Query:    "*",
+				Mode:     "word",
+				SortMode: "alpha",
+			})
+			if i%3 == 0 {
+				searchSvc.CancelSearch()
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 15; i++ {
+			_, _ = lookupSvc.GetDefinitions(context.Background(), "alpha", true)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5; i++ {
+			_, _ = toolsSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
+				InputPath:    srcWords,
+				OutputPath:   dictA,
+				AddToLibrary: true,
+			})
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5; i++ {
+			_, _ = dictSvc.RemoveDictionary(infos[1].ID)
+			bridge.mu.Lock()
+			bridge.picked = []string{dictB}
+			bridge.mu.Unlock()
+			_, _ = dictSvc.BrowseAndAddDictionaries(context.Background())
+		}
+	}()
+
+	wg.Wait()
+	app.ShutdownSearch(searchSvc)
 }
