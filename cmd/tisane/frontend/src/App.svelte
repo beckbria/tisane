@@ -115,6 +115,7 @@
   const rootFontVars = $derived(buildFontCssVars(config.fonts));
 
   // Active search & streaming results state
+  let nextClientSearchId = 1;
   let currentSearchId = $state(0);
   let isSearching = $state(false);
   let hasCompletedSearch = $state(false);
@@ -204,11 +205,14 @@
     totalCandidateWords = 0;
     elapsedMs = 0;
     usedIndexedFTS = false;
+    const clientSearchId = nextClientSearchId++;
+    currentSearchId = clientSearchId;
     isSearching = true;
     hasCompletedSearch = false;
 
     try {
       const sid = await getBackend().startSearch({
+        searchId: clientSearchId,
         query: q,
         mode,
         enumeration,
@@ -225,7 +229,9 @@
         sortMode: config.sortMode,
         limit: 0
       });
-      currentSearchId = sid;
+      if (sid && sid !== currentSearchId && isSearching) {
+        currentSearchId = sid;
+      }
 
       // Update local recent queries immediately
       const prevRecent = Array.isArray(config.recentQueries) ? config.recentQueries : [];
@@ -358,9 +364,17 @@
     }
   }
 
+  function dictListSignature(list: DictionaryInfo[]): string {
+    return list.map((d) => `${d.id}:${d.enabled ? '1' : '0'}`).join('|');
+  }
+
   function syncUpdatedDictionaries(next: DictionaryInfo[]) {
+    const changed = dictListSignature(next) !== dictListSignature(dictionaries);
     dictionaries = next;
     const active = next.filter((d) => d.enabled);
+    if (!changed) {
+      return;
+    }
     searchActiveDicts = active;
     scheduleValidation(true);
     if (query.trim() !== '' && (hasCompletedSearch || isSearching)) {
@@ -652,12 +666,7 @@
     unsubs.push(
       backend.onEvent<DictionaryInfo[]>('dicts:updated', (infos) => {
         if (Array.isArray(infos)) {
-          dictionaries = infos;
-          if (!isSearching && !hasCompletedSearch) {
-            const active = infos.filter((d) => d.enabled);
-            searchActiveDicts = active;
-            matchesByDict = active.map(() => []);
-          }
+          syncUpdatedDictionaries(infos);
         }
       })
     );

@@ -26,6 +26,7 @@ type ValidateRequest struct {
 
 // SearchRequest represents a GUI search invocation from Svelte 5.
 type SearchRequest struct {
+	SearchID                uint64   `json:"searchId,omitempty"`
 	Query                   string   `json:"query"`
 	Mode                    string   `json:"mode"` // "word" or "fts"
 	Enumeration             string   `json:"enumeration"`
@@ -248,7 +249,10 @@ func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
 		Limit:                   req.Limit,
 	}
 
-	searchID := ss.seq.Add(1)
+	searchID := req.SearchID
+	if searchID == 0 {
+		searchID = ss.seq.Add(1)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ss.mu.Lock()

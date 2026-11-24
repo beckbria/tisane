@@ -46,6 +46,7 @@ export interface ValidateRequest {
 }
 
 export interface SearchRequest {
+  searchId?: number;
   query: string;
   mode: SearchMode;
   enumeration: string;

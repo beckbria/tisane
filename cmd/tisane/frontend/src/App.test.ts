@@ -213,7 +213,7 @@ function createMockHarness() {
 
     startSearch: vi.fn(async (req: SearchRequest) => {
       searchRequests.push(req);
-      searchSeq += 1;
+      searchSeq = req.searchId ?? searchSeq + 1;
       return searchSeq;
     }),
     cancelSearch: vi.fn(async () => true),
@@ -1072,5 +1072,77 @@ describe('Tisane Svelte 5 Desktop UI', () => {
 
     await waitFor(() => expect(screen.getByTestId('settings-provider-error')).toBeInTheDocument());
     expect(screen.getByTestId('settings-provider-error')).toHaveTextContent('http:// or https://');
+  });
+
+  it('correlates fast search events emitted before startSearch resolves, refreshes active search on dicts:updated, and steps past duplicate words with ArrowDown', async () => {
+    const h = createMockHarness();
+    // Emit batch + complete synchronously BEFORE the startSearch Promise resolves.
+    (h.backend.startSearch as ReturnType<typeof vi.fn>).mockImplementation((req: SearchRequest) => {
+      const sid = req.searchId ?? 1;
+      h.emit('search:batch', {
+        searchId: sid,
+        matches: [
+          { word: 'echo', length: 4, dictIndex: 0, dict: 'Core English', hasDefinition: false },
+          { word: 'echo', length: 4, dictIndex: 1, dict: "The Devil's Dictionary", hasDefinition: true },
+          { word: 'fable', length: 5, dictIndex: 0, dict: 'Core English', hasDefinition: false }
+        ],
+        progress: { dictIndex: 0, dictName: 'Core English', wordsScanned: 100, totalCandidateWords: 100 }
+      });
+      h.emit('search:complete', {
+        searchId: sid,
+        totalMatches: 3,
+        wordsScanned: 100,
+        totalCandidateWords: 100,
+        elapsedMs: 1.0,
+        usedIndexedFTS: false,
+        activeDicts: []
+      });
+      return new Promise<number>((resolve) => setTimeout(() => resolve(sid), 10));
+    });
+
+    setBackendForTesting(h.backend);
+    render(App);
+    await waitFor(() => expect(h.backend.getConfig).toHaveBeenCalled());
+
+    // Switch to Unified view so duplicate words appear together.
+    await fireEvent.click(screen.getByTestId('layout-unified-btn'));
+
+    // First search
+    const input = screen.getByTestId('pattern-input');
+    await fireEvent.input(input, { target: { value: 'e*' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByTestId('unified-pane-count')).toHaveTextContent('3'));
+
+    // Second search: fast events arrive while startSearch Promise is still pending
+    await fireEvent.input(input, { target: { value: 'f*' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByTestId('status-bar')).toHaveTextContent('3 matches'));
+    expect(screen.getByTestId('status-bar')).not.toHaveTextContent('Scanning');
+
+    // Keyboard navigation steps past duplicate "echo" to "fable"
+    const listbox = screen.getByRole('listbox', { name: 'Unified Results matches' });
+    await fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    await fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    await waitFor(() => expect(screen.getByTestId('definition-word-heading')).toHaveTextContent('fable'));
+
+    // External dicts:updated (e.g. from native File -> Add Dictionary menu) re-runs the active search
+    const callsBefore = (h.backend.startSearch as ReturnType<typeof vi.fn>).mock.calls.length;
+    h.emit('dicts:updated', [
+      {
+        id: '/dicts/core.tsd',
+        path: '/dicts/core.tsd',
+        name: 'Core English',
+        description: 'Core word list',
+        version: '1.2.0',
+        wordCount: 241350,
+        maxWordLength: 28,
+        hasDefinitions: false,
+        hasFTS: false,
+        enabled: true
+      }
+    ]);
+    await waitFor(() =>
+      expect((h.backend.startSearch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBefore + 1)
+    );
   });
 });

@@ -35,6 +35,14 @@
 
   const rowHeight = $derived(Math.max(24, Math.round(fontSize * 2.15)));
   let scrollEl: HTMLDivElement | null = $state(null);
+  let selectedIndex = $state(-1);
+
+  $effect(() => {
+    // Reset local keyboard cursor when the result list is cleared or shrinks past it.
+    if (items.length === 0 || selectedIndex >= items.length) {
+      selectedIndex = -1;
+    }
+  });
 
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: 0,
@@ -77,13 +85,17 @@
     if (items.length === 0) return;
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
-    const curIdx = selectedWord ? items.findIndex((m) => m.word === selectedWord) : -1;
+    let curIdx = selectedIndex;
+    if (curIdx < 0 || curIdx >= items.length || (selectedWord && items[curIdx]?.word !== selectedWord)) {
+      curIdx = selectedWord ? items.findIndex((m) => m.word === selectedWord) : -1;
+    }
     const nextIdx =
       e.key === 'ArrowDown'
         ? Math.min(items.length - 1, curIdx + 1)
         : Math.max(0, curIdx <= 0 ? 0 : curIdx - 1);
     const chosen = items[nextIdx];
     if (chosen) {
+      selectedIndex = nextIdx;
       onSelect(chosen);
       $virtualizer.scrollToIndex(nextIdx, { align: 'auto' });
     }
@@ -142,8 +154,14 @@
               role="option"
               aria-selected={isSelected}
               data-testid="result-row"
-              onclick={() => onSelect(match)}
-              ondblclick={() => onDoubleClick(match)}
+              onclick={() => {
+                selectedIndex = vRow.index;
+                onSelect(match);
+              }}
+              ondblclick={() => {
+                selectedIndex = vRow.index;
+                onDoubleClick(match);
+              }}
               style="position: absolute; top: 0; left: 0; width: 100%; height: {vRow.size}px; transform: translateY({vRow.start}px); font-family: var(--tisane-font-results-family); font-size: var(--tisane-font-results-size);"
               class="flex items-center justify-between gap-2 border-b border-slate-900/70 px-3 text-left transition-colors {isSelected
                 ? 'bg-amber-500/20 text-amber-100'
