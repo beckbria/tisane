@@ -22,6 +22,9 @@
   import FilterToolbar from './lib/components/FilterToolbar.svelte';
   import DictionarySidebar from './lib/components/DictionarySidebar.svelte';
   import VirtualResultPane from './lib/components/VirtualResultPane.svelte';
+  import ResultContextMenu, {
+    type ResultContextMenuRequest
+  } from './lib/components/ResultContextMenu.svelte';
   import DefinitionPane from './lib/components/DefinitionPane.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
   import FontSettingsModal from './lib/components/FontSettingsModal.svelte';
@@ -62,6 +65,7 @@
   let showAbout = $state(false);
   let showDictBuilder = $state(false);
   let showWordListMerger = $state(false);
+  let contextMenu: ResultContextMenuRequest | null = $state(null);
 
   // Resizable & collapsible dictionary sidebar state
   let isResizingSidebar = $state(false);
@@ -161,6 +165,32 @@
   function handleSelectMatch(m: Match) {
     void defStore.load(m.word, true);
   }
+
+  async function handleLookupInternal(m: Match) {
+    await defStore.load(m.word, true);
+    if (cfgStore.value.definitionCollapsed) {
+      setDefinitionCollapsed(false);
+    }
+  }
+
+  function handleResultContextMenu(req: ResultContextMenuRequest) {
+    contextMenu = req;
+  }
+
+  function closeContextMenu(restoreFocus = false) {
+    const prev = contextMenu;
+    contextMenu = null;
+    if (restoreFocus && prev) {
+      prev.restoreFocus();
+    }
+  }
+
+  $effect(() => {
+    // Close any open result context menu when a new search starts or layout changes.
+    void searchStore.currentSearchId;
+    void cfgStore.value.layoutMode;
+    contextMenu = null;
+  });
 
   async function handleDoubleClickMatch(m: Match) {
     await defStore.load(m.word, true);
@@ -397,6 +427,11 @@
         e.preventDefault();
         return;
       }
+      if (contextMenu) {
+        e.preventDefault();
+        closeContextMenu(true);
+        return;
+      }
       if (showAbout) {
         showAbout = false;
       } else if (showWordListMerger) {
@@ -537,6 +572,36 @@
     };
   });
 
+  const TEXT_INPUT_TYPES = new Set([
+    '',
+    'text',
+    'search',
+    'url',
+    'tel',
+    'email',
+    'password',
+    'number'
+  ]);
+
+  function isTextEditableTarget(el: Element | null): boolean {
+    if (!(el instanceof HTMLElement)) return false;
+    if (el.isContentEditable) return true;
+    if (el instanceof HTMLTextAreaElement) return true;
+    if (el instanceof HTMLInputElement) {
+      return TEXT_INPUT_TYPES.has((el.type || '').toLowerCase());
+    }
+    return false;
+  }
+
+  function handleWindowContextMenu(e: MouseEvent) {
+    if (e.defaultPrevented) return;
+    const target = e.target;
+    const el = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+    if (isTextEditableTarget(el)) return;
+    if (el?.closest('[data-testid="status-bar"]')) return;
+    e.preventDefault();
+  }
+
   function handleWindowResize() {
     if (typeof window !== 'undefined') {
       viewportWidth = window.innerWidth || 1320;
@@ -545,7 +610,11 @@
   }
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} onresize={handleWindowResize} />
+<svelte:window
+  onkeydown={handleWindowKeydown}
+  onresize={handleWindowResize}
+  oncontextmenu={handleWindowContextMenu}
+/>
 
 <div
   data-testid="app-root"
@@ -738,6 +807,7 @@
                     : `Ready · ${dict.name}`}
                   onSelect={handleSelectMatch}
                   onDoubleClick={handleDoubleClickMatch}
+                  onContextMenu={handleResultContextMenu}
                 />
               {/each}
             </div>
@@ -760,6 +830,7 @@
               : 'Enter a crossword, anagram, or full-text pattern above and press Enter'}
             onSelect={handleSelectMatch}
             onDoubleClick={handleDoubleClickMatch}
+            onContextMenu={handleResultContextMenu}
           />
         {/if}
       </div>
@@ -821,7 +892,8 @@
   <!-- Bottom Status Bar -->
   <footer
     data-testid="status-bar"
-    style="font-family: var(--tisane-font-status-family); font-size: var(--tisane-font-status-size);"
+    oncontextmenu={(e) => e.stopPropagation()}
+    style="font-family: var(--tisane-font-status-family); font-size: var(--tisane-font-status-size); --default-contextmenu: show;"
     class="flex items-center justify-between border-t border-slate-800 bg-slate-950 px-4 py-1 text-slate-400 select-none"
   >
     <div class="flex items-center gap-3 truncate">
@@ -918,4 +990,27 @@
     open={showWordListMerger}
     onClose={() => (showWordListMerger = false)}
   />
+
+  <!-- Search Result Right-Click Context Menu -->
+  {#if contextMenu}
+    <ResultContextMenu
+      x={contextMenu.x}
+      y={contextMenu.y}
+      match={contextMenu.match}
+      selectedCount={contextMenu.selectedCount}
+      paneTitle={contextMenu.paneTitle}
+      webProviders={cfgStore.value.webProviders ?? []}
+      defaultWebProvider={cfgStore.value.defaultWebProvider}
+      uiZoom={cfgStore.value.uiZoom}
+      onCopy={contextMenu.onCopy}
+      onSelectAll={contextMenu.onSelectAll}
+      onLookupInternal={(m) => {
+        void handleLookupInternal(m);
+      }}
+      onLookupExternal={(word, providerId) => {
+        void defStore.openWebLookup(word, providerId);
+      }}
+      onClose={closeContextMenu}
+    />
+  {/if}
 </div>

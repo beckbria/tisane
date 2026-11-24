@@ -42,7 +42,7 @@ On first launch, Tisane automatically scans `TISANE_DICT_PATH`, the directory th
 - **Results Workspace (Center)**:
   - **Separate Tiled Panes (`⊞ Tiled`, default)**: Displays an independently virtualized scrollable pane with match counts for each enabled dictionary side-by-side (automatically adapting column count to container width).
   - **Unified Merged List (`≡ Unified`)**: Merges hits across all enabled dictionaries into a single virtualized list with `[Dictionary]` source tags.
-  - Both modes handle 100,000+ streaming matches smoothly, display optional annotations, `-OMITTED` / `+ADDED` anagram balance pills, and local-definition indicators, and let you **Copy** all matched words in a pane or press `Ctrl+C` / `Cmd+C` on a focused result list to copy the selected headword.
+  - Both modes handle 100,000+ streaming matches smoothly, display optional annotations, `-OMITTED` / `+ADDED` anagram balance pills, and local-definition indicators, and support multi-selection (`Ctrl+Click` / `Cmd+Click` to toggle individual rows, `Shift+Click` or `Shift+Arrow` for ranges, `Ctrl+A` / `Cmd+A` to select all). Right-click any result to **Copy** the selected results from that dictionary pane, **Select All**, or trigger an internal or external web dictionary lookup. You can also click **Copy** in a pane header to copy all matched words or press `Ctrl+C` / `Cmd+C` on a focused result list.
 - **Pattern & Filter Bars (Top)**:
   - Switch between Word Search and Full Text (FTS) modes.
   - Live validation previews matched word-length bounds or highlights exact syntax error spans as you type.
@@ -72,8 +72,9 @@ On first launch, Tisane automatically scans `TISANE_DICT_PATH`, the directory th
 | `Ctrl+O` / `Cmd+O` | Add `.tsd` dictionary files |
 | `Ctrl+,` / `Cmd+,` | Open **Preferences** (themes, UI zoom, fonts, macros & web search providers) |
 | `F1` | Toggle **Pattern Syntax Quick Reference** |
-| `Up` / `Down` / `Home` / `End` / `PgUp` / `PgDn` | Navigate virtualized results and update definition |
-| `Ctrl+C` / `Cmd+C` (in pane) | Copy selected matched word to clipboard |
+| `Up` / `Down` / `Home` / `End` / `PgUp` / `PgDn` | Navigate virtualized results and update definition (hold `Shift` to extend selection) |
+| `Ctrl+A` / `Cmd+A` (in pane) | Select all results in the focused pane |
+| `Ctrl+C` / `Cmd+C` (in pane) | Copy selected matched word(s) from the focused pane to clipboard |
 
 ### CLI
 

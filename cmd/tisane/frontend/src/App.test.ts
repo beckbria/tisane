@@ -2057,4 +2057,272 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       store.dispose();
     }
   });
+
+  it('supports Ctrl+Click, Shift+Click, Shift+Arrow, and Ctrl+A multi-selection in result panes', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    const writeTextMock = vi.fn(async (_text: string) => {});
+    const originalClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextMock },
+      configurable: true
+    });
+
+    try {
+      render(App);
+      await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+      const patternInput = screen.getByTestId('pattern-input') as HTMLInputElement;
+      await fireEvent.input(patternInput, { target: { value: '*****' } });
+      await fireEvent.keyDown(patternInput, { key: 'Enter' });
+      await waitFor(() => expect(h.backend.startSearch).toHaveBeenCalledTimes(1));
+
+      const sid = h.searchRequests[0].searchId ?? 1;
+      const pane0Matches: Match[] = ['alpha', 'bravo', 'charlie', 'delta', 'echo'].map((word) => ({
+        word,
+        length: word.length,
+        dictIndex: 0,
+        dict: 'Core English',
+        hasDefinition: false
+      }));
+      h.emit('search:batch', {
+        searchId: sid,
+        matches: pane0Matches,
+        progress: { dictIndex: 0, dictName: 'Core English', wordsScanned: 500, totalCandidateWords: 500 }
+      });
+      h.emit('search:complete', {
+        searchId: sid,
+        totalMatches: 5,
+        wordsScanned: 500,
+        totalCandidateWords: 500,
+        elapsedMs: 1.5,
+        usedIndexedFTS: false,
+        activeDicts: await h.backend.listDictionaries()
+      });
+
+      const pane0 = screen.getByTestId('tiled-pane-0');
+      await waitFor(() => expect(within(pane0).getAllByTestId('result-row')).toHaveLength(5));
+
+      const rows = within(pane0).getAllByTestId('result-row');
+      const listbox = within(pane0).getByRole('listbox');
+      expect(listbox).toHaveAttribute('aria-multiselectable', 'true');
+
+      // 1. Plain click selects row 1 ("bravo"), Shift+Click row 3 ("delta") selects range 1..3
+      await fireEvent.click(rows[1]);
+      await fireEvent.click(rows[3], { shiftKey: true });
+      await waitFor(() => {
+        expect(rows[0]).toHaveAttribute('aria-selected', 'false');
+        expect(rows[1]).toHaveAttribute('aria-selected', 'true');
+        expect(rows[2]).toHaveAttribute('aria-selected', 'true');
+        expect(rows[3]).toHaveAttribute('aria-selected', 'true');
+        expect(rows[4]).toHaveAttribute('aria-selected', 'false');
+        expect(screen.getByTestId('tiled-pane-0-selected-count')).toHaveTextContent('3 selected');
+      });
+
+      // 2. Ctrl+Click toggles row 2 ("charlie") off and row 0 ("alpha") on -> {0, 1, 3}
+      await fireEvent.click(rows[2], { ctrlKey: true });
+      await fireEvent.click(rows[0], { ctrlKey: true });
+      await waitFor(() => {
+        expect(rows[0]).toHaveAttribute('aria-selected', 'true');
+        expect(rows[1]).toHaveAttribute('aria-selected', 'true');
+        expect(rows[2]).toHaveAttribute('aria-selected', 'false');
+        expect(rows[3]).toHaveAttribute('aria-selected', 'true');
+      });
+
+      // Ctrl+C copies selected words in ascending list order
+      await fireEvent.keyDown(listbox, { key: 'c', ctrlKey: true });
+      await waitFor(() => {
+        expect(writeTextMock).toHaveBeenLastCalledWith('alpha\nbravo\ndelta');
+      });
+
+      // 3. Shift+ArrowDown from row 0 extends selection to {0, 1}
+      await fireEvent.click(rows[0]);
+      await fireEvent.keyDown(listbox, { key: 'ArrowDown', shiftKey: true });
+      await waitFor(() => {
+        expect(rows[0]).toHaveAttribute('aria-selected', 'true');
+        expect(rows[1]).toHaveAttribute('aria-selected', 'true');
+        expect(rows[2]).toHaveAttribute('aria-selected', 'false');
+      });
+
+      // 4. Ctrl+A selects all 5 results
+      await fireEvent.keyDown(listbox, { key: 'a', ctrlKey: true });
+      await waitFor(() => {
+        expect(screen.getByTestId('tiled-pane-0-selected-count')).toHaveTextContent('5 selected');
+        for (const row of rows) {
+          expect(row).toHaveAttribute('aria-selected', 'true');
+        }
+      });
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: originalClipboard,
+        configurable: true
+      });
+    }
+  });
+
+  it('provides right-click context menu to copy only current dictionary selections, select all, and trigger internal or external lookup', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    const writeTextMock = vi.fn(async (_text: string) => {});
+    const originalClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextMock },
+      configurable: true
+    });
+
+    try {
+      render(App);
+      await waitFor(() => {
+        expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument();
+        expect(screen.getByTestId('tiled-pane-1')).toBeInTheDocument();
+      });
+
+      const patternInput = screen.getByTestId('pattern-input') as HTMLInputElement;
+      await fireEvent.input(patternInput, { target: { value: 'c*' } });
+      await fireEvent.keyDown(patternInput, { key: 'Enter' });
+      await waitFor(() => expect(h.backend.startSearch).toHaveBeenCalledTimes(1));
+
+      const sid = h.searchRequests[0].searchId ?? 1;
+      h.emit('search:batch', {
+        searchId: sid,
+        matches: [
+          { word: 'candle', length: 6, dictIndex: 0, dict: 'Core English', hasDefinition: false },
+          { word: 'castle', length: 6, dictIndex: 0, dict: 'Core English', hasDefinition: false },
+          { word: 'crane', length: 5, dictIndex: 0, dict: 'Core English', hasDefinition: false },
+          { word: 'cynic', length: 5, dictIndex: 1, dict: "The Devil's Dictionary", hasDefinition: true },
+          { word: 'cabbage', length: 7, dictIndex: 1, dict: "The Devil's Dictionary", hasDefinition: true }
+        ],
+        progress: { dictIndex: 1, dictName: "The Devil's Dictionary", wordsScanned: 200, totalCandidateWords: 200 }
+      });
+      h.emit('search:complete', {
+        searchId: sid,
+        totalMatches: 5,
+        wordsScanned: 200,
+        totalCandidateWords: 200,
+        elapsedMs: 2.0,
+        usedIndexedFTS: false,
+        activeDicts: await h.backend.listDictionaries()
+      });
+
+      const pane0 = screen.getByTestId('tiled-pane-0');
+      const pane1 = screen.getByTestId('tiled-pane-1');
+      await waitFor(() => {
+        expect(within(pane0).getAllByTestId('result-row')).toHaveLength(3);
+        expect(within(pane1).getAllByTestId('result-row')).toHaveLength(2);
+      });
+
+      const pane0Rows = within(pane0).getAllByTestId('result-row');
+      const pane1Rows = within(pane1).getAllByTestId('result-row');
+
+      // Select "candle" and "crane" in Pane 0, AND select "cynic" and "cabbage" in Pane 1
+      await fireEvent.click(pane0Rows[0]);
+      await fireEvent.click(pane0Rows[2], { ctrlKey: true });
+      await fireEvent.click(pane1Rows[0]);
+      await fireEvent.click(pane1Rows[1], { ctrlKey: true });
+
+      // Right-click a selected row in Pane 0 -> Copy must ONLY copy Pane 0's selections, not Pane 1's
+      await fireEvent.contextMenu(pane0Rows[0], { clientX: 120, clientY: 160 });
+      await waitFor(() => expect(screen.getByTestId('result-context-menu')).toBeInTheDocument());
+      expect(screen.getByTestId('ctx-copy-btn')).toHaveTextContent('Copy (2 selected)');
+
+      await fireEvent.click(screen.getByTestId('ctx-copy-btn'));
+      await waitFor(() => {
+        expect(writeTextMock).toHaveBeenLastCalledWith('candle\ncrane');
+        expect(screen.queryByTestId('result-context-menu')).not.toBeInTheDocument();
+      });
+
+      // Right-click an unselected row ("castle") in Pane 0 -> selects only "castle" and copies only "castle"
+      await fireEvent.contextMenu(pane0Rows[1], { clientX: 120, clientY: 190 });
+      await waitFor(() => expect(screen.getByTestId('result-context-menu')).toBeInTheDocument());
+      expect(screen.getByTestId('ctx-copy-btn')).toHaveTextContent('Copy');
+      expect(screen.getByTestId('ctx-copy-btn')).not.toHaveTextContent('selected');
+      await fireEvent.click(screen.getByTestId('ctx-copy-btn'));
+      await waitFor(() => {
+        expect(writeTextMock).toHaveBeenLastCalledWith('castle');
+      });
+
+      // Right-click in Pane 0 -> Select All selects all 3 rows in Pane 0, then Ctrl-deselecting row 1 leaves {0, 2}
+      await fireEvent.contextMenu(pane0Rows[0], { clientX: 120, clientY: 160 });
+      await fireEvent.click(screen.getByTestId('ctx-select-all-btn'));
+      await waitFor(() => {
+        expect(screen.getByTestId('tiled-pane-0-selected-count')).toHaveTextContent('3 selected');
+      });
+      await fireEvent.click(pane0Rows[1], { ctrlKey: true });
+      await fireEvent.contextMenu(pane0Rows[0], { clientX: 120, clientY: 160 });
+      await fireEvent.click(screen.getByTestId('ctx-copy-btn'));
+      await waitFor(() => {
+        expect(writeTextMock).toHaveBeenLastCalledWith('candle\ncrane');
+      });
+
+      // Collapse definition pane, then right-click "cynic" in Pane 1 -> Local definitions expands pane & loads "cynic"
+      await fireEvent.click(screen.getByTestId('collapse-definition-btn'));
+      await waitFor(() => {
+        expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'true');
+      });
+
+      await fireEvent.contextMenu(pane1Rows[0], { clientX: 420, clientY: 160 });
+      await waitFor(() => expect(screen.getByTestId('ctx-lookup-internal-btn')).toBeInTheDocument());
+      await fireEvent.click(screen.getByTestId('ctx-lookup-internal-btn'));
+      await waitFor(() => {
+        expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'false');
+        expect(screen.getByTestId('definition-word-heading')).toHaveTextContent('cynic');
+      });
+
+      // Right-click "cabbage" in Pane 1 -> External lookup choosing Wiktionary
+      await fireEvent.contextMenu(pane1Rows[1], { clientX: 420, clientY: 190 });
+      await waitFor(() => expect(screen.getByTestId('ctx-lookup-web-wiktionary')).toBeInTheDocument());
+      await fireEvent.click(screen.getByTestId('ctx-lookup-web-wiktionary'));
+      await waitFor(() => {
+        expect(h.webLookups).toContainEqual({ word: 'cabbage', providerId: 'wiktionary' });
+        expect(screen.queryByTestId('result-context-menu')).not.toBeInTheDocument();
+      });
+
+      // Escape dismisses the context menu cleanly
+      await fireEvent.contextMenu(pane1Rows[0], { clientX: 420, clientY: 160 });
+      await waitFor(() => expect(screen.getByTestId('result-context-menu')).toBeInTheDocument());
+      await fireEvent.keyDown(screen.getByTestId('result-context-menu'), { key: 'Escape' });
+      await waitFor(() => {
+        expect(screen.queryByTestId('result-context-menu')).not.toBeInTheDocument();
+      });
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: originalClipboard,
+        configurable: true
+      });
+    }
+  });
+
+  it('suppresses default right-click menu on general UI elements while allowing text inputs and the status bar', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('status-bar')).toBeInTheDocument());
+
+    const dispatchContextMenu = (target: Element): boolean => {
+      const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      target.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+
+    // 1. Text boxes allow native right-click context menu (not prevented)
+    const patternInput = screen.getByTestId('pattern-input');
+    expect(dispatchContextMenu(patternInput)).toBe(false);
+
+    // 2. Status bar (and its children) allow native WebView context menu (not prevented)
+    const statusBar = screen.getByTestId('status-bar');
+    expect(dispatchContextMenu(statusBar)).toBe(false);
+    const statusChild = statusBar.querySelector('span');
+    expect(statusChild).not.toBeNull();
+    expect(dispatchContextMenu(statusChild!)).toBe(false);
+
+    // 3. Other UI elements (buttons, checkboxes, panes) suppress default right-click menu
+    expect(dispatchContextMenu(screen.getByTestId('layout-unified-btn'))).toBe(true);
+    expect(dispatchContextMenu(screen.getByTestId('include-mentions-toggle'))).toBe(true);
+    expect(dispatchContextMenu(screen.getByTestId('definition-pane'))).toBe(true);
+    expect(dispatchContextMenu(screen.getByTestId('tiled-pane-0'))).toBe(true);
+    expect(screen.queryByTestId('result-context-menu')).not.toBeInTheDocument();
+  });
 });
