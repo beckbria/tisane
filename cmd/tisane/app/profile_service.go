@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+
 	"tisane/pkg/lookup"
 	"tisane/pkg/profile"
 )
@@ -62,12 +64,28 @@ func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error
 	if patch.HashMacro != nil {
 		cfg.HashMacro = *patch.HashMacro
 	}
-	if patch.MinLength != nil && *patch.MinLength >= 1 && *patch.MinLength <= 100 {
-		cfg.MinLength = *patch.MinLength
+	nextMin := cfg.MinLength
+	if patch.MinLength != nil {
+		if *patch.MinLength < 1 || *patch.MinLength > 100 {
+			ps.state.mu.Unlock()
+			return ps.GetConfig(), fmt.Errorf("minLength must be between 1 and 100")
+		}
+		nextMin = *patch.MinLength
 	}
-	if patch.MaxLength != nil && *patch.MaxLength >= 1 && *patch.MaxLength <= 100 {
-		cfg.MaxLength = *patch.MaxLength
+	nextMax := cfg.MaxLength
+	if patch.MaxLength != nil {
+		if *patch.MaxLength < 1 || *patch.MaxLength > 100 {
+			ps.state.mu.Unlock()
+			return ps.GetConfig(), fmt.Errorf("maxLength must be between 1 and 100")
+		}
+		nextMax = *patch.MaxLength
 	}
+	if nextMin > nextMax {
+		ps.state.mu.Unlock()
+		return ps.GetConfig(), fmt.Errorf("minLength (%d) cannot exceed maxLength (%d)", nextMin, nextMax)
+	}
+	cfg.MinLength = nextMin
+	cfg.MaxLength = nextMax
 	if patch.ExclusiveVars != nil {
 		cfg.ExclusiveVars = *patch.ExclusiveVars
 	}

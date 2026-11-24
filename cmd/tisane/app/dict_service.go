@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"tisane/pkg/profile"
@@ -33,12 +34,15 @@ func (ds *DictionaryService) SetEnabled(id string, enabled bool) ([]DictionaryIn
 	}
 	ds.state.dicts[idx].info.Enabled = enabled
 	ds.state.syncConfigDictionariesLocked()
-	_ = ds.state.saveConfigLocked()
+	saveErr := ds.state.saveConfigLocked()
 	infos := ds.state.listInfosLocked()
 	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
 	bridge.EmitEvent("dicts:updated", infos)
+	if saveErr != nil {
+		return infos, fmt.Errorf("save config: %w", saveErr)
+	}
 	return infos, nil
 }
 
@@ -77,12 +81,15 @@ func (ds *DictionaryService) AddDictionaryPaths(paths []string) ([]DictionaryInf
 		return nil, lastErr
 	}
 	ds.state.syncConfigDictionariesLocked()
-	_ = ds.state.saveConfigLocked()
+	saveErr := ds.state.saveConfigLocked()
 	infos := ds.state.listInfosLocked()
 	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
 	bridge.EmitEvent("dicts:updated", infos)
+	if saveErr != nil {
+		return infos, fmt.Errorf("save config: %w", saveErr)
+	}
 	return infos, nil
 }
 
@@ -107,13 +114,19 @@ func (ds *DictionaryService) BrowseAndAddDirectory() ([]DictionaryInfo, error) {
 	if dir == "" {
 		return ds.ListDictionaries(), nil
 	}
-	return ds.ScanDirectory(dir)
+	return ds.ScanDirectory(context.Background(), dir)
 }
 
 // ScanDirectory discovers all *.tsd files inside dir and registers any new ones.
-func (ds *DictionaryService) ScanDirectory(dir string) ([]DictionaryInfo, error) {
+func (ds *DictionaryService) ScanDirectory(ctx context.Context, dir string) ([]DictionaryInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	found, err := profile.DiscoverDictionaries(dir)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if len(found) == 0 {
@@ -133,12 +146,15 @@ func (ds *DictionaryService) RemoveDictionary(id string) ([]DictionaryInfo, erro
 	removed := ds.state.dicts[idx]
 	ds.state.dicts = append(ds.state.dicts[:idx], ds.state.dicts[idx+1:]...)
 	ds.state.syncConfigDictionariesLocked()
-	_ = ds.state.saveConfigLocked()
+	saveErr := ds.state.saveConfigLocked()
 	infos := ds.state.listInfosLocked()
 	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
 	_ = removed.release()
 	bridge.EmitEvent("dicts:updated", infos)
+	if saveErr != nil {
+		return infos, fmt.Errorf("save config: %w", saveErr)
+	}
 	return infos, nil
 }

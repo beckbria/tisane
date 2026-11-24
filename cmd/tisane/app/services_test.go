@@ -553,7 +553,7 @@ func TestDictionaryServiceBuildDictionary(t *testing.T) {
 
 	// Build with custom min/max length, description, TSV mode, and AddToLibrary=true.
 	outPath := filepath.Join(tmpDir, "animals.tsd")
-	res, err := dictSvc.BuildDictionary(app.BuildDictionaryRequest{
+	res, err := dictSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
 		InputPath:               wordListPath,
 		OutputPath:              outPath,
 		Description:             "Custom Animals Dictionary",
@@ -613,7 +613,7 @@ func TestDictionaryServiceBuildDictionary(t *testing.T) {
 	}
 
 	// Rebuilding over the already-loaded dictionary reloads its handle cleanly with updated metadata.
-	res2, err := dictSvc.BuildDictionary(app.BuildDictionaryRequest{
+	res2, err := dictSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
 		InputPath:          wordListPath,
 		OutputPath:         outPath,
 		Description:        "Updated Animals",
@@ -671,7 +671,7 @@ func TestWordListMergeService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := dictSvc.MergeWordLists(app.MergeWordListsRequest{
+	res, err := dictSvc.MergeWordLists(context.Background(), app.MergeWordListsRequest{
 		PrimaryPath:   p1,
 		SecondaryPath: p2,
 		OutputPath:    outPath,
@@ -808,4 +808,35 @@ func TestConcurrentDictionaryRemovalDuringSearch(t *testing.T) {
 
 	wg.Wait()
 	app.ShutdownSearch(searchSvc)
+}
+
+func TestContextCancellationAndLengthValidation(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	state, err := app.NewState(cfgPath, newMockBridge())
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+	defer state.Close()
+
+	dictSvc := app.NewDictionaryService(state)
+	profileSvc := app.NewProfileService(state)
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := dictSvc.BuildDictionary(canceledCtx, app.BuildDictionaryRequest{}); err == nil {
+		t.Fatalf("expected BuildDictionary to return context error")
+	}
+	if _, err := dictSvc.MergeWordLists(canceledCtx, app.MergeWordListsRequest{}); err == nil {
+		t.Fatalf("expected MergeWordLists to return context error")
+	}
+	if _, err := dictSvc.ScanDirectory(canceledCtx, tmp); err == nil {
+		t.Fatalf("expected ScanDirectory to return context error")
+	}
+
+	minLen, maxLen := 12, 5
+	if _, err := profileSvc.UpdateConfig(app.ConfigPatch{MinLength: &minLen, MaxLength: &maxLen}); err == nil {
+		t.Fatalf("expected UpdateConfig to reject minLength > maxLength")
+	}
 }

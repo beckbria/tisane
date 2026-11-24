@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,7 +79,11 @@ func (ds *DictionaryService) BrowseAlphabetMapFile() (string, error) {
 
 // BuildDictionary compiles a word/definition list file into a .tsd dictionary using the
 // shared pkg/tsd builder logic, optionally registering or reloading the output in Tisane.
-func (ds *DictionaryService) BuildDictionary(req BuildDictionaryRequest) (*BuildDictionaryResult, error) {
+func (ds *DictionaryService) BuildDictionary(ctx context.Context, req BuildDictionaryRequest) (*BuildDictionaryResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	inputPath := strings.TrimSpace(req.InputPath)
 	if inputPath == "" {
 		return nil, fmt.Errorf("input word list file is required")
@@ -166,6 +171,7 @@ func (ds *DictionaryService) BuildDictionary(req BuildDictionaryRequest) (*Build
 	}
 
 	addedToLibrary := false
+	var saveErr error
 	if prevIdx >= 0 || req.AddToLibrary {
 		ds.state.mu.Lock()
 		customName := ""
@@ -182,7 +188,7 @@ func (ds *DictionaryService) BuildDictionary(req BuildDictionaryRequest) (*Build
 				ds.state.dicts = append(ds.state.dicts[:prevIdx], append([]*loadedDict{ld}, ds.state.dicts[prevIdx:]...)...)
 			}
 			ds.state.syncConfigDictionariesLocked()
-			_ = ds.state.saveConfigLocked()
+			saveErr = ds.state.saveConfigLocked()
 			addedToLibrary = true
 		}
 		infos := ds.state.listInfosLocked()
@@ -192,7 +198,7 @@ func (ds *DictionaryService) BuildDictionary(req BuildDictionaryRequest) (*Build
 		bridge.EmitEvent("dicts:updated", infos)
 	}
 
-	return &BuildDictionaryResult{
+	res := &BuildDictionaryResult{
 		OutputPath:       writtenPath,
 		InputLines:       stats.InputLines,
 		UniqueWords:      stats.UniqueWords,
@@ -205,5 +211,9 @@ func (ds *DictionaryService) BuildDictionary(req BuildDictionaryRequest) (*Build
 		BytesWritten:     stats.BytesWritten,
 		ElapsedMs:        elapsedMs,
 		AddedToLibrary:   addedToLibrary,
-	}, nil
+	}
+	if saveErr != nil {
+		return res, fmt.Errorf("save config: %w", saveErr)
+	}
+	return res, nil
 }

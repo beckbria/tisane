@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -58,7 +59,11 @@ func (ds *DictionaryService) BrowseSaveWordListFile(defaultPath string) (string,
 }
 
 // MergeWordLists converts and merges two word lists using the shared pkg/wordlist logic.
-func (ds *DictionaryService) MergeWordLists(req MergeWordListsRequest) (*MergeWordListsResult, error) {
+func (ds *DictionaryService) MergeWordLists(ctx context.Context, req MergeWordListsRequest) (*MergeWordListsResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	primaryPath := strings.TrimSpace(req.PrimaryPath)
 	if primaryPath == "" {
 		return nil, fmt.Errorf("primary word list file is required")
