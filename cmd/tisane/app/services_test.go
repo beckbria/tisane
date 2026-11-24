@@ -150,7 +150,7 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 
 	// Verify BrowseAndAddDirectory scans a directory and adds all .tsd files in it.
 	bridge.pickedDir = filepath.Join(repoBinDir, "Dictionaries")
-	dirInfos, err := dictSvc.BrowseAndAddDirectory()
+	dirInfos, err := dictSvc.BrowseAndAddDirectory(context.Background())
 	if err != nil || len(dirInfos) < 2 {
 		t.Fatalf("BrowseAndAddDirectory: len=%d err=%v", len(dirInfos), err)
 	}
@@ -159,7 +159,7 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 	}
 
 	bridge.picked = []string{corePath, devilPath, tsb2Path}
-	infos, err := dictSvc.BrowseAndAddDictionaries()
+	infos, err := dictSvc.BrowseAndAddDictionaries(context.Background())
 	if err != nil || len(infos) != 3 {
 		t.Fatalf("BrowseAndAddDictionaries: len=%d err=%v", len(infos), err)
 	}
@@ -378,8 +378,9 @@ func TestResetConfigPreservesOrResetsDictionaries(t *testing.T) {
 	profSvc := app.NewProfileService(state)
 
 	// Customize dictionaries: add extraPath, disable topPath, and remove subPath.
-	if _, err := dictSvc.AddDictionaryPaths([]string{extraPath}); err != nil {
-		t.Fatalf("AddDictionaryPaths: %v", err)
+	bridge.picked = []string{extraPath}
+	if _, err := dictSvc.BrowseAndAddDictionaries(context.Background()); err != nil {
+		t.Fatalf("BrowseAndAddDictionaries: %v", err)
 	}
 	if _, err := dictSvc.SetEnabled(topPath, false); err != nil {
 		t.Fatalf("SetEnabled: %v", err)
@@ -781,9 +782,10 @@ func TestConcurrentDictionaryRemovalDuringSearch(t *testing.T) {
 	searchSvc := app.NewSearchService(state)
 	lookupSvc := app.NewLookupService(state)
 
-	infos, err := dictSvc.AddDictionaryPaths([]string{tsdPath})
+	bridge.picked = []string{tsdPath}
+	infos, err := dictSvc.BrowseAndAddDictionaries(context.Background())
 	if err != nil || len(infos) == 0 {
-		t.Fatalf("AddDictionaryPaths: %v (len=%d)", err, len(infos))
+		t.Fatalf("BrowseAndAddDictionaries: %v (len=%d)", err, len(infos))
 	}
 	targetID := infos[len(infos)-1].ID
 
@@ -833,12 +835,29 @@ func TestContextCancellationAndLengthValidation(t *testing.T) {
 	if _, err := toolsSvc.MergeWordLists(canceledCtx, app.MergeWordListsRequest{}); err == nil {
 		t.Fatalf("expected MergeWordLists to return context error")
 	}
-	if _, err := dictSvc.ScanDirectory(canceledCtx, tmp); err == nil {
-		t.Fatalf("expected ScanDirectory to return context error")
+	if _, err := dictSvc.BrowseAndAddDirectory(canceledCtx); err == nil {
+		t.Fatalf("expected BrowseAndAddDirectory to return context error")
+	}
+	if _, err := dictSvc.BrowseAndAddDictionaries(canceledCtx); err == nil {
+		t.Fatalf("expected BrowseAndAddDictionaries to return context error")
 	}
 
 	minLen, maxLen := 12, 5
 	if _, err := profileSvc.UpdateConfig(app.ConfigPatch{MinLength: &minLen, MaxLength: &maxLen}); err == nil {
 		t.Fatalf("expected UpdateConfig to reject minLength > maxLength")
+	}
+
+	// Corrupt config.toml should be backed up to config.toml.bak rather than preventing startup or silently vanishing.
+	corruptCfg := filepath.Join(tmp, "corrupt.toml")
+	if err := os.WriteFile(corruptCfg, []byte("[dictionaries]\npath = \"broken\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recoveredState, err := app.NewState(corruptCfg, newMockBridge())
+	if err != nil {
+		t.Fatalf("NewState with corrupt config: %v", err)
+	}
+	defer recoveredState.Close()
+	if _, err := os.Stat(corruptCfg + ".bak"); err != nil {
+		t.Fatalf("expected corrupt config backup %q: %v", corruptCfg+".bak", err)
 	}
 }

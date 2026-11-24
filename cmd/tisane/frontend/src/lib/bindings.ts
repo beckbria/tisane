@@ -10,6 +10,7 @@ import type {
   MergeWordListsRequest,
   MergeWordListsResult,
   SearchBatchEvent,
+  SearchCancelledEvent,
   SearchCompleteEvent,
   SearchErrorEvent,
   SearchMode,
@@ -26,6 +27,7 @@ export interface WailsEventMap {
   'search:progress': SearchProgressEvent;
   'search:complete': SearchCompleteEvent;
   'search:error': SearchErrorEvent;
+  'search:cancelled': SearchCancelledEvent;
   'dicts:updated': DictionaryInfo[];
   'ui:open-settings': null;
   'ui:open-font-settings': null;
@@ -42,10 +44,8 @@ export interface TisaneBackend {
   listDictionaries(): Promise<DictionaryInfo[]>;
   setEnabled(id: string, enabled: boolean): Promise<DictionaryInfo[]>;
   reorderDictionaries(orderedIds: string[]): Promise<DictionaryInfo[]>;
-  addDictionaryPaths(paths: string[]): Promise<DictionaryInfo[]>;
   browseAndAddDictionaries(): Promise<DictionaryInfo[]>;
   browseAndAddDirectory(): Promise<DictionaryInfo[]>;
-  scanDirectory(dir: string): Promise<DictionaryInfo[]>;
   removeDictionary(id: string): Promise<DictionaryInfo[]>;
   browseWordListFile(): Promise<string>;
   browseSaveDictionaryFile(defaultPath: string): Promise<string>;
@@ -76,10 +76,8 @@ const FQN = {
   listDictionaries: 'tisane/cmd/tisane/app.DictionaryService.ListDictionaries',
   setEnabled: 'tisane/cmd/tisane/app.DictionaryService.SetEnabled',
   reorderDictionaries: 'tisane/cmd/tisane/app.DictionaryService.ReorderDictionaries',
-  addDictionaryPaths: 'tisane/cmd/tisane/app.DictionaryService.AddDictionaryPaths',
   browseAndAddDictionaries: 'tisane/cmd/tisane/app.DictionaryService.BrowseAndAddDictionaries',
   browseAndAddDirectory: 'tisane/cmd/tisane/app.DictionaryService.BrowseAndAddDirectory',
-  scanDirectory: 'tisane/cmd/tisane/app.DictionaryService.ScanDirectory',
   removeDictionary: 'tisane/cmd/tisane/app.DictionaryService.RemoveDictionary',
   browseWordListFile: 'tisane/cmd/tisane/app.ToolsService.BrowseWordListFile',
   browseSaveDictionaryFile: 'tisane/cmd/tisane/app.ToolsService.BrowseSaveDictionaryFile',
@@ -105,10 +103,8 @@ const wailsBackend: TisaneBackend = {
   listDictionaries: () => Call.ByName(FQN.listDictionaries),
   setEnabled: (id, enabled) => Call.ByName(FQN.setEnabled, id, enabled),
   reorderDictionaries: (orderedIds) => Call.ByName(FQN.reorderDictionaries, orderedIds),
-  addDictionaryPaths: (paths) => Call.ByName(FQN.addDictionaryPaths, paths),
   browseAndAddDictionaries: () => Call.ByName(FQN.browseAndAddDictionaries),
   browseAndAddDirectory: () => Call.ByName(FQN.browseAndAddDirectory),
-  scanDirectory: (dir) => Call.ByName(FQN.scanDirectory, dir),
   removeDictionary: (id) => Call.ByName(FQN.removeDictionary, id),
   browseWordListFile: () => Call.ByName(FQN.browseWordListFile),
   browseSaveDictionaryFile: (defaultPath) => Call.ByName(FQN.browseSaveDictionaryFile, defaultPath),

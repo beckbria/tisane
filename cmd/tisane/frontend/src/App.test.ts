@@ -127,10 +127,8 @@ function createMockHarness() {
       dicts = orderedIds.map((id) => byId.get(id)!);
       return dicts.map((d) => ({ ...d }));
     }),
-    addDictionaryPaths: vi.fn(async () => dicts),
     browseAndAddDictionaries: vi.fn(async () => dicts),
     browseAndAddDirectory: vi.fn(async () => dicts),
-    scanDirectory: vi.fn(async () => dicts),
     removeDictionary: vi.fn(async (id: string) => {
       dicts = dicts.filter((d) => d.id !== id);
       return dicts;
@@ -1187,6 +1185,12 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     // Pressing Escape again with no modal open cancels the active search.
     await fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => expect(h.backend.cancelSearch).toHaveBeenCalledTimes(1));
+
+    // Backend-emitted search:cancelled (e.g. from native Search -> Cancel Active Search menu) clears isSearching.
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByTestId('status-bar')).toHaveTextContent('Scanning'));
+    h.emit('search:cancelled', { searchId: 2 });
+    await waitFor(() => expect(screen.getByTestId('status-bar')).not.toHaveTextContent('Scanning'));
 
     // In desktop WebView mode, Ctrl+B in the webview is ignored so native menu ui:toggle-sidebar does not double-fire.
     const w = window as unknown as { _wails?: { environment?: { OS?: string } } };

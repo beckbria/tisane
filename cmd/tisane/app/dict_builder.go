@@ -77,6 +77,25 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 	if inputPath == "" {
 		return nil, fmt.Errorf("input word list file is required")
 	}
+	inInfo, err := os.Stat(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect input word list %q: %w", inputPath, err)
+	}
+	if !inInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("input word list %q is not a regular file", inputPath)
+	}
+
+	mapPath := strings.TrimSpace(req.MapPath)
+	var mapInfo os.FileInfo
+	if mapPath != "" {
+		mapInfo, err = os.Stat(mapPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect alphabet map %q: %w", mapPath, err)
+		}
+		if !mapInfo.Mode().IsRegular() {
+			return nil, fmt.Errorf("alphabet map %q is not a regular file", mapPath)
+		}
+	}
 
 	outputPath := strings.TrimSpace(req.OutputPath)
 	if outputPath == "" {
@@ -89,6 +108,14 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 	absOut, err := filepath.Abs(outputPath)
 	if err != nil {
 		absOut = filepath.Clean(outputPath)
+	}
+	if filepath.Clean(outputPath) == filepath.Clean(inputPath) || (mapPath != "" && filepath.Clean(outputPath) == filepath.Clean(mapPath)) {
+		return nil, fmt.Errorf("output dictionary path %q cannot overwrite an input file", outputPath)
+	}
+	if preOutInfo, preErr := os.Stat(absOut); preErr == nil {
+		if os.SameFile(preOutInfo, inInfo) || (mapInfo != nil && os.SameFile(preOutInfo, mapInfo)) {
+			return nil, fmt.Errorf("output dictionary path %q refers to the same file as an input file", outputPath)
+		}
 	}
 
 	// If the target .tsd file is already open in Tisane, close its handle before overwriting
@@ -122,7 +149,7 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 	params := tsd.BuildParams{
 		InputPath:               inputPath,
 		OutputPath:              outputPath,
-		MapPath:                 strings.TrimSpace(req.MapPath),
+		MapPath:                 mapPath,
 		Description:             req.Description,
 		MinLen:                  req.MinLen,
 		MaxLen:                  req.MaxLen,
@@ -141,11 +168,7 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 		if prevIdx >= 0 {
 			ts.state.mu.Lock()
 			if ld, reopenErr := ts.state.openAndAppendLocked(absOut, prevName, prevEnabled); reopenErr == nil {
-				if prevIdx < len(ts.state.dicts)-1 {
-					// Move restored entry back to its original priority index.
-					ts.state.dicts = ts.state.dicts[:len(ts.state.dicts)-1]
-					ts.state.dicts = append(ts.state.dicts[:prevIdx], append([]*loadedDict{ld}, ts.state.dicts[prevIdx:]...)...)
-				}
+				moveLoadedDictLocked(ts.state, ld, prevIdx)
 				ts.state.mu.Unlock()
 			} else {
 				ts.state.syncConfigDictionariesLocked()
@@ -171,10 +194,8 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 		}
 		ld, openErr := ts.state.openAndAppendLocked(writtenPath, customName, enabled)
 		if openErr == nil {
-			if prevIdx >= 0 && prevIdx < len(ts.state.dicts)-1 {
-				// Restore original priority position.
-				ts.state.dicts = ts.state.dicts[:len(ts.state.dicts)-1]
-				ts.state.dicts = append(ts.state.dicts[:prevIdx], append([]*loadedDict{ld}, ts.state.dicts[prevIdx:]...)...)
+			if prevIdx >= 0 {
+				moveLoadedDictLocked(ts.state, ld, prevIdx)
 			}
 			ts.state.syncConfigDictionariesLocked()
 			saveErr = ts.state.saveConfigLocked()
@@ -205,4 +226,27 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 		return res, fmt.Errorf("save config: %w", saveErr)
 	}
 	return res, nil
+}
+
+func moveLoadedDictLocked(s *State, ld *loadedDict, targetIdx int) {
+	curIdx := -1
+	for i, item := range s.dicts {
+		if item == ld {
+			curIdx = i
+			break
+		}
+	}
+	if curIdx < 0 {
+		return
+	}
+	if targetIdx < 0 {
+		targetIdx = 0
+	} else if targetIdx >= len(s.dicts) {
+		targetIdx = len(s.dicts) - 1
+	}
+	if curIdx == targetIdx {
+		return
+	}
+	s.dicts = append(s.dicts[:curIdx], s.dicts[curIdx+1:]...)
+	s.dicts = append(s.dicts[:targetIdx], append([]*loadedDict{ld}, s.dicts[targetIdx:]...)...)
 }

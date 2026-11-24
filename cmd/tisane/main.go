@@ -2,9 +2,11 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"log"
 	"os"
+	"runtime"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -135,6 +137,7 @@ func (b *wailsHostBridge) PickAlphabetMapFile() (string, error) {
 
 func newServices(state *app.State) (
 	*app.DictionaryService,
+	*app.ToolsService,
 	*app.SearchService,
 	*app.LookupService,
 	*app.ProfileService,
@@ -153,7 +156,7 @@ func newServices(state *app.State) (
 		application.NewService(lookupSvc),
 		application.NewService(profileSvc),
 	}
-	return dictSvc, searchSvc, lookupSvc, profileSvc, services
+	return dictSvc, toolsSvc, searchSvc, lookupSvc, profileSvc, services
 }
 
 func buildAppMenu(
@@ -162,16 +165,27 @@ func buildAppMenu(
 	searchSvc *app.SearchService,
 ) *application.Menu {
 	menu := wailsApp.Menu.New()
+	if runtime.GOOS == "darwin" {
+		menu.AddRole(application.AppMenu)
+	}
 
 	fileMenu := menu.AddSubmenu("File")
 	fileMenu.Add("Add Dictionary (.tsd)...").
 		SetAccelerator("CmdOrCtrl+O").
 		OnClick(func(*application.Context) {
-			_, _ = dictSvc.BrowseAndAddDictionaries()
+			go func() {
+				if _, err := dictSvc.BrowseAndAddDictionaries(context.Background()); err != nil {
+					log.Printf("tisane: add dictionaries: %v", err)
+				}
+			}()
 		})
 	fileMenu.Add("Add All from Directory...").
 		OnClick(func(*application.Context) {
-			_, _ = dictSvc.BrowseAndAddDirectory()
+			go func() {
+				if _, err := dictSvc.BrowseAndAddDirectory(context.Background()); err != nil {
+					log.Printf("tisane: add directory: %v", err)
+				}
+			}()
 		})
 	fileMenu.Add("Build Dictionary from Word List...").
 		SetAccelerator("CmdOrCtrl+Shift+B").
@@ -258,7 +272,7 @@ func main() {
 		log.Fatalf("tisane: failed to initialize state: %v", err)
 	}
 
-	dictSvc, searchSvc, _, _, services := newServices(state)
+	dictSvc, _, searchSvc, _, _, services := newServices(state)
 
 	wailsApp := application.New(application.Options{
 		Name:        "Tisane",
@@ -268,6 +282,9 @@ func main() {
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
 		OnShutdown: func() {
 			app.ShutdownSearch(searchSvc)
 			_ = state.Close()
@@ -275,13 +292,14 @@ func main() {
 	})
 
 	mainWin := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:      "main",
-		Title:     "Tisane",
-		Width:     1320,
-		Height:    840,
-		MinWidth:  920,
-		MinHeight: 600,
-		URL:       "/",
+		Name:             "main",
+		Title:            "Tisane",
+		Width:            1320,
+		Height:           840,
+		MinWidth:         920,
+		MinHeight:        600,
+		BackgroundColour: application.NewRGB(2, 6, 23),
+		URL:              "/",
 		Linux: application.LinuxWindow{
 			Icon: build.AppIcon,
 		},

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,6 +73,11 @@ type SearchCompleteEvent struct {
 type SearchErrorEvent struct {
 	SearchID uint64 `json:"searchId"`
 	Message  string `json:"message"`
+}
+
+// SearchCancelledEvent is emitted on "search:cancelled" when an active search is explicitly cancelled.
+type SearchCancelledEvent struct {
+	SearchID uint64 `json:"searchId"`
 }
 
 // SearchService coordinates live pattern validation, streaming multi-dictionary search, and cancellation.
@@ -151,14 +157,16 @@ func (ss *SearchService) ValidatePattern(req ValidateRequest) pattern.Validation
 	return pattern.Validate(req.Query, pOpts, cOpts, activeDicts...)
 }
 
-// CancelSearch cancels any currently running search immediately.
+// CancelSearch cancels any currently running search immediately and notifies the frontend.
 func (ss *SearchService) CancelSearch() bool {
 	ss.mu.Lock()
 	cancel := ss.cancel
+	cancelledID := ss.curID
 	ss.cancel = nil
 	ss.mu.Unlock()
 	if cancel != nil {
 		cancel()
+		ss.state.Bridge().EmitEvent(EventSearchCancelled, SearchCancelledEvent{SearchID: cancelledID})
 		return true
 	}
 	return false
@@ -212,16 +220,7 @@ func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
 		return 0, err
 	}
 
-	var filterMask search.EntryTypeMask
-	if len(req.EntryCategories) == 0 {
-		filterMask = search.EntryAll
-	} else {
-		for _, cat := range req.EntryCategories {
-			if m, fErr := search.ParseEntryFilter(cat); fErr == nil {
-				filterMask |= m
-			}
-		}
-	}
+	filterMask := search.EntryFilterFromProfile(req.EntryCategories)
 
 	dedupe := search.DedupeNone
 	if req.SuppressDuplicates {
@@ -249,19 +248,21 @@ func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
 		Limit:                   req.Limit,
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ss.mu.Lock()
 	searchID := req.SearchID
 	if searchID == 0 {
 		searchID = ss.seq.Add(1)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-
-	ss.mu.Lock()
-	if ss.cancel != nil {
-		ss.cancel()
-	}
+	prevCancel := ss.cancel
 	ss.cancel = cancel
 	ss.curID = searchID
 	ss.mu.Unlock()
+
+	if prevCancel != nil {
+		prevCancel()
+	}
 
 	bridge := ss.state.Bridge()
 	released = true
@@ -303,14 +304,15 @@ func (ss *SearchService) runSearchWorker(
 		return
 	}
 
-	// Streaming path for SortDict: emit incremental match batches every ~25ms or ~4000 matches.
+	// Streaming path for SortDict: emit incremental match batches every ~25ms or ~2500 matches.
 	if sReq.Sort == search.SortDict {
 		totalMatches := 0
+		var usedIndexedFTS bool
 		var lastProg search.Progress
 		var accMatches []search.Match
 		lastFlush := time.Now()
 
-		for batch, err := range ss.eng.SearchStream(ctx, sReq) {
+		for batch, err := range ss.eng.SearchStreamWithStats(ctx, sReq, &usedIndexedFTS) {
 			if err != nil {
 				if ctx.Err() != nil {
 					return
@@ -361,55 +363,73 @@ func (ss *SearchService) runSearchWorker(
 			WordsScanned:        lastProg.WordsScanned,
 			TotalCandidateWords: lastProg.TotalCandidateWords,
 			ElapsedMs:           float64(time.Since(start).Microseconds()) / 1000.0,
+			UsedIndexedFTS:      usedIndexedFTS,
 			ActiveDicts:         activeInfos,
 		})
 		return
 	}
 
-	// Sorted path (Smart, Alpha, Length): stream progress while scanning, then sort & emit chunked batches
-	// so both Tiled Panes (filtered by DictIndex) and Unified View display in exact sorted order!
-	sum, err := ss.eng.Search(ctx, sReq)
-	if err != nil {
-		if ctx.Err() != nil {
+	// Sorted path (Smart, Alpha, Length): stream scan progress while collecting matches,
+	// then sort and emit chunked batches so both Tiled Panes and Unified View stay in sorted order.
+	streamReq := sReq
+	streamReq.Limit = 0
+	var usedIndexedFTS bool
+	var lastProg search.Progress
+	var allMatches []search.Match
+	lastProgressEmit := time.Now()
+
+	for batch, err := range ss.eng.SearchStreamWithStats(ctx, streamReq, &usedIndexedFTS) {
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			bridge.EmitEvent(EventSearchError, SearchErrorEvent{
+				SearchID: searchID,
+				Message:  err.Error(),
+			})
 			return
 		}
-		bridge.EmitEvent(EventSearchError, SearchErrorEvent{
-			SearchID: searchID,
-			Message:  err.Error(),
-		})
-		return
+		lastProg = batch.Progress
+		if len(batch.Matches) > 0 {
+			allMatches = append(allMatches, batch.Matches...)
+		}
+		if time.Since(lastProgressEmit) >= 25*time.Millisecond {
+			bridge.EmitEvent(EventSearchProgress, SearchProgressEvent{
+				SearchID: searchID,
+				Progress: lastProg,
+			})
+			lastProgressEmit = time.Now()
+		}
 	}
 	if ctx.Err() != nil {
 		return
 	}
 
-	const emitChunk = 5000
-	prog := search.Progress{
-		WordsScanned:        sum.WordsScanned,
-		TotalCandidateWords: sum.TotalCandidateWords,
+	search.SortMatches(allMatches, sReq.Sort)
+	if sReq.Limit > 0 && len(allMatches) > sReq.Limit {
+		allMatches = slices.Clone(allMatches[:sReq.Limit])
 	}
-	for off := 0; off < len(sum.Matches); off += emitChunk {
+
+	const emitChunk = 5000
+	for off := 0; off < len(allMatches); off += emitChunk {
 		if ctx.Err() != nil {
 			return
 		}
-		end := off + emitChunk
-		if end > len(sum.Matches) {
-			end = len(sum.Matches)
-		}
+		end := min(off+emitChunk, len(allMatches))
 		bridge.EmitEvent(EventSearchBatch, SearchBatchEvent{
 			SearchID: searchID,
-			Matches:  sum.Matches[off:end],
-			Progress: prog,
+			Matches:  allMatches[off:end],
+			Progress: lastProg,
 		})
 	}
 
 	bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
 		SearchID:            searchID,
-		TotalMatches:        len(sum.Matches),
-		WordsScanned:        sum.WordsScanned,
-		TotalCandidateWords: sum.TotalCandidateWords,
+		TotalMatches:        len(allMatches),
+		WordsScanned:        lastProg.WordsScanned,
+		TotalCandidateWords: lastProg.TotalCandidateWords,
 		ElapsedMs:           float64(time.Since(start).Microseconds()) / 1000.0,
-		UsedIndexedFTS:      sum.UsedIndexedFTS,
+		UsedIndexedFTS:      usedIndexedFTS,
 		ActiveDicts:         activeInfos,
 	})
 }

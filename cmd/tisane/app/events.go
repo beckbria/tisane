@@ -2,10 +2,11 @@ package app
 
 // Canonical Wails v3 event names shared between Go services, main.go menus, and the Svelte 5 frontend.
 const (
-	EventSearchBatch    = "search:batch"
-	EventSearchProgress = "search:progress"
-	EventSearchComplete = "search:complete"
-	EventSearchError    = "search:error"
+	EventSearchBatch     = "search:batch"
+	EventSearchProgress  = "search:progress"
+	EventSearchComplete  = "search:complete"
+	EventSearchError     = "search:error"
+	EventSearchCancelled = "search:cancelled"
 
 	EventDictsUpdated = "dicts:updated"
 

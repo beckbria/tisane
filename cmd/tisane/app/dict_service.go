@@ -61,8 +61,8 @@ func (ds *DictionaryService) ReorderDictionaries(orderedIDs []string) ([]Diction
 	return infos, nil
 }
 
-// AddDictionaryPaths opens and appends one or more .tsd files by path.
-func (ds *DictionaryService) AddDictionaryPaths(paths []string) ([]DictionaryInfo, error) {
+// addDictionaryPaths opens and appends one or more .tsd files by path.
+func (ds *DictionaryService) addDictionaryPaths(paths []string) ([]DictionaryInfo, error) {
 	ds.state.mu.Lock()
 	var lastErr error
 	added := 0
@@ -94,19 +94,28 @@ func (ds *DictionaryService) AddDictionaryPaths(paths []string) ([]DictionaryInf
 }
 
 // BrowseAndAddDictionaries opens the native OS file picker for *.tsd files and registers chosen dictionaries.
-func (ds *DictionaryService) BrowseAndAddDictionaries() ([]DictionaryInfo, error) {
+func (ds *DictionaryService) BrowseAndAddDictionaries(ctx context.Context) ([]DictionaryInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	paths, err := ds.state.Bridge().PickDictionaryFiles()
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if len(paths) == 0 {
 		return ds.ListDictionaries(), nil
 	}
-	return ds.AddDictionaryPaths(paths)
+	return ds.addDictionaryPaths(paths)
 }
 
 // BrowseAndAddDirectory opens the native OS directory picker and registers all *.tsd files in that directory.
-func (ds *DictionaryService) BrowseAndAddDirectory() ([]DictionaryInfo, error) {
+func (ds *DictionaryService) BrowseAndAddDirectory(ctx context.Context) ([]DictionaryInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	dir, err := ds.state.Bridge().PickDictionaryDirectory()
 	if err != nil {
 		return nil, err
@@ -114,11 +123,10 @@ func (ds *DictionaryService) BrowseAndAddDirectory() ([]DictionaryInfo, error) {
 	if dir == "" {
 		return ds.ListDictionaries(), nil
 	}
-	return ds.ScanDirectory(context.Background(), dir)
+	return ds.scanDirectory(ctx, dir)
 }
 
-// ScanDirectory discovers all *.tsd files inside dir and registers any new ones.
-func (ds *DictionaryService) ScanDirectory(ctx context.Context, dir string) ([]DictionaryInfo, error) {
+func (ds *DictionaryService) scanDirectory(ctx context.Context, dir string) ([]DictionaryInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -132,7 +140,7 @@ func (ds *DictionaryService) ScanDirectory(ctx context.Context, dir string) ([]D
 	if len(found) == 0 {
 		return ds.ListDictionaries(), nil
 	}
-	return ds.AddDictionaryPaths(found)
+	return ds.addDictionaryPaths(found)
 }
 
 // RemoveDictionary closes and unregisters dictionary id from the profile.

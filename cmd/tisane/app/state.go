@@ -2,6 +2,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,12 +94,18 @@ func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 	if cfgPath != "" {
 		cfg, err = profile.Load(cfgPath)
 		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				backupCorruptConfig(cfgPath)
+			}
 			cfg = profile.DefaultConfig()
 		}
 	} else {
 		cfg, cfgPath, err = profile.LoadOrDefault()
 		if err != nil {
-			return nil, err
+			if cfgPath != "" && !errors.Is(err, os.ErrNotExist) {
+				backupCorruptConfig(cfgPath)
+			}
+			cfg = profile.DefaultConfig()
 		}
 	}
 
@@ -336,15 +343,17 @@ func (s *State) RecordRecentQuery(query string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	filtered := make([]string, 0, len(s.cfg.RecentQueries)+1)
-	filtered = append(filtered, query)
-	for _, q := range s.cfg.RecentQueries {
-		if q != query && len(filtered) < 50 {
-			filtered = append(filtered, q)
-		}
-	}
-	s.cfg.RecentQueries = filtered
+	s.cfg.RecordRecentQuery(query, profile.DefaultMaxRecentQueries)
 	_ = s.saveConfigLocked()
+}
+
+func backupCorruptConfig(cfgPath string) {
+	if cfgPath == "" {
+		return
+	}
+	if info, err := os.Stat(cfgPath); err == nil && info.Mode().IsRegular() {
+		_ = os.Rename(cfgPath, cfgPath+".bak")
+	}
 }
 
 func (s *State) findIndexLocked(id string) int {

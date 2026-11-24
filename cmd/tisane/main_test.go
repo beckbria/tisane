@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,7 +27,7 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 	}
 	defer state.Close()
 
-	_, _, _, _, services := newServices(state)
+	dictSvc, toolsSvc, searchSvc, lookupSvc, profileSvc, services := newServices(state)
 	assetHandler := application.AssetFileServerFS(assets)
 
 	// Initialize headless Wails App container (without calling Run) so Wails internal logger is initialized.
@@ -48,10 +50,8 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 		"tisane/cmd/tisane/app.DictionaryService.ListDictionaries",
 		"tisane/cmd/tisane/app.DictionaryService.SetEnabled",
 		"tisane/cmd/tisane/app.DictionaryService.ReorderDictionaries",
-		"tisane/cmd/tisane/app.DictionaryService.AddDictionaryPaths",
 		"tisane/cmd/tisane/app.DictionaryService.BrowseAndAddDictionaries",
 		"tisane/cmd/tisane/app.DictionaryService.BrowseAndAddDirectory",
-		"tisane/cmd/tisane/app.DictionaryService.ScanDirectory",
 		"tisane/cmd/tisane/app.DictionaryService.RemoveDictionary",
 		"tisane/cmd/tisane/app.ToolsService.BrowseWordListFile",
 		"tisane/cmd/tisane/app.ToolsService.BrowseSaveDictionaryFile",
@@ -77,9 +77,21 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 		}
 	}
 
-	// Internal helpers must not be exposed as Wails RPC methods.
-	if bm := bindings.Get(&application.CallOptions{MethodName: "tisane/cmd/tisane/app.SearchService.RecordQueryAsync"}); bm != nil {
-		t.Errorf("unexpectedly bound internal helper method: %s", bm.Name)
+	// Verify exact 1-to-1 exported method surface across all bound services (no unintended RPCs).
+	var actualFQNs []string
+	for _, inst := range []any{dictSvc, toolsSvc, searchSvc, lookupSvc, profileSvc} {
+		rt := reflect.TypeOf(inst)
+		elem := rt.Elem()
+		prefix := elem.PkgPath() + "." + elem.Name() + "."
+		for i := 0; i < rt.NumMethod(); i++ {
+			actualFQNs = append(actualFQNs, prefix+rt.Method(i).Name)
+		}
+	}
+	wantSorted := slices.Clone(expectedFQNs)
+	slices.Sort(wantSorted)
+	slices.Sort(actualFQNs)
+	if !slices.Equal(actualFQNs, wantSorted) {
+		t.Fatalf("bound service FQN mismatch:\n got: %v\nwant: %v", actualFQNs, wantSorted)
 	}
 
 	// Verify embedded Svelte 5 dist bundle serves index.html

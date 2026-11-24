@@ -226,6 +226,13 @@ export class SearchStore {
       })
     );
 
+    unsubs.push(
+      backend.onEvent('search:cancelled', (ev) => {
+        if (!ev || (this.currentSearchId !== 0 && ev.searchId !== this.currentSearchId)) return;
+        this.isSearching = false;
+      })
+    );
+
     return () => {
       for (const off of unsubs) off();
     };

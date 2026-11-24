@@ -108,6 +108,10 @@ export interface SearchErrorEvent {
   message: string;
 }
 
+export interface SearchCancelledEvent {
+  searchId: number;
+}
+
 export interface WebProvider {
   id: string;
   name: string;
