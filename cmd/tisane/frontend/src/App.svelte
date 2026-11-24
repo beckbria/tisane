@@ -1,19 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getBackend, isDesktopWebview } from './lib/bindings';
-  import { buildFontCssVars, DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
-  import type {
-    Config,
-    ConfigPatch,
-    DictionaryInfo,
-    EntryCategory,
-    LayoutMode,
-    LookupResult,
-    Match,
-    SearchMode,
-    SortMode,
-    ValidationResult
-  } from './lib/types';
+  import {
+    createConfigStore,
+    DEFAULT_SIDEBAR_WIDTH,
+    MAX_SIDEBAR_WIDTH,
+    MIN_SIDEBAR_WIDTH,
+    SIDEBAR_COLLAPSE_THRESHOLD
+  } from './lib/stores/config.svelte';
+  import { createDictionaryStore } from './lib/stores/dictionaries.svelte';
+  import { createSearchStore } from './lib/stores/search.svelte';
+  import { createDefinitionStore } from './lib/stores/definitions.svelte';
+  import type { ConfigPatch, EntryCategory, LayoutMode, Match, SortMode } from './lib/types';
 
   import PatternBar from './lib/components/PatternBar.svelte';
   import FilterToolbar from './lib/components/FilterToolbar.svelte';
@@ -26,73 +24,33 @@
   import BuildDictionaryModal from './lib/components/BuildDictionaryModal.svelte';
   import MergeWordListsModal from './lib/components/MergeWordListsModal.svelte';
 
-  const DEFAULT_SIDEBAR_WIDTH = 272;
-  const MIN_SIDEBAR_WIDTH = 180;
-  const MAX_SIDEBAR_WIDTH = 560;
-  const SIDEBAR_COLLAPSE_THRESHOLD = 100;
-
-  function clampSidebarWidth(w: unknown): number {
-    if (typeof w !== 'number' || !Number.isFinite(w) || w <= 0) {
-      return DEFAULT_SIDEBAR_WIDTH;
+  const cfgStore = createConfigStore();
+  const defStore = createDefinitionStore({
+    onError: (msg) => {
+      searchStore.errorMessage = msg;
     }
-    return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, Math.round(w)));
-  }
+  });
+  const dictStore = createDictionaryStore({
+    onChanged: (active) => searchStore.onDictionariesChanged(active),
+    onError: (msg) => {
+      searchStore.errorMessage = msg;
+    },
+    onClearError: () => {
+      searchStore.errorMessage = '';
+    }
+  });
+  const searchStore = createSearchStore({
+    getConfig: () => cfgStore.value,
+    getActiveDictionaries: () => dictStore.active,
+    onRecordRecentQuery: (q) => cfgStore.recordRecentQuery(q),
+    onFirstMatch: (word) => {
+      if (!defStore.selectedWord) {
+        void defStore.load(word, true);
+      }
+    }
+  });
 
-  const DEFAULT_CONFIG: Config = {
-    dictDirs: [],
-    dictionaries: [],
-    atMacro: '[aeiou]',
-    hashMacro: '[^aeiou]',
-    minLength: 1,
-    maxLength: 100,
-    exclusiveVars: false,
-    ignoreUnusedPunctuation: true,
-    showBalances: true,
-    showAnnotations: true,
-    suppressDuplicates: true,
-    entryFilter: ['lowercase', 'capitalized', 'punctuated', 'phrase'],
-    sortMode: 'dict',
-    layoutMode: 'tiled',
-    sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
-    sidebarCollapsed: false,
-    autoWebFallback: false,
-    defaultWebProvider: 'onelook',
-    webProviders: [
-      { id: 'onelook', name: 'OneLook', urlTemplate: 'https://www.onelook.com/?w={entry}' },
-      { id: 'wiktionary', name: 'Wiktionary', urlTemplate: 'https://en.wiktionary.org/wiki/{entry}' },
-      { id: 'wikipedia', name: 'Wikipedia', urlTemplate: 'https://en.wikipedia.org/wiki/Special:Search?search={entry}' },
-      { id: 'google', name: 'Google Define', urlTemplate: 'https://www.google.com/search?q=define+{entry}' },
-      { id: 'merriam-webster', name: 'Merriam-Webster', urlTemplate: 'https://www.merriam-webster.com/dictionary/{entry}' }
-    ],
-    recentQueries: [],
-    fonts: normalizeFontConfig(DEFAULT_FONTS)
-  };
-
-  function normalizeConfig(raw: Partial<Config> | null | undefined): Config {
-    if (!raw) return { ...DEFAULT_CONFIG, fonts: normalizeFontConfig(DEFAULT_FONTS) };
-    return {
-      ...DEFAULT_CONFIG,
-      ...raw,
-      dictDirs: Array.isArray(raw.dictDirs) ? raw.dictDirs : DEFAULT_CONFIG.dictDirs,
-      dictionaries: Array.isArray(raw.dictionaries) ? raw.dictionaries : DEFAULT_CONFIG.dictionaries,
-      entryFilter: Array.isArray(raw.entryFilter) ? raw.entryFilter : DEFAULT_CONFIG.entryFilter,
-      webProviders: Array.isArray(raw.webProviders) ? raw.webProviders : DEFAULT_CONFIG.webProviders,
-      recentQueries: Array.isArray(raw.recentQueries) ? raw.recentQueries : DEFAULT_CONFIG.recentQueries,
-      sidebarWidth: clampSidebarWidth(raw.sidebarWidth),
-      sidebarCollapsed: typeof raw.sidebarCollapsed === 'boolean' ? raw.sidebarCollapsed : DEFAULT_CONFIG.sidebarCollapsed,
-      fonts: normalizeFontConfig(raw.fonts)
-    };
-  }
-
-  // Core reactive state (Svelte 5 runes)
-  let config: Config = $state(normalizeConfig(DEFAULT_CONFIG));
-  let dictionaries: DictionaryInfo[] = $state([]);
-
-  let query = $state('');
-  let mode: SearchMode = $state('word');
-  let enumeration = $state('');
-  let validation: ValidationResult | null = $state(null);
-
+  // Modal visibility flags
   let showCheatsheet = $state(false);
   let showSettings = $state(false);
   let showFontSettings = $state(false);
@@ -104,43 +62,16 @@
   let isResizingSidebar = $state(false);
   let dragSidebarWidth: number | null = $state(null);
   let cleanupSidebarDrag: (() => void) | null = null;
-
-  const effectiveSidebarWidth = $derived(dragSidebarWidth ?? config.sidebarWidth);
-  const activeDictCount = $derived((dictionaries ?? []).filter((d) => d.enabled).length);
-
-  const rootFontVars = $derived(buildFontCssVars(config.fonts));
-
-  // Active search & streaming results state
-  let nextClientSearchId = 1;
-  let currentSearchId = $state(0);
-  let isSearching = $state(false);
-  let hasCompletedSearch = $state(false);
-  let errorMessage = $state('');
-
-  let allMatches: Match[] = $state.raw([]);
-  let matchesByDict: Match[][] = $state.raw([]);
-  let searchActiveDicts: DictionaryInfo[] = $state([]);
-
-  let wordsScanned = $state(0);
-  let totalCandidateWords = $state(0);
-  let elapsedMs = $state(0);
-  let usedIndexedFTS = $state(false);
-
-  // Definition lookup & history state
-  let selectedWord: string | null = $state(null);
-  let lookupResult: LookupResult | null = $state(null);
-  let isLoadingDef = $state(false);
-  let includeMentions = $state(false);
-  let historyStack: string[] = $state([]);
-  let historyIndex = $state(-1);
-
   let patternBarRef: ReturnType<typeof PatternBar> | undefined = $state();
-  let validateTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const effectiveSidebarWidth = $derived(dragSidebarWidth ?? cfgStore.value.sidebarWidth);
 
   const displayedTiledDicts = $derived(
-    (isSearching || hasCompletedSearch) && query.trim() !== '' && searchActiveDicts.length > 0
-      ? searchActiveDicts
-      : (dictionaries ?? []).filter((d) => d.enabled)
+    (searchStore.isSearching || searchStore.hasCompletedSearch) &&
+      searchStore.query.trim() !== '' &&
+      searchStore.searchActiveDicts.length > 0
+      ? searchStore.searchActiveDicts
+      : dictStore.active
   );
 
   const tiledGridClass = $derived.by(() => {
@@ -151,328 +82,54 @@
     return 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3';
   });
 
-  function scheduleValidation(immediate = false) {
-    if (validateTimer) {
-      clearTimeout(validateTimer);
-      validateTimer = null;
-    }
-    const q = query.trim();
-    if (!q) {
-      validation = null;
-      return;
-    }
-    const run = async () => {
-      try {
-        const res = await getBackend().validatePattern({
-          query: q,
-          mode,
-          enumeration,
-          minLength: config.minLength,
-          maxLength: config.maxLength,
-          atMacro: config.atMacro,
-          hashMacro: config.hashMacro,
-          exclusiveVars: config.exclusiveVars,
-          ignoreUnusedPunctuation: config.ignoreUnusedPunctuation
-        });
-        if (query.trim() === q) {
-          validation = res;
-        }
-      } catch {
-        // Ignore transient validation transport errors
-      }
-    };
-    if (immediate) {
-      void run();
-    } else {
-      validateTimer = setTimeout(run, 60);
-    }
-  }
-
-  async function executeSearch() {
-    const q = query.trim();
-    if (!q) return;
-
-    errorMessage = '';
-    const activeSnapshot = (dictionaries ?? []).filter((d) => d.enabled);
-    searchActiveDicts = activeSnapshot;
-    allMatches = [];
-    matchesByDict = activeSnapshot.map(() => []);
-    wordsScanned = 0;
-    totalCandidateWords = 0;
-    elapsedMs = 0;
-    usedIndexedFTS = false;
-    const clientSearchId = nextClientSearchId++;
-    currentSearchId = clientSearchId;
-    isSearching = true;
-    hasCompletedSearch = false;
-
-    try {
-      const sid = await getBackend().startSearch({
-        searchId: clientSearchId,
-        query: q,
-        mode,
-        enumeration,
-        minLength: config.minLength,
-        maxLength: config.maxLength,
-        atMacro: config.atMacro,
-        hashMacro: config.hashMacro,
-        exclusiveVars: config.exclusiveVars,
-        ignoreUnusedPunctuation: config.ignoreUnusedPunctuation,
-        showBalances: config.showBalances,
-        showAnnotations: config.showAnnotations,
-        suppressDuplicates: config.suppressDuplicates,
-        entryCategories: config.entryFilter ?? DEFAULT_CONFIG.entryFilter,
-        sortMode: config.sortMode,
-        limit: 0
-      });
-      if (sid && sid !== currentSearchId && isSearching) {
-        currentSearchId = sid;
-      }
-
-      // Update local recent queries immediately
-      const prevRecent = Array.isArray(config.recentQueries) ? config.recentQueries : [];
-      config = {
-        ...config,
-        recentQueries: [q, ...prevRecent.filter((item) => item !== q)].slice(0, 50)
-      };
-    } catch (err) {
-      isSearching = false;
-      errorMessage = err instanceof Error ? err.message : String(err);
-    }
-  }
-
-  async function cancelActiveSearch() {
-    isSearching = false;
-    try {
-      await getBackend().cancelSearch();
-    } catch {
-      // Ignore
-    }
-  }
-
-  async function loadDefinition(word: string, pushHistory = true) {
-    const clean = word.trim();
-    if (!clean) return;
-
-    selectedWord = clean;
-    isLoadingDef = true;
-
-    if (pushHistory) {
-      const base = historyStack.slice(0, historyIndex + 1);
-      if (base[base.length - 1] !== clean) {
-        base.push(clean);
-      }
-      historyStack = base;
-      historyIndex = base.length - 1;
-    }
-
-    try {
-      const res = await getBackend().getDefinitions(clean, includeMentions);
-      if (selectedWord === clean) {
-        lookupResult = res
-          ? {
-              word: res.word ?? clean,
-              entries: Array.isArray(res.entries) ? res.entries : [],
-              webLinks: Array.isArray(res.webLinks) ? res.webLinks : []
-            }
-          : { word: clean, entries: [], webLinks: [] };
-      }
-    } catch {
-      if (selectedWord === clean) {
-        lookupResult = { word: clean, entries: [], webLinks: [] };
-      }
-    } finally {
-      if (selectedWord === clean) {
-        isLoadingDef = false;
-      }
-    }
-  }
-
-  function handleSelectMatch(m: Match) {
-    void loadDefinition(m.word, true);
-  }
-
-  async function handleDoubleClickMatch(m: Match) {
-    await loadDefinition(m.word, true);
-    if (config.autoWebFallback && !m.hasDefinition && (!lookupResult || (lookupResult.entries ?? []).length === 0)) {
-      await handleOpenWebLookup(m.word, config.defaultWebProvider);
-    }
-  }
-
-  function handleHistoryBack() {
-    if (historyIndex > 0) {
-      historyIndex -= 1;
-      void loadDefinition(historyStack[historyIndex], false);
-    }
-  }
-
-  function handleHistoryForward() {
-    if (historyIndex < historyStack.length - 1) {
-      historyIndex += 1;
-      void loadDefinition(historyStack[historyIndex], false);
-    }
-  }
-
   async function applyConfigPatch(patch: ConfigPatch, rerunIfSearched = false) {
-    // Optimistically update local config for crisp UI responsiveness
-    config = normalizeConfig({ ...config, ...patch });
-    try {
-      const updated = await getBackend().updateConfig(patch);
-      if (updated) {
-        config = normalizeConfig(updated);
-      }
-    } catch {
-      // Keep optimistic state if headless
-    }
-    scheduleValidation(true);
-    if (rerunIfSearched && query.trim() !== '' && (hasCompletedSearch || isSearching)) {
-      void executeSearch();
+    await cfgStore.applyPatch(patch);
+    searchStore.scheduleValidation(true);
+    if (
+      rerunIfSearched &&
+      searchStore.query.trim() !== '' &&
+      (searchStore.hasCompletedSearch || searchStore.isSearching)
+    ) {
+      void searchStore.execute();
     }
   }
 
   async function handleResetSettings(resetDictionaries: boolean) {
-    config = normalizeConfig({
-      ...DEFAULT_CONFIG,
-      dictionaries: resetDictionaries ? [] : config.dictionaries
-    });
-    let syncedDicts = false;
-    try {
-      const updated = await getBackend().resetConfig(resetDictionaries);
-      if (updated) {
-        config = normalizeConfig(updated);
-      }
-      const nextDicts = await getBackend().listDictionaries();
-      if (Array.isArray(nextDicts)) {
-        syncUpdatedDictionaries(nextDicts);
-        syncedDicts = true;
-      }
-    } catch {
-      // Keep optimistic state if headless
-    }
+    await cfgStore.reset(resetDictionaries);
+    const nextDicts = await dictStore.load();
+    const syncedDicts = dictStore.sync(dictStore.list);
     if (!syncedDicts) {
-      scheduleValidation(true);
-      if (query.trim() !== '' && (hasCompletedSearch || isSearching)) {
-        void executeSearch();
+      searchStore.initActiveDicts(nextDicts);
+      searchStore.scheduleValidation(true);
+      if (
+        searchStore.query.trim() !== '' &&
+        (searchStore.hasCompletedSearch || searchStore.isSearching)
+      ) {
+        void searchStore.execute();
       }
     }
-    if (selectedWord) {
-      void loadDefinition(selectedWord, false);
+    if (defStore.selectedWord) {
+      void defStore.load(defStore.selectedWord, false);
     }
   }
 
-  function dictListSignature(list: DictionaryInfo[]): string {
-    return list.map((d) => `${d.id}:${d.enabled ? '1' : '0'}`).join('|');
+  function handleSelectMatch(m: Match) {
+    void defStore.load(m.word, true);
   }
 
-  function syncUpdatedDictionaries(next: DictionaryInfo[]) {
-    const changed = dictListSignature(next) !== dictListSignature(dictionaries);
-    dictionaries = next;
-    const active = next.filter((d) => d.enabled);
-    if (!changed) {
-      return;
-    }
-    searchActiveDicts = active;
-    scheduleValidation(true);
-    if (query.trim() !== '' && (hasCompletedSearch || isSearching)) {
-      void executeSearch();
-    } else {
-      allMatches = [];
-      matchesByDict = active.map(() => []);
-      hasCompletedSearch = false;
-    }
-  }
-
-  function formatError(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
-  }
-
-  async function handleToggleDict(id: string, enabled: boolean) {
-    try {
-      const next = await getBackend().setEnabled(id, enabled);
-      if (Array.isArray(next)) {
-        syncUpdatedDictionaries(next);
-      }
-      errorMessage = '';
-    } catch (err) {
-      errorMessage = formatError(err);
-    }
-  }
-
-  async function handleReorderDicts(orderedIds: string[]) {
-    try {
-      const next = await getBackend().reorderDictionaries(orderedIds);
-      if (Array.isArray(next)) {
-        syncUpdatedDictionaries(next);
-      }
-      errorMessage = '';
-    } catch (err) {
-      errorMessage = formatError(err);
-    }
-  }
-
-  async function handleBrowseAddDicts() {
-    try {
-      const next = await getBackend().browseAndAddDictionaries();
-      if (Array.isArray(next)) {
-        syncUpdatedDictionaries(next);
-      }
-      errorMessage = '';
-    } catch (err) {
-      errorMessage = formatError(err);
-    }
-  }
-
-  async function handleBrowseAddDirectory() {
-    try {
-      const next = await getBackend().browseAndAddDirectory();
-      if (Array.isArray(next)) {
-        syncUpdatedDictionaries(next);
-      }
-      errorMessage = '';
-    } catch (err) {
-      errorMessage = formatError(err);
-    }
-  }
-
-  async function handleRemoveDict(id: string) {
-    try {
-      const next = await getBackend().removeDictionary(id);
-      if (Array.isArray(next)) {
-        syncUpdatedDictionaries(next);
-      }
-      errorMessage = '';
-    } catch (err) {
-      errorMessage = formatError(err);
-    }
-  }
-
-  async function handleOpenWebLookup(word: string, providerId: string) {
-    try {
-      await getBackend().openWebLookup(word, providerId);
-    } catch (err) {
-      errorMessage = formatError(err);
-    }
-  }
-
-  async function handleOpenExternalURL(rawUrl: string) {
-    try {
-      await getBackend().openExternalURL(rawUrl);
-    } catch (err) {
-      errorMessage = formatError(err);
+  async function handleDoubleClickMatch(m: Match) {
+    await defStore.load(m.word, true);
+    if (
+      cfgStore.value.autoWebFallback &&
+      !m.hasDefinition &&
+      (!defStore.lookupResult || (defStore.lookupResult.entries ?? []).length === 0)
+    ) {
+      await defStore.openWebLookup(m.word, cfgStore.value.defaultWebProvider);
     }
   }
 
   function handleToggleCategory(cat: EntryCategory) {
-    const currentFilter = Array.isArray(config.entryFilter) ? config.entryFilter : DEFAULT_CONFIG.entryFilter;
-    const exists = currentFilter.includes(cat);
-    let next = exists
-      ? currentFilter.filter((c) => c !== cat)
-      : [...currentFilter, cat];
-    if (next.length === 0) {
-      // Keep at least one category active so results aren't silently muted
-      next = ['lowercase', 'capitalized', 'punctuated', 'phrase'];
-    }
-    void applyConfigPatch({ entryFilter: next }, true);
+    void applyConfigPatch({ entryFilter: cfgStore.nextEntryFilterForToggle(cat) }, true);
   }
 
   function setSidebarCollapsed(collapsed: boolean) {
@@ -483,18 +140,21 @@
   }
 
   function toggleSidebarCollapsed() {
-    setSidebarCollapsed(!config.sidebarCollapsed);
+    setSidebarCollapsed(!cfgStore.value.sidebarCollapsed);
   }
 
   function getMaxSidebarWidth(): number {
     if (typeof window === 'undefined' || !window.innerWidth) {
       return MAX_SIDEBAR_WIDTH;
     }
-    return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.floor(window.innerWidth * 0.55)));
+    return Math.min(
+      MAX_SIDEBAR_WIDTH,
+      Math.max(MIN_SIDEBAR_WIDTH, Math.floor(window.innerWidth * 0.55))
+    );
   }
 
   function handleSidebarResizeStart(e: MouseEvent) {
-    if (e.button !== 0 || config.sidebarCollapsed) return;
+    if (e.button !== 0 || cfgStore.value.sidebarCollapsed) return;
     e.preventDefault();
 
     if (cleanupSidebarDrag) {
@@ -502,7 +162,7 @@
     }
 
     const startX = e.clientX;
-    const startWidth = config.sidebarWidth;
+    const startWidth = cfgStore.value.sidebarWidth;
     let collapsedDuringDrag = false;
     let latestWidth = startWidth;
 
@@ -524,7 +184,7 @@
       isResizingSidebar = false;
       dragSidebarWidth = null;
 
-      if (commit && !collapsedDuringDrag && latestWidth !== config.sidebarWidth) {
+      if (commit && !collapsedDuringDrag && latestWidth !== cfgStore.value.sidebarWidth) {
         void applyConfigPatch({ sidebarWidth: latestWidth }, false);
       }
     };
@@ -560,11 +220,11 @@
     const maxAllowed = getMaxSidebarWidth();
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      const next = Math.max(MIN_SIDEBAR_WIDTH, config.sidebarWidth - step);
+      const next = Math.max(MIN_SIDEBAR_WIDTH, cfgStore.value.sidebarWidth - step);
       void applyConfigPatch({ sidebarWidth: next }, false);
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
-      const next = Math.min(maxAllowed, config.sidebarWidth + step);
+      const next = Math.min(maxAllowed, cfgStore.value.sidebarWidth + step);
       void applyConfigPatch({ sidebarWidth: next }, false);
     } else if (e.key === 'Home') {
       e.preventDefault();
@@ -589,8 +249,8 @@
         showSettings = false;
       } else if (showCheatsheet) {
         showCheatsheet = false;
-      } else if (isSearching) {
-        void cancelActiveSearch();
+      } else if (searchStore.isSearching) {
+        void searchStore.cancel();
       }
       return;
     }
@@ -603,14 +263,14 @@
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'w') {
       e.preventDefault();
-      mode = 'word';
+      searchStore.mode = 'word';
       patternBarRef?.focusInput();
-      scheduleValidation(true);
+      searchStore.scheduleValidation(true);
     } else if (mod && e.key.toLowerCase() === 'f') {
       e.preventDefault();
-      mode = 'fts';
+      searchStore.mode = 'fts';
       patternBarRef?.focusInput();
-      scheduleValidation(true);
+      searchStore.scheduleValidation(true);
     } else if (mod && e.shiftKey && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       showDictBuilder = true;
@@ -637,164 +297,53 @@
 
   onMount(() => {
     const backend = getBackend();
-    const unsubs: (() => void)[] = [];
-
-    unsubs.push(
-      backend.onEvent('search:batch', (ev) => {
-        if (!ev || (currentSearchId !== 0 && ev.searchId !== currentSearchId)) return;
-        currentSearchId = ev.searchId;
-        if (ev.progress) {
-          wordsScanned = ev.progress.wordsScanned;
-          totalCandidateWords = ev.progress.totalCandidateWords;
-        }
-        if (ev.matches && ev.matches.length > 0) {
-          const prevEmpty = allMatches.length === 0;
-          allMatches = allMatches.concat(ev.matches);
-
-          // Group incoming batch by dictIndex in O(batch) time, then concat once per bucket
-          const grouped = new Map<number, Match[]>();
-          let maxIdx = matchesByDict.length - 1;
-          for (let i = 0; i < ev.matches.length; i++) {
-            const m = ev.matches[i];
-            const dIdx = m.dictIndex ?? 0;
-            if (dIdx > maxIdx) maxIdx = dIdx;
-            let arr = grouped.get(dIdx);
-            if (!arr) {
-              arr = [];
-              grouped.set(dIdx, arr);
-            }
-            arr.push(m);
-          }
-
-          const nextBuckets: Match[][] = new Array(maxIdx + 1);
-          for (let i = 0; i <= maxIdx; i++) {
-            const existing = matchesByDict[i] ?? [];
-            const added = grouped.get(i);
-            nextBuckets[i] = added ? existing.concat(added) : existing;
-          }
-          matchesByDict = nextBuckets;
-
-          if (prevEmpty && !selectedWord) {
-            void loadDefinition(ev.matches[0].word, true);
-          }
-        }
-      })
-    );
-
-    unsubs.push(
-      backend.onEvent('search:progress', (ev) => {
-        if (!ev || (currentSearchId !== 0 && ev.searchId !== currentSearchId)) return;
-        wordsScanned = ev.progress.wordsScanned;
-        totalCandidateWords = ev.progress.totalCandidateWords;
-      })
-    );
-
-    unsubs.push(
-      backend.onEvent('search:complete', (ev) => {
-        if (!ev || (currentSearchId !== 0 && ev.searchId !== currentSearchId)) return;
-        isSearching = false;
-        hasCompletedSearch = true;
-        wordsScanned = ev.wordsScanned;
-        totalCandidateWords = ev.totalCandidateWords;
-        elapsedMs = ev.elapsedMs;
-        usedIndexedFTS = ev.usedIndexedFTS;
-        if (ev.activeDicts && ev.activeDicts.length > 0) {
-          searchActiveDicts = ev.activeDicts;
-        }
-      })
-    );
-
-    unsubs.push(
-      backend.onEvent('search:error', (ev) => {
-        if (!ev || (currentSearchId !== 0 && ev.searchId !== currentSearchId)) return;
-        isSearching = false;
-        errorMessage = ev.message;
-      })
-    );
-
-    unsubs.push(
-      backend.onEvent('dicts:updated', (infos) => {
-        if (Array.isArray(infos)) {
-          syncUpdatedDictionaries(infos);
-        }
-      })
-    );
-
-    unsubs.push(
+    const unsubs: (() => void)[] = [
+      searchStore.subscribe(),
+      dictStore.subscribe(),
       backend.onEvent('ui:open-settings', () => {
         showSettings = true;
-      })
-    );
-    unsubs.push(
+      }),
       backend.onEvent('ui:open-font-settings', () => {
         showFontSettings = true;
-      })
-    );
-    unsubs.push(
+      }),
       backend.onEvent('ui:open-about', () => {
         showAbout = true;
-      })
-    );
-    unsubs.push(
+      }),
       backend.onEvent('ui:open-dict-builder', () => {
         showDictBuilder = true;
-      })
-    );
-    unsubs.push(
+      }),
       backend.onEvent('ui:open-wordlist-merge', () => {
         showWordListMerger = true;
-      })
-    );
-    unsubs.push(
+      }),
       backend.onEvent('ui:set-mode', (nextMode) => {
         if (nextMode === 'word' || nextMode === 'fts') {
-          mode = nextMode;
+          searchStore.mode = nextMode;
           patternBarRef?.focusInput();
-          scheduleValidation(true);
+          searchStore.scheduleValidation(true);
         }
-      })
-    );
-    unsubs.push(
+      }),
       backend.onEvent('ui:set-layout', (nextLayout) => {
         if (nextLayout === 'tiled' || nextLayout === 'unified') {
           void applyConfigPatch({ layoutMode: nextLayout }, false);
         }
-      })
-    );
-    unsubs.push(
+      }),
       backend.onEvent('ui:toggle-cheatsheet', () => {
         showCheatsheet = !showCheatsheet;
-      })
-    );
-    unsubs.push(
+      }),
       backend.onEvent('ui:toggle-sidebar', () => {
         toggleSidebarCollapsed();
       })
-    );
+    ];
 
     void (async () => {
-      try {
-        const [loadedCfg, loadedDicts] = await Promise.all([
-          backend.getConfig(),
-          backend.listDictionaries()
-        ]);
-        if (loadedCfg) {
-          config = normalizeConfig(loadedCfg);
-        }
-        if (Array.isArray(loadedDicts)) {
-          dictionaries = loadedDicts;
-          searchActiveDicts = loadedDicts.filter((d) => d.enabled);
-          matchesByDict = searchActiveDicts.map(() => []);
-        }
-      } catch {
-        // Fallback defaults already set
-      }
+      const [, activeDicts] = await Promise.all([cfgStore.load(), dictStore.load()]);
+      searchStore.initActiveDicts(activeDicts);
       patternBarRef?.focusInput();
     })();
 
     return () => {
       for (const off of unsubs) off();
-      if (validateTimer) clearTimeout(validateTimer);
+      searchStore.dispose();
       if (cleanupSidebarDrag) cleanupSidebarDrag();
     };
   });
@@ -804,33 +353,33 @@
 
 <div
   data-testid="app-root"
-  style={rootFontVars}
+  style={cfgStore.rootFontVars}
   class="flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-slate-100"
 >
   <!-- Top Pattern Bar -->
   <PatternBar
     bind:this={patternBarRef}
-    {query}
-    {mode}
-    {enumeration}
-    {isSearching}
-    {validation}
-    recentQueries={config.recentQueries ?? []}
+    query={searchStore.query}
+    mode={searchStore.mode}
+    enumeration={searchStore.enumeration}
+    isSearching={searchStore.isSearching}
+    validation={searchStore.validation}
+    recentQueries={cfgStore.value.recentQueries ?? []}
     {showCheatsheet}
     onQueryChange={(q) => {
-      query = q;
-      scheduleValidation(false);
+      searchStore.query = q;
+      searchStore.scheduleValidation(false);
     }}
     onModeChange={(m) => {
-      mode = m;
-      scheduleValidation(true);
+      searchStore.mode = m;
+      searchStore.scheduleValidation(true);
     }}
     onEnumerationChange={(e) => {
-      enumeration = e;
-      scheduleValidation(false);
+      searchStore.enumeration = e;
+      searchStore.scheduleValidation(false);
     }}
-    onSubmit={executeSearch}
-    onCancel={cancelActiveSearch}
+    onSubmit={() => searchStore.execute()}
+    onCancel={() => searchStore.cancel()}
     onToggleCheatsheet={() => (showCheatsheet = !showCheatsheet)}
     onOpenSettings={() => (showSettings = true)}
     onOpenAbout={() => (showAbout = true)}
@@ -838,19 +387,19 @@
 
   <!-- Filter, Length, Sort & Tiled/Unified Layout Toolbar -->
   <FilterToolbar
-    minLength={config.minLength}
-    maxLength={config.maxLength}
-    entryCategories={config.entryFilter}
-    suppressDuplicates={config.suppressDuplicates}
-    sortMode={config.sortMode}
-    layoutMode={config.layoutMode}
-    sidebarCollapsed={config.sidebarCollapsed}
-    {activeDictCount}
-    totalDictCount={dictionaries.length}
+    minLength={cfgStore.value.minLength}
+    maxLength={cfgStore.value.maxLength}
+    entryCategories={cfgStore.value.entryFilter}
+    suppressDuplicates={cfgStore.value.suppressDuplicates}
+    sortMode={cfgStore.value.sortMode}
+    layoutMode={cfgStore.value.layoutMode}
+    sidebarCollapsed={cfgStore.value.sidebarCollapsed}
+    activeDictCount={dictStore.activeCount}
+    totalDictCount={dictStore.list.length}
     onLengthChange={(min, max) => applyConfigPatch({ minLength: min, maxLength: max }, true)}
     onToggleCategory={handleToggleCategory}
     onToggleSuppressDuplicates={() =>
-      applyConfigPatch({ suppressDuplicates: !config.suppressDuplicates }, true)}
+      applyConfigPatch({ suppressDuplicates: !cfgStore.value.suppressDuplicates }, true)}
     onSortChange={(s: SortMode) => applyConfigPatch({ sortMode: s }, true)}
     onLayoutChange={(l: LayoutMode) => applyConfigPatch({ layoutMode: l }, false)}
     onToggleSidebar={toggleSidebarCollapsed}
@@ -859,25 +408,25 @@
   <!-- Main Workspace: Dictionary Sidebar + Results Workspace + Definition Pane -->
   <div class="flex min-h-0 flex-1 overflow-hidden">
     <DictionarySidebar
-      {dictionaries}
+      dictionaries={dictStore.list}
       width={effectiveSidebarWidth}
-      collapsed={config.sidebarCollapsed}
-      showBalances={config.showBalances}
-      showAnnotations={config.showAnnotations}
-      exclusiveVars={config.exclusiveVars}
-      ignoreUnusedPunctuation={config.ignoreUnusedPunctuation}
-      onToggleEnabled={handleToggleDict}
-      onReorder={handleReorderDicts}
-      onBrowseAdd={handleBrowseAddDicts}
-      onBrowseAddDirectory={handleBrowseAddDirectory}
+      collapsed={cfgStore.value.sidebarCollapsed}
+      showBalances={cfgStore.value.showBalances}
+      showAnnotations={cfgStore.value.showAnnotations}
+      exclusiveVars={cfgStore.value.exclusiveVars}
+      ignoreUnusedPunctuation={cfgStore.value.ignoreUnusedPunctuation}
+      onToggleEnabled={(id, enabled) => dictStore.setEnabled(id, enabled)}
+      onReorder={(ids) => dictStore.reorder(ids)}
+      onBrowseAdd={() => dictStore.browseAdd()}
+      onBrowseAddDirectory={() => dictStore.browseAddDirectory()}
       onOpenBuilder={() => (showDictBuilder = true)}
       onOpenMerger={() => (showWordListMerger = true)}
-      onRemove={handleRemoveDict}
+      onRemove={(id) => dictStore.remove(id)}
       onCollapse={() => setSidebarCollapsed(true)}
       onOptionChange={(patch) => applyConfigPatch(patch, true)}
     />
 
-    {#if !config.sidebarCollapsed}
+    {#if !cfgStore.value.sidebarCollapsed}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <div
@@ -906,11 +455,11 @@
     <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <!-- Results Area: Separate Tiled Panes per Dictionary (Default) vs Unified Merged List -->
       <div class="min-h-0 flex-1 overflow-hidden p-2.5" data-testid="results-workspace">
-        {#if config.layoutMode === 'tiled'}
+        {#if cfgStore.value.layoutMode === 'tiled'}
           {#if displayedTiledDicts.length === 0}
             <div class="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-800 text-xs text-slate-500">
               <span>Enable at least one dictionary in the left sidebar to search.</span>
-              {#if config.sidebarCollapsed}
+              {#if cfgStore.value.sidebarCollapsed}
                 <button
                   type="button"
                   data-testid="empty-expand-sidebar-btn"
@@ -930,14 +479,14 @@
                 <VirtualResultPane
                   title={dict.name}
                   subtitle={`${dict.wordCount.toLocaleString()} words`}
-                  items={matchesByDict[paneIdx] ?? []}
-                  {selectedWord}
+                  items={searchStore.matchesByDict[paneIdx] ?? []}
+                  selectedWord={defStore.selectedWord}
                   showDictBadge={false}
-                  showBalances={config.showBalances}
-                  showAnnotations={config.showAnnotations}
-                  fontSize={config.fonts.results.size}
+                  showBalances={cfgStore.value.showBalances}
+                  showAnnotations={cfgStore.value.showAnnotations}
+                  fontSize={cfgStore.value.fonts.results.size}
                   testId={`tiled-pane-${paneIdx}`}
-                  emptyMessage={hasCompletedSearch
+                  emptyMessage={searchStore.hasCompletedSearch
                     ? `No matches in ${dict.name}`
                     : `Ready · ${dict.name}`}
                   onSelect={handleSelectMatch}
@@ -950,14 +499,14 @@
           <VirtualResultPane
             title="Unified Results"
             subtitle={`${displayedTiledDicts.length} active ${displayedTiledDicts.length === 1 ? 'dictionary' : 'dictionaries'}`}
-            items={allMatches}
-            {selectedWord}
+            items={searchStore.allMatches}
+            selectedWord={defStore.selectedWord}
             showDictBadge={true}
-            showBalances={config.showBalances}
-            showAnnotations={config.showAnnotations}
-            fontSize={config.fonts.results.size}
+            showBalances={cfgStore.value.showBalances}
+            showAnnotations={cfgStore.value.showAnnotations}
+            fontSize={cfgStore.value.fonts.results.size}
             testId="unified-pane"
-            emptyMessage={hasCompletedSearch
+            emptyMessage={searchStore.hasCompletedSearch
               ? 'No matching entries found across active dictionaries'
               : 'Enter a crossword, anagram, or full-text pattern above and press Enter'}
             onSelect={handleSelectMatch}
@@ -968,27 +517,22 @@
 
       <!-- Definitions & Web Search Fallback Pane -->
       <DefinitionPane
-        {selectedWord}
-        {lookupResult}
-        isLoading={isLoadingDef}
-        {includeMentions}
-        canGoBack={historyIndex > 0}
-        canGoForward={historyIndex >= 0 && historyIndex < historyStack.length - 1}
-        defaultWebProvider={config.defaultWebProvider}
-        onBack={handleHistoryBack}
-        onForward={handleHistoryForward}
-        onToggleIncludeMentions={(v) => {
-          includeMentions = v;
-          if (selectedWord) {
-            void loadDefinition(selectedWord, false);
-          }
-        }}
-        onCrossLookupWord={(w) => loadDefinition(w, true)}
+        selectedWord={defStore.selectedWord}
+        lookupResult={defStore.lookupResult}
+        isLoading={defStore.isLoading}
+        includeMentions={defStore.includeMentions}
+        canGoBack={defStore.canGoBack}
+        canGoForward={defStore.canGoForward}
+        defaultWebProvider={cfgStore.value.defaultWebProvider}
+        onBack={() => defStore.back()}
+        onForward={() => defStore.forward()}
+        onToggleIncludeMentions={(v) => defStore.setIncludeMentions(v)}
+        onCrossLookupWord={(w) => defStore.load(w, true)}
         onOpenWebLookup={(w, pid) => {
-          void handleOpenWebLookup(w, pid);
+          void defStore.openWebLookup(w, pid);
         }}
         onOpenExternalURL={(u) => {
-          void handleOpenExternalURL(u);
+          void defStore.openExternalURL(u);
         }}
       />
     </main>
@@ -1001,34 +545,34 @@
     class="flex items-center justify-between border-t border-slate-800 bg-slate-950 px-4 py-1 text-slate-400 select-none"
   >
     <div class="flex items-center gap-3 truncate">
-      {#if errorMessage}
-        <span class="font-medium text-rose-400">Error: {errorMessage}</span>
+      {#if searchStore.errorMessage}
+        <span class="font-medium text-rose-400">Error: {searchStore.errorMessage}</span>
         <button
           type="button"
           data-testid="dismiss-error-btn"
-          onclick={() => (errorMessage = '')}
+          onclick={() => (searchStore.errorMessage = '')}
           class="rounded px-1 text-[10px] text-rose-300/80 hover:bg-rose-500/20 hover:text-rose-200"
           aria-label="Dismiss error"
         >
           ✕
         </button>
-      {:else if isSearching}
+      {:else if searchStore.isSearching}
         <span class="flex items-center gap-1.5 text-amber-300">
           <span class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-amber-400"></span>
-          Scanning… {allMatches.length.toLocaleString()} matches ({wordsScanned.toLocaleString()}
-          {#if totalCandidateWords > 0}/ {totalCandidateWords.toLocaleString()}{/if} words)
+          Scanning… {searchStore.allMatches.length.toLocaleString()} matches ({searchStore.wordsScanned.toLocaleString()}
+          {#if searchStore.totalCandidateWords > 0}/ {searchStore.totalCandidateWords.toLocaleString()}{/if} words)
         </span>
-      {:else if hasCompletedSearch}
+      {:else if searchStore.hasCompletedSearch}
         <span class="text-slate-300">
-          <strong class="font-mono text-amber-300">{allMatches.length.toLocaleString()}</strong>
-          {allMatches.length === 1 ? 'match' : 'matches'}
+          <strong class="font-mono text-amber-300">{searchStore.allMatches.length.toLocaleString()}</strong>
+          {searchStore.allMatches.length === 1 ? 'match' : 'matches'}
         </span>
         <span>·</span>
         <span>
-          Scanned {wordsScanned.toLocaleString()} words in
-          <strong class="font-mono text-slate-200">{elapsedMs.toFixed(1)} ms</strong>
+          Scanned {searchStore.wordsScanned.toLocaleString()} words in
+          <strong class="font-mono text-slate-200">{searchStore.elapsedMs.toFixed(1)} ms</strong>
         </span>
-        {#if usedIndexedFTS}
+        {#if searchStore.usedIndexedFTS}
           <span class="rounded bg-sky-500/15 px-1.5 py-0.2 text-[10px] text-sky-300">
             Indexed FTS
           </span>
@@ -1042,17 +586,17 @@
       style="font-family: var(--tisane-font-status-family); font-size: var(--tisane-font-status-size);"
       class="flex items-center gap-3 text-slate-500"
     >
-      <span>@={config.atMacro}</span>
-      <span>#={config.hashMacro}</span>
-      <span>Len {config.minLength}–{config.maxLength}</span>
-      <span class="uppercase">{config.layoutMode}</span>
+      <span>@={cfgStore.value.atMacro}</span>
+      <span>#={cfgStore.value.hashMacro}</span>
+      <span>Len {cfgStore.value.minLength}–{cfgStore.value.maxLength}</span>
+      <span class="uppercase">{cfgStore.value.layoutMode}</span>
     </div>
   </footer>
 
   <!-- Preferences Modal -->
   <SettingsModal
     open={showSettings}
-    {config}
+    config={cfgStore.value}
     onClose={() => (showSettings = false)}
     onSave={(patch) => applyConfigPatch(patch, false)}
     onReset={(resetDicts) => void handleResetSettings(resetDicts)}
@@ -1061,7 +605,7 @@
   <!-- Direct Font Settings Modal (when opened via View menu) -->
   <FontSettingsModal
     open={showFontSettings}
-    fonts={config.fonts}
+    fonts={cfgStore.value.fonts}
     onClose={() => (showFontSettings = false)}
     onSave={(nextFonts) => applyConfigPatch({ fonts: nextFonts }, false)}
   />
@@ -1071,7 +615,7 @@
     open={showAbout}
     onClose={() => (showAbout = false)}
     onOpenExternalURL={(u) => {
-      void handleOpenExternalURL(u);
+      void defStore.openExternalURL(u);
     }}
   />
 
