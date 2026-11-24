@@ -247,3 +247,46 @@ func TestTemplatesAnagramsVariablesPunctuationAndSubpatterns(t *testing.T) {
 		t.Fatalf("(c* | b*) & *t = %v", got)
 	}
 }
+
+func TestParserAndVMAdversarialBounds(t *testing.T) {
+	d := buildTestDict(t,
+		strings.Repeat("a", 80),
+		"abcdefghijklmnopqrst",
+	)
+	pOpts := pattern.DefaultParseOptions()
+	cOpts := pattern.DefaultCompileOptions()
+
+	t.Run("deep_nested_subpattern_parens_is_linear", func(t *testing.T) {
+		q := strings.Repeat("(", 60) + "a*" + strings.Repeat(")", 60)
+		res := pattern.Validate(q, pOpts, cOpts, d)
+		if !res.Valid {
+			t.Fatalf("expected 60 nested subpattern parens to validate quickly, got %+v", res)
+		}
+	})
+
+	t.Run("excessive_not_chain_rejected_cleanly", func(t *testing.T) {
+		q := strings.Repeat("!", 5000) + "cat"
+		res := pattern.Validate(q, pOpts, cOpts, d)
+		if res.Valid || res.Code != pattern.ErrTooManyPatterns {
+			t.Fatalf("expected ErrTooManyPatterns for deep ! chain, got %+v", res)
+		}
+	})
+
+	t.Run("catastrophic_star_and_nested_sub_backtracking_memoized", func(t *testing.T) {
+		for _, q := range []string{
+			"*a*a*a*a*a*a*a*a*a*a*z",
+			"((((((((*)*)*)*)*)*)*)*)z",
+		} {
+			if got := evalQuery(t, d, q, cOpts); len(got) != 0 {
+				t.Fatalf("unexpected match for %q: %v", q, got)
+			}
+		}
+	})
+
+	t.Run("duplicate_anagram_choices_avoid_factorial_blowup", func(t *testing.T) {
+		q := ";" + strings.Repeat("[abcdefghijklmnopqrs]", 19) + "[xy]"
+		if got := evalQuery(t, d, q, cOpts); len(got) != 0 {
+			t.Fatalf("unexpected match for %q: %v", q, got)
+		}
+	})
+}

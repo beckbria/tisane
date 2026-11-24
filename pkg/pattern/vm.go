@@ -2,10 +2,22 @@ package pattern
 
 import "tisane/pkg/tsd"
 
+const (
+	maxMatcherSteps = 200_000
+	maxMemoOps      = 256
+	memoStride      = tsd.MaxWordLengthLimit + 2
+)
+
 // Matcher holds reusable per-goroutine scratch buffers for executing a CompiledQuery
 // against dictionary entries with zero per-word heap allocations.
 type Matcher struct {
 	cq *CompiledQuery
+
+	// Backtracking step budget & variable-free (opIdx, pos) failure memoization
+	steps     int
+	memoAtom  *compiledAtom
+	failGen   uint32
+	failStamp [maxMemoOps * memoStride]uint32
 
 	// Raw punctuation & case-exact prep buffers (populated lazily only when needsRawPrep is true)
 	filteredRaw       [768]byte
@@ -254,6 +266,17 @@ func (m *Matcher) matchAtom(atom *compiledAtom, entry tsd.RawEntry, recordBalanc
 			return false
 		}
 	}
+	m.steps = 0
+	if !atom.hasVars && len(atom.tmplOps) <= maxMemoOps {
+		m.failGen++
+		if m.failGen == 0 {
+			clear(m.failStamp[:])
+			m.failGen = 1
+		}
+		m.memoAtom = atom
+	} else {
+		m.memoAtom = nil
+	}
 	m.resetVars()
 	return m.matchSliceRange(atom, word, 0, L, 0, atom.needsRawPrep, recordBalance)
 }
@@ -275,8 +298,15 @@ func (m *Matcher) matchSliceRange(
 	rawActive bool,
 	recordBalance bool,
 ) bool {
+	m.steps++
+	if m.steps > maxMatcherSteps {
+		return false
+	}
 	subWord := word[sliceStart:sliceEnd]
 	if !rawActive {
+		if atom.universal && !recordBalance {
+			return true
+		}
 		if !atom.hasTemplate {
 			return m.solveAnagram(atom, subWord, false, recordBalance)
 		}
@@ -300,47 +330,69 @@ func (m *Matcher) execTmplSubNoRaw(
 	pos int,
 	recordBalance bool,
 ) bool {
+	m.steps++
+	if m.steps > maxMatcherSteps {
+		return false
+	}
 	L := len(word)
+	useMemo := atom == m.memoAtom && opIdx < maxMemoOps && pos <= tsd.MaxWordLengthLimit+1
+	memoCell := 0
+	if useMemo {
+		memoCell = opIdx*memoStride + pos
+		if m.failStamp[memoCell] == m.failGen {
+			return false
+		}
+	}
+	fail := func() bool {
+		if useMemo {
+			m.failStamp[memoCell] = m.failGen
+		}
+		return false
+	}
+	m.steps++
+	if m.steps > maxMatcherSteps {
+		return false
+	}
 	for opIdx < len(ops) {
 		op := ops[opIdx]
 		if L-pos < op.minAfter {
-			return false
+			return fail()
 		}
 		switch op.kind {
 		case tOpDot:
 			if pos >= L {
-				return false
+				return fail()
 			}
 			pos++
 			opIdx++
 		case tOpLetter:
 			if pos >= L || int16(word[pos]) != op.letterIdx {
-				return false
+				return fail()
 			}
 			pos++
 			opIdx++
 		case tOpChoice:
 			if pos >= L || !op.mask.Contains(word[pos]) {
-				return false
+				return fail()
 			}
 			pos++
 			opIdx++
 		case tOpVar:
 			if pos >= L {
-				return false
+				return fail()
 			}
 			v := op.rawByte
 			candLI := word[pos]
 			if m.varBound[v] >= 0 {
 				if uint8(m.varBound[v]) != candLI {
-					return false
+					return fail()
 				}
 				pos++
 				opIdx++
 				continue
 			}
 			if m.cq.opts.ExclusiveVars && m.varUsed[candLI] {
-				return false
+				return fail()
 			}
 			m.varBound[v] = int16(candLI)
 			if m.cq.opts.ExclusiveVars {
@@ -353,11 +405,11 @@ func (m *Matcher) execTmplSubNoRaw(
 			if m.cq.opts.ExclusiveVars {
 				m.varUsed[candLI] = false
 			}
-			return false
+			return fail()
 		case tOpTailStar:
 			newPos := L - op.minAfter
 			if newPos < pos {
-				return false
+				return fail()
 			}
 			pos = newPos
 			opIdx++
@@ -371,8 +423,11 @@ func (m *Matcher) execTmplSubNoRaw(
 				}
 				m.varBound = savedVars
 				m.varUsed = savedUsed
+				if m.steps > maxMatcherSteps {
+					return false
+				}
 			}
-			return false
+			return fail()
 		case tOpSub:
 			sub := op.sub
 			maxSub := (L - pos) - op.minAfter
@@ -388,17 +443,23 @@ func (m *Matcher) execTmplSubNoRaw(
 				}
 				m.varBound = savedVars
 				m.varUsed = savedUsed
+				if m.steps > maxMatcherSteps {
+					return false
+				}
 			}
-			return false
+			return fail()
 		default:
-			return false
+			return fail()
 		}
 	}
 	if pos != L {
-		return false
+		return fail()
 	}
 	if atom.anag != nil {
-		return m.solveAnagram(atom, word, true, recordBalance)
+		if m.solveAnagram(atom, word, true, recordBalance) {
+			return true
+		}
+		return fail()
 	}
 	return true
 }
@@ -415,6 +476,10 @@ func (m *Matcher) execTmplOpsRange(
 	rawActive bool,
 	recordBalance bool,
 ) bool {
+	m.steps++
+	if m.steps > maxMatcherSteps {
+		return false
+	}
 	for opIdx < len(ops) {
 		op := ops[opIdx]
 		if sliceEnd-pos < op.minAfter {
@@ -605,38 +670,44 @@ func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, re
 			subs = append(subs, sr.sub)
 		}
 	}
-	var choices []LetterBitmask
-	for _, cr := range anag.choices {
-		for k := 0; k < cr.mult; k++ {
-			choices = append(choices, cr.mask)
-		}
-	}
-
 	numUsed := atom.dict.NumUsedLetters()
+	choiceGroups := anag.choices
 
-	var matchChoices func(cIdx int, rem int) bool
-	matchChoices = func(cIdx int, rem int) bool {
-		if cIdx >= len(choices) {
+	var matchChoices func(cIdx int, copyIdx int, minLI int, rem int) bool
+	matchChoices = func(cIdx int, copyIdx int, minLI int, rem int) bool {
+		m.steps++
+		if m.steps > maxMatcherSteps {
+			return false
+		}
+		if cIdx >= len(choiceGroups) {
 			if recordBalance {
 				m.savedBalance = bal
 				m.hasBalance = true
 			}
 			return true
 		}
-		mask := choices[cIdx]
-		for li := 0; li < numUsed; li++ {
+		cr := choiceGroups[cIdx]
+		if copyIdx >= cr.mult {
+			return matchChoices(cIdx+1, 0, 0, rem)
+		}
+		mask := cr.mask
+		for li := minLI; li < numUsed; li++ {
 			if avail[li] > 0 && mask.Contains(uint8(li)) {
 				avail[li]--
 				bal[li]--
-				if matchChoices(cIdx+1, rem) {
+				if matchChoices(cIdx, copyIdx+1, li, rem) {
 					return true
 				}
 				avail[li]++
 				bal[li]++
+				if m.steps > maxMatcherSteps {
+					return false
+				}
 			}
 		}
-		if rem > 0 {
-			if matchChoices(cIdx+1, rem-1) {
+		needOmit := cr.mult - copyIdx
+		if rem >= needOmit {
+			if matchChoices(cIdx+1, 0, 0, rem-needOmit) {
 				return true
 			}
 		}
@@ -645,11 +716,15 @@ func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, re
 
 	var matchVars func(vIdx int, rem int) bool
 	matchVars = func(vIdx int, rem int) bool {
+		m.steps++
+		if m.steps > maxMatcherSteps {
+			return false
+		}
 		for vIdx < 10 && anag.varMult[vIdx] == 0 {
 			vIdx++
 		}
 		if vIdx >= 10 {
-			return matchChoices(0, rem)
+			return matchChoices(0, 0, 0, rem)
 		}
 		mult := anag.varMult[vIdx]
 		if bound := m.varBound[vIdx]; bound >= 0 {
@@ -671,11 +746,18 @@ func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, re
 		}
 
 		// Try binding unbound variable vIdx to each candidate letter index.
+		triedZeroAvail := false
 		for li := 0; li < numUsed; li++ {
 			if m.cq.opts.ExclusiveVars && m.varUsed[li] {
 				continue
 			}
 			used := avail[li]
+			if used == 0 && !recordBalance && !m.cq.opts.ExclusiveVars {
+				if triedZeroAvail {
+					continue
+				}
+				triedZeroAvail = true
+			}
 			if used > mult {
 				used = mult
 			}
@@ -700,12 +782,19 @@ func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, re
 			if m.cq.opts.ExclusiveVars {
 				m.varUsed[li] = false
 			}
+			if m.steps > maxMatcherSteps {
+				return false
+			}
 		}
 		return false
 	}
 
 	var matchSubs func(sIdx int, rem int) bool
 	matchSubs = func(sIdx int, rem int) bool {
+		m.steps++
+		if m.steps > maxMatcherSteps {
+			return false
+		}
 		if sIdx >= len(subs) {
 			return matchVars(0, rem)
 		}

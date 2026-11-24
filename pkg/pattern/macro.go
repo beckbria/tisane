@@ -17,13 +17,22 @@ const (
 // in raw, returning the expanded string and a per-byte Span table mapping each byte
 // of expanded back to its originating byte range in raw.
 func ExpandMacros(raw, atMacro, hashMacro string) (expanded string, spans []Span) {
+	expanded, spans, _, _ = expandMacrosBounded(raw, atMacro, hashMacro, 0)
+	return expanded, spans
+}
+
+func expandMacrosBounded(raw, atMacro, hashMacro string, maxBytes int) (expanded string, spans []Span, overflowSpan Span, ok bool) {
 	var sb strings.Builder
-	sb.Grow(len(raw) + 16)
-	spans = make([]Span, 0, len(raw)+16)
+	initCap := min(len(raw)+16, 256)
+	sb.Grow(initCap)
+	spans = make([]Span, 0, initCap)
 
 	for i := 0; i < len(raw); i++ {
 		c := raw[i]
 		if c == '\\' && i+1 < len(raw) {
+			if maxBytes > 0 && sb.Len()+2 > maxBytes {
+				return "", nil, Span{Start: i, End: i + 2}, false
+			}
 			sb.WriteByte('\\')
 			spans = append(spans, Span{Start: i, End: i + 1})
 			sb.WriteByte(raw[i+1])
@@ -33,6 +42,9 @@ func ExpandMacros(raw, atMacro, hashMacro string) (expanded string, spans []Span
 		}
 		if c == '@' && atMacro != "" {
 			sp := Span{Start: i, End: i + 1}
+			if maxBytes > 0 && sb.Len()+len(atMacro) > maxBytes {
+				return "", nil, sp, false
+			}
 			sb.WriteString(atMacro)
 			for k := 0; k < len(atMacro); k++ {
 				spans = append(spans, sp)
@@ -41,16 +53,22 @@ func ExpandMacros(raw, atMacro, hashMacro string) (expanded string, spans []Span
 		}
 		if c == '#' && hashMacro != "" {
 			sp := Span{Start: i, End: i + 1}
+			if maxBytes > 0 && sb.Len()+len(hashMacro) > maxBytes {
+				return "", nil, sp, false
+			}
 			sb.WriteString(hashMacro)
 			for k := 0; k < len(hashMacro); k++ {
 				spans = append(spans, sp)
 			}
 			continue
 		}
+		if maxBytes > 0 && sb.Len()+1 > maxBytes {
+			return "", nil, Span{Start: i, End: i + 1}, false
+		}
 		sb.WriteByte(c)
 		spans = append(spans, Span{Start: i, End: i + 1})
 	}
-	return sb.String(), spans
+	return sb.String(), spans, Span{}, true
 }
 
 // EnumerationSep describes the separator following a word part in a crossword enumeration.

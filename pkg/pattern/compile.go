@@ -112,6 +112,7 @@ type compiledAnagram struct {
 	varMult     [10]int
 	choices     []anagChoiceReq
 	subs        []anagSubReq
+	hasVars     bool
 	dots        int
 	hasStar     bool
 	specCount   int
@@ -124,6 +125,7 @@ type compiledAtom struct {
 	opts CompileOptions
 
 	hasTemplate bool
+	hasVars     bool
 	tmplMinLen  int
 	tmplMaxLen  int
 	tmplOps     []compiledTmplOp
@@ -725,6 +727,9 @@ func compileAtomic(a *AtomicPattern, dict *tsd.Dictionary, opts CompileOptions, 
 				if err != nil {
 					return nil, err
 				}
+				if subCA.hasVars {
+					hasVars = true
+				}
 				if !subCA.universal {
 					allWild = false
 				}
@@ -770,15 +775,14 @@ func compileAtomic(a *AtomicPattern, dict *tsd.Dictionary, opts CompileOptions, 
 			return nil, err
 		}
 		ca.anag = anag
-		for _, v := range anag.varMult {
-			if v > 0 {
-				hasVars = true
-			}
+		if anag.hasVars {
+			hasVars = true
 		}
 		if len(anag.subs) > 0 {
 			hasSubs = true
 		}
 	}
+	ca.hasVars = hasVars
 
 	// Compute overall [minLen, maxLen] using TEA's exact hybrid length rules (0x40aae3..0x40ab65).
 	if !ca.hasTemplate {
@@ -924,6 +928,7 @@ func compileAnagramSpec(spec *AnagramSpec, dict *tsd.Dictionary, opts CompileOpt
 			ca.hasStar = true
 		case ItemVariable:
 			ca.varMult[it.Byte]++
+			ca.hasVars = true
 			ca.specCount++
 		case ItemChoice:
 			mask, err := compileChoiceMask(it.Choice, dict)
@@ -946,6 +951,9 @@ func compileAnagramSpec(spec *AnagramSpec, dict *tsd.Dictionary, opts CompileOpt
 			subCA, err := compileAtomic(it.Sub, dict, opts, false)
 			if err != nil {
 				return nil, err
+			}
+			if subCA.hasVars {
+				ca.hasVars = true
 			}
 			ca.subs = append(ca.subs, anagSubReq{sub: subCA, mult: 1})
 			ca.specCount += subCA.minLen

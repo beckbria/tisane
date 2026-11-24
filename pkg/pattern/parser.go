@@ -7,10 +7,13 @@ import (
 )
 
 const (
-	maxLogicDepth    = 32
-	maxPoolConstruct = 256
-	maxTemplateMin   = 128
-	maxTemplatePunct = 644
+	maxLogicDepth         = 32
+	maxBooleanSegments    = 128
+	maxPoolConstruct      = 256
+	maxTemplateMin        = 128
+	maxTemplatePunct      = 644
+	maxAnagramItems       = 512
+	maxExpandedQueryBytes = 16384
 )
 
 // ParseOptions configures macro expansion and default alphabet character classification during parsing.
@@ -156,7 +159,13 @@ func Parse(raw string, opts ParseOptions) (*ParsedQuery, error) {
 		tsm = tsd.DefaultTSM()
 	}
 
-	expanded, expSpans := ExpandMacros(raw, opts.AtMacro, opts.HashMacro)
+	if len(raw) > maxExpandedQueryBytes {
+		return nil, &SyntaxError{Code: ErrTooLong, Span: Span{Start: 0, End: len(raw)}}
+	}
+	expanded, expSpans, overSpan, ok := expandMacrosBounded(raw, opts.AtMacro, opts.HashMacro, maxExpandedQueryBytes)
+	if !ok {
+		return nil, &SyntaxError{Code: ErrTooLong, Span: overSpan}
+	}
 	mb := utf8ExpandedToCP1252(expanded, expSpans)
 	trimmed := trimUnescapedSpaces(mb)
 	if len(trimmed.bytes) == 0 {
@@ -187,6 +196,9 @@ func Parse(raw string, opts ParseOptions) (*ParsedQuery, error) {
 			continue
 		}
 		if !inBracket && (c == '&' || c == '|') {
+			if len(ops) >= maxBooleanSegments {
+				return nil, &SyntaxError{Code: ErrTooManyPatterns, Span: trimmed.spanAt(i)}
+			}
 			segs = append(segs, rawSeg{buf: trimmed.slice(segStart, i)})
 			tk := tokAnd
 			if c == '|' {
@@ -390,8 +402,11 @@ func buildBooleanAST(tokens []exprToken) (Expr, error) {
 		tk := tokens[pos]
 		switch tk.kind {
 		case tokNot:
+			if depth+1 > maxLogicDepth {
+				return nil, &SyntaxError{Code: ErrTooManyPatterns, Span: tk.span}
+			}
 			pos++
-			inner, err := parseUnary(depth)
+			inner, err := parseUnary(depth + 1)
 			if err != nil {
 				return nil, err
 			}
@@ -644,19 +659,20 @@ func parseAtomic(m mappedBuf, tsm *tsd.TSM, poolCounter *int) (*AtomicPattern, e
 		return nil, &SyntaxError{Code: ErrEmpty, Span: m.rangeSpan(0, n)}
 	}
 
-	// Validate minimum matched length <= 128 and punctuation count <= 644.
+	// Validate minimum matched length <= 128 and punctuation count <= 644 in a single linear pass.
 	tMin, punctCnt := templateMinAndPunct(tmplItems)
 	if tMin > maxTemplateMin {
 		return nil, &SyntaxError{Code: ErrTooLong, Span: m.rangeSpan(0, n)}
 	}
-	if punctCnt > maxTemplatePunct {
-		return nil, &SyntaxError{Code: ErrTooMuchPunctuation, Span: m.rangeSpan(0, n)}
-	}
 	if anagSpec != nil {
-		aMin := anagramMinLen(anagSpec.Items)
+		aMin, aPunct := anagramMinAndPunct(anagSpec.Items)
+		punctCnt += aPunct
 		if len(tmplItems) == 0 && aMin > maxTemplateMin {
 			return nil, &SyntaxError{Code: ErrTooLong, Span: anagSpec.Span}
 		}
+	}
+	if punctCnt > maxTemplatePunct {
+		return nil, &SyntaxError{Code: ErrTooMuchPunctuation, Span: m.rangeSpan(0, n)}
 	}
 
 	return &AtomicPattern{
@@ -669,7 +685,7 @@ func parseAtomic(m mappedBuf, tsm *tsd.TSM, poolCounter *int) (*AtomicPattern, e
 func parseTemplateItems(m mappedBuf, tsm *tsd.TSM, poolCounter *int) ([]TemplateItem, error) {
 	b := m.bytes
 	n := len(b)
-	items := make([]TemplateItem, 0, n)
+	items := make([]TemplateItem, 0, min(n, 64))
 
 	for i := 0; i < n; {
 		c := b[i]
@@ -749,6 +765,9 @@ func parseAnagramItems(m mappedBuf, semiSpan Span, tsm *tsd.TSM, poolCounter *in
 	for i := 0; i < n; {
 		c := b[i]
 		sp := m.spanAt(i)
+		if c != ' ' && len(items) >= maxAnagramItems {
+			return nil, &SyntaxError{Code: ErrTooLong, Span: sp}
+		}
 		switch {
 		case c == ' ':
 			i++
@@ -814,15 +833,16 @@ func parseAnagramItems(m mappedBuf, semiSpan Span, tsm *tsd.TSM, poolCounter *in
 	return items, nil
 }
 
-func atomicMinLen(a *AtomicPattern) int {
-	if len(a.Template) > 0 {
-		tMin, _ := templateMinAndPunct(a.Template)
-		return tMin
-	}
+func atomicMinAndPunct(a *AtomicPattern) (minLen int, punctCnt int) {
+	tMin, tPunct := templateMinAndPunct(a.Template)
+	var aMin, aPunct int
 	if a.Anagram != nil {
-		return anagramMinLen(a.Anagram.Items)
+		aMin, aPunct = anagramMinAndPunct(a.Anagram.Items)
 	}
-	return 0
+	if len(a.Template) > 0 {
+		return tMin, tPunct + aPunct
+	}
+	return aMin, tPunct + aPunct
 }
 
 func templateMinAndPunct(items []TemplateItem) (minLen int, punctCnt int) {
@@ -836,24 +856,24 @@ func templateMinAndPunct(items []TemplateItem) (minLen int, punctCnt int) {
 		case ItemPunct:
 			punctCnt++
 		case ItemSubPattern:
-			subMin := atomicMinLen(it.Sub)
+			subMin, subPunct := atomicMinAndPunct(it.Sub)
 			minLen += subMin
-			_, sp := templateMinAndPunct(it.Sub.Template)
-			punctCnt += sp
+			punctCnt += subPunct
 		}
 	}
 	return minLen, punctCnt
 }
 
-func anagramMinLen(items []AnagramItem) int {
-	sum := 0
+func anagramMinAndPunct(items []AnagramItem) (minLen int, punctCnt int) {
 	for _, it := range items {
 		switch it.Kind {
 		case ItemLetter, ItemDot, ItemChoice, ItemVariable:
-			sum++
+			minLen++
 		case ItemSubPattern:
-			sum += atomicMinLen(it.Sub)
+			subMin, subPunct := atomicMinAndPunct(it.Sub)
+			minLen += subMin
+			punctCnt += subPunct
 		}
 	}
-	return sum
+	return minLen, punctCnt
 }
