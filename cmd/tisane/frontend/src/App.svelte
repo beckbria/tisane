@@ -73,12 +73,33 @@
   let dragDefinitionHeight: number | null = $state(null);
   let cleanupDefinitionDrag: (() => void) | null = null;
 
+  // Reactive viewport dimensions for compact/split-screen adaptation
+  let viewportWidth = $state(typeof window !== 'undefined' ? window.innerWidth || 1320 : 1320);
+  let viewportHeight = $state(typeof window !== 'undefined' ? window.innerHeight || 840 : 840);
+
   let patternBarRef: ReturnType<typeof PatternBar> | undefined = $state();
 
-  const effectiveSidebarWidth = $derived(dragSidebarWidth ?? cfgStore.value.sidebarWidth);
-  const effectiveDefinitionHeight = $derived(
-    dragDefinitionHeight ?? cfgStore.value.definitionHeight
-  );
+  const zoomScale = $derived((cfgStore.value.uiZoom || 100) / 100);
+  const isCompactViewport = $derived(viewportWidth > 0 && viewportWidth / zoomScale < 768);
+
+  const effectiveSidebarWidth = $derived.by(() => {
+    const raw = dragSidebarWidth ?? cfgStore.value.sidebarWidth;
+    if (viewportWidth <= 0) return raw;
+    const maxW = isCompactViewport
+      ? Math.max(MIN_SIDEBAR_WIDTH, Math.min(320, Math.floor(viewportWidth / zoomScale) - 48))
+      : Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.floor((viewportWidth / zoomScale) * 0.55)));
+    return Math.min(raw, maxW);
+  });
+
+  const effectiveDefinitionHeight = $derived.by(() => {
+    const raw = dragDefinitionHeight ?? cfgStore.value.definitionHeight;
+    if (viewportHeight <= 0) return raw;
+    const maxH = Math.min(
+      MAX_DEFINITION_HEIGHT,
+      Math.max(MIN_DEFINITION_HEIGHT, Math.floor((viewportHeight / zoomScale) * 0.55))
+    );
+    return Math.min(raw, maxH);
+  });
   const anyModalOpen = $derived(
     showSettings || showFontSettings || showAbout || showDictBuilder || showWordListMerger
   );
@@ -102,9 +123,8 @@
   const tiledGridClass = $derived.by(() => {
     const n = displayedTiledDicts.length;
     if (n <= 1) return 'grid-cols-1';
-    if (n === 2) return 'grid-cols-1 md:grid-cols-2';
-    if (n === 3) return 'grid-cols-1 md:grid-cols-3';
-    return 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3';
+    if (n === 2) return 'grid-cols-1 @md:grid-cols-2';
+    return 'grid-cols-1 @md:grid-cols-2 @2xl:grid-cols-3';
   });
 
   async function applyConfigPatch(patch: ConfigPatch, rerunIfSearched = false) {
@@ -516,9 +536,16 @@
       if (cleanupDefinitionDrag) cleanupDefinitionDrag();
     };
   });
+
+  function handleWindowResize() {
+    if (typeof window !== 'undefined') {
+      viewportWidth = window.innerWidth || 1320;
+      viewportHeight = window.innerHeight || 840;
+    }
+  }
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window onkeydown={handleWindowKeydown} onresize={handleWindowResize} />
 
 <div
   data-testid="app-root"
@@ -591,55 +618,86 @@
   />
 
   <!-- Main Workspace: Dictionary Sidebar + Results Workspace + Definition Pane -->
-  <div class="flex min-h-0 flex-1 overflow-hidden">
-    <DictionarySidebar
-      dictionaries={dictStore.list}
-      width={effectiveSidebarWidth}
-      collapsed={cfgStore.value.sidebarCollapsed}
-      showBalances={cfgStore.value.showBalances}
-      showAnnotations={cfgStore.value.showAnnotations}
-      exclusiveVars={cfgStore.value.exclusiveVars}
-      ignoreUnusedPunctuation={cfgStore.value.ignoreUnusedPunctuation}
-      onToggleEnabled={(id, enabled) => dictStore.setEnabled(id, enabled)}
-      onReorder={(ids) => dictStore.reorder(ids)}
-      onBrowseAdd={() => dictStore.browseAdd()}
-      onBrowseAddDirectory={() => dictStore.browseAddDirectory()}
-      onOpenBuilder={() => (showDictBuilder = true)}
-      onOpenMerger={() => (showWordListMerger = true)}
-      onRemove={(id) => dictStore.remove(id)}
-      onCollapse={() => setSidebarCollapsed(true)}
-      onOptionChange={(patch) => applyConfigPatch(patch, true)}
-    />
-
-    {#if !cfgStore.value.sidebarCollapsed}
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize dictionaries panel"
-        aria-valuenow={effectiveSidebarWidth}
-        aria-valuemin={MIN_SIDEBAR_WIDTH}
-        aria-valuemax={MAX_SIDEBAR_WIDTH}
-        tabindex="0"
-        data-testid="sidebar-resizer"
-        title="Drag to resize dictionaries panel (double-click to reset, drag left to collapse)"
-        onmousedown={handleSidebarResizeStart}
-        ondblclick={handleSidebarResizeReset}
-        onkeydown={handleSidebarResizeKeydown}
-        class="group relative z-20 -ml-1 w-2 shrink-0 cursor-col-resize select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-      >
-        <div
-          class="mx-auto h-full w-0.5 transition-colors {isResizingSidebar
-            ? 'bg-amber-400'
-            : 'bg-transparent group-hover:bg-amber-400/60 group-focus-visible:bg-amber-400'}"
-        ></div>
+  <div class="relative flex min-h-0 flex-1 overflow-hidden">
+    {#if isCompactViewport && !cfgStore.value.sidebarCollapsed}
+      <!-- Compact/mobile backdrop when dictionary sidebar is open as an overlay drawer -->
+      <button
+        type="button"
+        aria-label="Close dictionaries panel"
+        data-testid="sidebar-drawer-backdrop"
+        onclick={() => setSidebarCollapsed(true)}
+        class="absolute inset-0 z-20 bg-black/50 backdrop-blur-[1px]"
+      ></button>
+      <div class="absolute inset-y-0 left-0 z-30 flex h-full shadow-2xl" data-testid="sidebar-drawer-container">
+        <DictionarySidebar
+          dictionaries={dictStore.list}
+          width={effectiveSidebarWidth}
+          collapsed={false}
+          showBalances={cfgStore.value.showBalances}
+          showAnnotations={cfgStore.value.showAnnotations}
+          exclusiveVars={cfgStore.value.exclusiveVars}
+          ignoreUnusedPunctuation={cfgStore.value.ignoreUnusedPunctuation}
+          onToggleEnabled={(id, enabled) => dictStore.setEnabled(id, enabled)}
+          onReorder={(ids) => dictStore.reorder(ids)}
+          onBrowseAdd={() => dictStore.browseAdd()}
+          onBrowseAddDirectory={() => dictStore.browseAddDirectory()}
+          onOpenBuilder={() => (showDictBuilder = true)}
+          onOpenMerger={() => (showWordListMerger = true)}
+          onRemove={(id) => dictStore.remove(id)}
+          onCollapse={() => setSidebarCollapsed(true)}
+          onOptionChange={(patch) => applyConfigPatch(patch, true)}
+        />
       </div>
+    {:else}
+      <DictionarySidebar
+        dictionaries={dictStore.list}
+        width={effectiveSidebarWidth}
+        collapsed={cfgStore.value.sidebarCollapsed}
+        showBalances={cfgStore.value.showBalances}
+        showAnnotations={cfgStore.value.showAnnotations}
+        exclusiveVars={cfgStore.value.exclusiveVars}
+        ignoreUnusedPunctuation={cfgStore.value.ignoreUnusedPunctuation}
+        onToggleEnabled={(id, enabled) => dictStore.setEnabled(id, enabled)}
+        onReorder={(ids) => dictStore.reorder(ids)}
+        onBrowseAdd={() => dictStore.browseAdd()}
+        onBrowseAddDirectory={() => dictStore.browseAddDirectory()}
+        onOpenBuilder={() => (showDictBuilder = true)}
+        onOpenMerger={() => (showWordListMerger = true)}
+        onRemove={(id) => dictStore.remove(id)}
+        onCollapse={() => setSidebarCollapsed(true)}
+        onOptionChange={(patch) => applyConfigPatch(patch, true)}
+      />
+
+      {#if !cfgStore.value.sidebarCollapsed}
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize dictionaries panel"
+          aria-valuenow={effectiveSidebarWidth}
+          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemax={MAX_SIDEBAR_WIDTH}
+          tabindex="0"
+          data-testid="sidebar-resizer"
+          title="Drag to resize dictionaries panel (double-click to reset, drag left to collapse)"
+          onmousedown={handleSidebarResizeStart}
+          ondblclick={handleSidebarResizeReset}
+          onkeydown={handleSidebarResizeKeydown}
+          class="group relative z-20 -ml-1 w-2 shrink-0 cursor-col-resize select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        >
+          <div
+            class="mx-auto h-full w-0.5 transition-colors {isResizingSidebar
+              ? 'bg-amber-400'
+              : 'bg-transparent group-hover:bg-amber-400/60 group-focus-visible:bg-amber-400'}"
+          ></div>
+        </div>
+      {/if}
     {/if}
 
     <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <!-- Results Area: Separate Tiled Panes per Dictionary (Default) vs Unified Merged List -->
-      <div id="results-workspace" class="min-h-0 flex-1 overflow-hidden p-2.5" data-testid="results-workspace">
+      <div id="results-workspace" class="@container min-h-0 flex-1 overflow-hidden p-2.5" data-testid="results-workspace">
         {#if cfgStore.value.layoutMode === 'tiled'}
           {#if displayedTiledDicts.length === 0}
             <div class="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-700 text-xs text-slate-400">
@@ -805,7 +863,7 @@
 
     <div
       style="font-family: var(--tisane-font-status-family); font-size: var(--tisane-font-status-size);"
-      class="flex items-center gap-3 text-slate-400"
+      class="hidden shrink-0 items-center gap-3 text-slate-400 sm:flex"
     >
       <span>@={cfgStore.value.atMacro}</span>
       <span>#={cfgStore.value.hashMacro}</span>

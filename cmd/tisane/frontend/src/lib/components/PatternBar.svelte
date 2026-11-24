@@ -190,7 +190,7 @@
     </div>
 
     <!-- Main Pattern Input + History Dropdown -->
-    <div class="relative min-w-[260px] flex-1" bind:this={historyContainerEl}>
+    <div class="relative min-w-[200px] flex-1 sm:min-w-[260px]" bind:this={historyContainerEl}>
       <div class="flex items-center rounded-lg bg-slate-950 ring-1 transition-shadow {validation && !validation.valid && query.trim() !== ''
         ? 'ring-rose-500/70 focus-within:ring-2 focus-within:ring-rose-400'
         : 'ring-slate-600 focus-within:ring-2 focus-within:ring-amber-400'}">
@@ -402,7 +402,7 @@
       id="syntax-cheatsheet-popover"
       role="region"
       aria-label="Tisane pattern syntax quick reference"
-      class="absolute right-4 z-50 mt-2 w-full max-w-xl rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-2xl"
+      class="absolute right-3 left-3 z-50 mt-2 max-w-xl rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-2xl sm:right-4 sm:left-auto sm:w-[36rem]"
       data-testid="syntax-cheatsheet"
     >
       <div class="mb-2.5 flex items-center justify-between border-b border-slate-800 pb-2">

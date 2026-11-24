@@ -1597,4 +1597,59 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       expect(document.documentElement.style.zoom).toBe('');
     });
   });
+
+  it('adapts to compact split-screen and mobile viewports with container queries, drawer sidebar, and clamped definition height', async () => {
+    const origInnerWidth = window.innerWidth;
+    const origInnerHeight = window.innerHeight;
+    try {
+      const h = createMockHarness();
+      await h.backend.updateConfig({ definitionHeight: 400 });
+      setBackendForTesting(h.backend);
+
+      render(App);
+      await waitFor(() => expect(screen.getByTestId('results-workspace')).toBeInTheDocument());
+
+      // Results workspace uses CSS container queries for tiled columns
+      expect(screen.getByTestId('results-workspace').className).toContain('@container');
+      expect(screen.getByTestId('tiled-panes-grid').className).toContain('@md:grid-cols-2');
+
+      // Resize viewport down to compact 640x480 split-screen / narrow browser size
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 640 });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: 480 });
+      await fireEvent(window, new Event('resize'));
+
+      // Sidebar switches to an overlay drawer and definition height clamps to 55% of 480px (264px)
+      await waitFor(() => {
+        expect(screen.getByTestId('sidebar-drawer-container')).toBeInTheDocument();
+        expect(screen.getByTestId('sidebar-drawer-backdrop')).toBeInTheDocument();
+        expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 264px');
+      });
+
+      // Clicking the drawer backdrop dismisses the sidebar drawer
+      await fireEvent.click(screen.getByTestId('sidebar-drawer-backdrop'));
+      await waitFor(() => {
+        expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
+        expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarCollapsed: true });
+      });
+
+      // Restoring full desktop viewport restores full 400px configured definition height
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1320 });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: 840 });
+      await fireEvent(window, new Event('resize'));
+      await waitFor(() => {
+        expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 400px');
+      });
+    } finally {
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        writable: true,
+        value: origInnerWidth
+      });
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        writable: true,
+        value: origInnerHeight
+      });
+    }
+  });
 });

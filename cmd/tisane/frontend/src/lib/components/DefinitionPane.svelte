@@ -223,7 +223,7 @@
             </div>
 
             <div
-              class="tisane-def"
+              class="tisane-def max-w-[85ch]"
               style="font-family: var(--tisane-font-definitions-family); font-size: var(--tisane-font-definitions-size);"
             >
               {@html entry.html}

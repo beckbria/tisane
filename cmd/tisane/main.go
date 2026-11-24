@@ -335,8 +335,8 @@ func main() {
 		Title:            "Tisane",
 		Width:            1320,
 		Height:           840,
-		MinWidth:         920,
-		MinHeight:        600,
+		MinWidth:         640,
+		MinHeight:        480,
 		BackgroundColour: bgColour,
 		URL:              "/",
 		Linux: application.LinuxWindow{
