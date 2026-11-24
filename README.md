@@ -40,15 +40,16 @@ On first launch, Tisane automatically scans `TISANE_DICT_PATH`, the directory th
   - **Drag and drop** rows (`≡`) or click **`↑` / `↓`** to set dictionary priority order (controls tiled pane order, `Dictionary Order` sort, and cross-dictionary duplicate suppression).
   - Badges indicate total word count plus `defs` (local definitions) and `fts` (Full-Text Search index) capabilities.
 - **Results Workspace (Center)**:
-  - **Separate Tiled Panes (`⊞ Tiled`, default)**: Displays an independently virtualized scrollable pane with match counts for each enabled dictionary side-by-side.
+  - **Separate Tiled Panes (`⊞ Tiled`, default)**: Displays an independently virtualized scrollable pane with match counts for each enabled dictionary side-by-side (automatically adapting column count to container width).
   - **Unified Merged List (`≡ Unified`)**: Merges hits across all enabled dictionaries into a single virtualized list with `[Dictionary]` source tags.
-  - Both modes handle 100,000+ streaming matches smoothly and display optional annotations, `-OMITTED` / `+ADDED` anagram balance pills, and local-definition indicators.
+  - Both modes handle 100,000+ streaming matches smoothly, display optional annotations, `-OMITTED` / `+ADDED` anagram balance pills, and local-definition indicators, and let you **Copy** all matched words in a pane or press `Ctrl+C` / `Cmd+C` on a focused result list to copy the selected headword.
 - **Pattern & Filter Bars (Top)**:
   - Switch between Word Search and Full Text (FTS) modes.
   - Live validation previews matched word-length bounds or highlights exact syntax error spans as you type.
   - Constrain **Enum** (e.g., `4,3` or `4-2-2` in Word Search mode), **Min / Max Length** (`1–100`, click `–` to pin `=` exact length), **Entry Categories** (`abc` lowercase, `Abc` capitalized, `a-b` punctuated, `a b` phrases), **Dedupe**, and **Sort** (`Dictionary Order`, `Smart Balance`, `A → Z`, `Z → A`, `Length ↑`, `Length ↓`).
+  - Open **Preferences** (`Ctrl+,`) or the **View** menu to switch between **Dark**, **Light**, and **System** color themes, adjust **UI Scale** (`75%–200%`), or customize per-element fonts and sizes.
 - **Definitions & Web Search Fallback (Bottom)**:
-  - Click any matched word to view sanitized RTF definitions across your dictionaries.
+  - Click any matched word to view sanitized RTF definitions across your dictionaries, or click **Copy** in the definition header to copy plain-text definitions to the clipboard.
   - Drag the top divider to resize the definition pane, or collapse/expand it (`Ctrl+D` or the toolbar **Defs** toggle) to give more vertical space to the results panes. Double-clicking a match while collapsed re-opens the definition pane.
   - Double-click any word inside a definition to cross-lookup that word; navigate lookup history with the arrow buttons.
   - Toggle **Include mentions** to also surface entries where the word appears in the definition body via FTS.
@@ -65,10 +66,14 @@ On first launch, Tisane automatically scans `TISANE_DICT_PATH`, the directory th
 | `Ctrl+2` / `Cmd+2` | Switch results to **Unified Merged List** (`≡ Unified`) |
 | `Ctrl+B` / `Cmd+B` | Toggle **Dictionaries** sidebar panel |
 | `Ctrl+D` / `Cmd+D` | Toggle **Definitions** bottom panel |
+| `Ctrl+=` / `Cmd+=` | Zoom UI in (`75%–200%`) |
+| `Ctrl+-` / `Cmd+-` | Zoom UI out (`75%–200%`) |
+| `Ctrl+0` / `Cmd+0` | Reset UI zoom to `100%` |
 | `Ctrl+O` / `Cmd+O` | Add `.tsd` dictionary files |
-| `Ctrl+,` / `Cmd+,` | Open **Preferences** (macros & web search providers) |
+| `Ctrl+,` / `Cmd+,` | Open **Preferences** (themes, UI zoom, fonts, macros & web search providers) |
 | `F1` | Toggle **Pattern Syntax Quick Reference** |
-| `Up` / `Down` (in pane) | Move selection through virtualized results and update definition |
+| `Up` / `Down` / `Home` / `End` / `PgUp` / `PgDn` | Navigate virtualized results and update definition |
+| `Ctrl+C` / `Cmd+C` (in pane) | Copy selected matched word to clipboard |
 
 ### CLI
 

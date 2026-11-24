@@ -1652,4 +1652,82 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       });
     }
   });
+
+  it('copies selected headwords, full pane match lists, and plain-text definitions to clipboard', async () => {
+    const writeTextMock = vi.fn(async () => {});
+    const origClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: writeTextMock }
+    });
+
+    try {
+      const h = createMockHarness();
+      setBackendForTesting(h.backend);
+
+      render(App);
+      await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+      await fireEvent.click(screen.getByTestId('layout-unified-btn'));
+      const patternInput = screen.getByTestId('pattern-input');
+      await fireEvent.input(patternInput, { target: { value: 'c*' } });
+      await fireEvent.keyDown(patternInput, { key: 'Enter' });
+      await waitFor(() => expect(h.backend.startSearch).toHaveBeenCalled());
+
+      const sid = 1;
+      h.emit('search:batch', {
+        searchId: sid,
+        matches: [
+          { word: 'cynic', length: 5, dictIndex: 1, dict: "The Devil's Dictionary", hasDefinition: true },
+          { word: 'crossword', length: 9, dictIndex: 0, dict: 'Core English', hasDefinition: false }
+        ],
+        progress: { dictIndex: 1, dictName: "The Devil's Dictionary", wordsScanned: 50, totalCandidateWords: 50 }
+      });
+      h.emit('search:complete', {
+        searchId: sid,
+        totalMatches: 2,
+        wordsScanned: 50,
+        totalCandidateWords: 50,
+        elapsedMs: 1.1,
+        usedIndexedFTS: false,
+        activeDicts: []
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('unified-pane-copy-btn')).toBeInTheDocument();
+        expect(screen.getByTestId('copy-definition-btn')).toBeInTheDocument();
+      });
+
+      // 1. Copy all matches in the pane
+      await fireEvent.click(screen.getByTestId('unified-pane-copy-btn'));
+      await waitFor(() => {
+        expect(writeTextMock).toHaveBeenCalledWith('cynic\ncrossword');
+        expect(screen.getByTestId('unified-pane-copy-btn')).toHaveTextContent('Copied');
+      });
+
+      // 2. Ctrl+C on focused listbox copies the active word ("crossword")
+      const listbox = screen.getByRole('listbox', { name: 'Unified Results matches' });
+      await fireEvent.keyDown(listbox, { key: 'End' });
+      await fireEvent.keyDown(listbox, { key: 'c', ctrlKey: true });
+      await waitFor(() => {
+        expect(writeTextMock).toHaveBeenCalledWith('crossword');
+      });
+
+      // 3. Copy definition button copies headword + plain-text definition
+      await fireEvent.keyDown(listbox, { key: 'Home' });
+      await waitFor(() => expect(screen.getByTestId('definition-word-heading')).toHaveTextContent('cynic'));
+      await fireEvent.click(screen.getByTestId('copy-definition-btn'));
+      await waitFor(() => {
+        expect(writeTextMock).toHaveBeenLastCalledWith(
+          "cynic\n\n[The Devil's Dictionary]\nCYNIC, n. A blackguard whose faulty vision sees things as they are."
+        );
+        expect(screen.getByTestId('copy-definition-btn')).toHaveTextContent('Copied');
+      });
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: origClipboard
+      });
+    }
+  });
 });

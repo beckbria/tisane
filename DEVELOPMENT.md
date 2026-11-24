@@ -34,7 +34,7 @@ To build the Windows installer (`bazel build //:windows-release`), **NSIS** (`ma
 | :--- | :--- |
 | `artifacts` | Design documents and work plans |
 | `build` | Shared build assets (`appicon.png`) and platform-specific manifests/metadata (`windows/`, `linux/`) |
-| `cmd/tisane` | **Desktop GUI application** (Go + Wails v3 + Svelte 5 + Tailwind CSS + `@tanstack/svelte-virtual`) |
+| `cmd/tisane` | **Desktop GUI application** (Go + Wails v3 + Svelte 5 + Tailwind CSS v4 + `@tanstack/svelte-virtual`, with Dark/Light/System themes, UI zoom, and WCAG AA accessibility) |
 | `cmd/tisane-cli` | **Command-line & interactive REPL search tool** (compatible with legacy `TEACON` switches plus JSON/CSV, FTS, `--define`, and `--enum`) |
 | `cmd/tisane-build` | **Dictionary compiler & inspector** (replaces `TSBuild.exe`; compiles plain-text/RTF word lists into `.tsd` files) |
 | `cmd/tisane-extract` | **Word list & metadata extractor** (exports `.tsd` dictionaries to plain one-word-per-line lists or `tisane-build` source files) |

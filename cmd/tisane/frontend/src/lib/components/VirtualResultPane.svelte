@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { createVirtualizer } from '@tanstack/svelte-virtual';
+  import { copyTextToClipboard } from '../clipboard';
   import type { Match } from '../types';
 
   interface Props {
@@ -36,6 +37,61 @@
   const rowHeight = $derived(Math.max(24, Math.round(fontSize * 2.15)));
   let scrollEl: HTMLDivElement | null = $state(null);
   let selectedIndex = $state(-1);
+  let copyAnnouncement = $state('');
+  let copiedBadge = $state(false);
+  let copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function showCopiedFeedback(announcement: string) {
+    copyAnnouncement = announcement;
+    copiedBadge = true;
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => {
+      copiedBadge = false;
+    }, 1500);
+  }
+
+  onDestroy(() => {
+    if (copyTimer) clearTimeout(copyTimer);
+  });
+
+  async function handleCopyAll() {
+    if (items.length === 0) return;
+    const text = items.map((m) => m.word).join('\n');
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      showCopiedFeedback(
+        `Copied ${items.length.toLocaleString()} ${items.length === 1 ? 'word' : 'words'} from ${title}`
+      );
+    }
+  }
+
+  function getActiveMatch(): Match | null {
+    if (resolvedActiveIndex >= 0 && items[resolvedActiveIndex]) {
+      return items[resolvedActiveIndex];
+    }
+    if (selectedWord) {
+      return items.find((m) => m.word === selectedWord) ?? null;
+    }
+    return null;
+  }
+
+  function handleListboxCopy(e: ClipboardEvent) {
+    if ((window.getSelection()?.toString() ?? '').trim() !== '') {
+      return;
+    }
+    const active = getActiveMatch();
+    if (!active) return;
+    if (e.clipboardData) {
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', active.word);
+      showCopiedFeedback(`Copied ${active.word}`);
+    } else {
+      e.preventDefault();
+      void copyTextToClipboard(active.word).then((ok) => {
+        if (ok) showCopiedFeedback(`Copied ${active.word}`);
+      });
+    }
+  }
 
   $effect(() => {
     // Reset local keyboard cursor when the result list is cleared or shrinks past it.
@@ -161,6 +217,20 @@
     } else if (e.key === 'Enter' && curIdx >= 0 && items[curIdx]) {
       e.preventDefault();
       onDoubleClick(items[curIdx]);
+    } else if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      e.key.toLowerCase() === 'c' &&
+      (window.getSelection()?.toString() ?? '').trim() === ''
+    ) {
+      const active = getActiveMatch();
+      if (active) {
+        e.preventDefault();
+        void copyTextToClipboard(active.word).then((ok) => {
+          if (ok) showCopiedFeedback(`Copied ${active.word}`);
+        });
+      }
     }
   }
 </script>
@@ -181,11 +251,32 @@
         <p class="truncate text-[0.85em] text-slate-400">{subtitle}</p>
       {/if}
     </div>
-    <span
-      data-testid={`${testId}-count`}
-      class="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[0.92em] font-medium text-amber-300"
-    >
-      {items.length.toLocaleString()}
+    <div class="flex shrink-0 items-center gap-1.5">
+      {#if items.length > 0}
+        <button
+          type="button"
+          data-testid={`${testId}-copy-btn`}
+          onclick={handleCopyAll}
+          aria-label={`Copy all ${items.length.toLocaleString()} matches from ${title}`}
+          title={`Copy all ${items.length.toLocaleString()} words to clipboard`}
+          class="inline-flex min-h-6 items-center gap-1 rounded border border-slate-600 bg-slate-800/80 px-2 py-0.5 text-[0.88em] font-medium text-slate-300 transition hover:bg-slate-800 hover:text-slate-100"
+        >
+          {#if copiedBadge}
+            <span class="text-emerald-300"><span aria-hidden="true">✓ </span>Copied</span>
+          {:else}
+            <span>Copy</span>
+          {/if}
+        </button>
+      {/if}
+      <span
+        data-testid={`${testId}-count`}
+        class="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[0.92em] font-medium text-amber-300"
+      >
+        {items.length.toLocaleString()}
+      </span>
+    </div>
+    <span role="status" aria-live="polite" aria-atomic="true" class="sr-only">
+      {copyAnnouncement}
     </span>
   </div>
 
@@ -199,6 +290,7 @@
     aria-label={`${title} matches`}
     aria-activedescendant={activeDescendantId}
     onkeydown={handleKeydown}
+    oncopy={handleListboxCopy}
     class="relative flex-1 overflow-y-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
   >
     {#if items.length === 0}

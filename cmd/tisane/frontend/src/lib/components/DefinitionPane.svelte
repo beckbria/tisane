@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
+  import { copyTextToClipboard } from '../clipboard';
   import type { LookupResult } from '../types';
 
   interface Props {
@@ -38,6 +40,27 @@
     onOpenExternalURL,
     onCollapse
   }: Props = $props();
+
+  let copiedDef = $state(false);
+  let copyDefTimer: ReturnType<typeof setTimeout> | null = null;
+
+  onDestroy(() => {
+    if (copyDefTimer) clearTimeout(copyDefTimer);
+  });
+
+  async function handleCopyDefinitions() {
+    if (!selectedWord || !lookupResult || (lookupResult.entries ?? []).length === 0) return;
+    const sections = lookupResult.entries.map((e) => `[${e.dict}]\n${e.text}`);
+    const payload = `${selectedWord}\n\n${sections.join('\n\n')}`;
+    const ok = await copyTextToClipboard(payload);
+    if (ok) {
+      copiedDef = true;
+      if (copyDefTimer) clearTimeout(copyDefTimer);
+      copyDefTimer = setTimeout(() => {
+        copiedDef = false;
+      }, 1500);
+    }
+  }
 
   function handleDefClick(e: MouseEvent) {
     const target = e.target as HTMLElement | null;
@@ -110,6 +133,26 @@
     </div>
 
     <div class="flex shrink-0 items-center gap-3 text-xs">
+      {#if selectedWord && lookupResult && (lookupResult.entries ?? []).length > 0}
+        <button
+          type="button"
+          data-testid="copy-definition-btn"
+          onclick={handleCopyDefinitions}
+          aria-label={`Copy definitions for ${selectedWord}`}
+          title={`Copy plain-text definitions for "${selectedWord}"`}
+          class="inline-flex min-h-6 items-center gap-1 rounded border border-slate-600 bg-slate-800/90 px-2 py-0.5 text-[11px] font-medium text-slate-300 transition hover:bg-slate-800 hover:text-slate-100"
+        >
+          {#if copiedDef}
+            <span class="text-emerald-300"><span aria-hidden="true">✓ </span>Copied</span>
+          {:else}
+            <span>Copy</span>
+          {/if}
+        </button>
+        <span role="status" aria-live="polite" aria-atomic="true" class="sr-only">
+          {copiedDef ? `Copied definitions for ${selectedWord}` : ''}
+        </span>
+      {/if}
+
       <label class="flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-200" title="Also show dictionary entries that mention this word inside their definition body">
         <input
           type="checkbox"
