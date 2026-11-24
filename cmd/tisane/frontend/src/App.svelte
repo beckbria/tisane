@@ -653,6 +653,7 @@
         dictionaries={dictStore.list}
         width={effectiveSidebarWidth}
         collapsed={cfgStore.value.sidebarCollapsed}
+        isResizing={isResizingSidebar}
         showBalances={cfgStore.value.showBalances}
         showAnnotations={cfgStore.value.showAnnotations}
         exclusiveVars={cfgStore.value.exclusiveVars}
@@ -665,6 +666,7 @@
         onOpenMerger={() => (showWordListMerger = true)}
         onRemove={(id) => dictStore.remove(id)}
         onCollapse={() => setSidebarCollapsed(true)}
+        onExpand={() => setSidebarCollapsed(false)}
         onOptionChange={(patch) => applyConfigPatch(patch, true)}
       />
 
@@ -788,6 +790,7 @@
       <DefinitionPane
         height={effectiveDefinitionHeight}
         collapsed={cfgStore.value.definitionCollapsed}
+        isResizing={isResizingDefinition}
         selectedWord={defStore.selectedWord}
         lookupResult={defStore.lookupResult}
         isLoading={defStore.isLoading}
@@ -806,6 +809,7 @@
           void defStore.openExternalURL(u);
         }}
         onCollapse={() => setDefinitionCollapsed(true)}
+        onExpand={() => setDefinitionCollapsed(false)}
       />
     </main>
   </div>

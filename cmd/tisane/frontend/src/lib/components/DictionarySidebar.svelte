@@ -1,10 +1,13 @@
 <script lang="ts">
   import type { DictionaryInfo } from '../types';
 
+  const COLLAPSED_WIDTH = 32;
+
   interface Props {
     dictionaries: DictionaryInfo[];
     width?: number;
     collapsed?: boolean;
+    isResizing?: boolean;
     showBalances: boolean;
     showAnnotations: boolean;
     exclusiveVars: boolean;
@@ -17,6 +20,7 @@
     onOpenMerger?: () => void;
     onRemove: (id: string) => void;
     onCollapse?: () => void;
+    onExpand?: () => void;
     onOptionChange: (patch: {
       showBalances?: boolean;
       showAnnotations?: boolean;
@@ -29,6 +33,7 @@
     dictionaries,
     width = 272,
     collapsed = false,
+    isResizing = false,
     showBalances,
     showAnnotations,
     exclusiveVars,
@@ -41,6 +46,7 @@
     onOpenMerger,
     onRemove,
     onCollapse,
+    onExpand,
     onOptionChange
   }: Props = $props();
 
@@ -105,6 +111,12 @@
   }
 
   const activeCount = $derived((dictionaries ?? []).filter((d) => d.enabled).length);
+
+  $effect(() => {
+    if (collapsed && addMenuOpen) {
+      addMenuOpen = false;
+    }
+  });
 </script>
 
 <svelte:window
@@ -120,13 +132,63 @@
   }}
 />
 
-{#if !collapsed}
 <aside
   aria-label="Dictionaries"
   data-testid="dictionary-sidebar"
-  style={`width: ${width}px;`}
-  class="flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-800 bg-slate-900/75 select-none"
+  data-collapsed={collapsed ? 'true' : 'false'}
+  style={`width: ${collapsed ? COLLAPSED_WIDTH : width}px;`}
+  class="relative flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-800 bg-slate-900/75 select-none {isResizing
+    ? ''
+    : 'transition-[width] duration-200 ease-out'}"
 >
+  {#if collapsed}
+    <button
+      type="button"
+      data-testid="expand-sidebar-btn"
+      onclick={() => onExpand?.()}
+      aria-label="Expand dictionaries panel"
+      title="Expand dictionaries panel (Ctrl+B)"
+      class="group absolute inset-0 z-10 flex h-full w-8 flex-col items-center gap-3 py-2 text-slate-400 transition-colors hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
+    >
+      <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors group-hover:bg-slate-800 group-hover:text-amber-300">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          class="h-3.5 w-3.5 rotate-180"
+          aria-hidden="true"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M9.78 4.22a.75.75 0 0 1 0 1.06L7.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L5.47 8.53a.75.75 0 0 1 0-1.06l3.25-3.25a.75.75 0 0 1 1.06 0Z"
+            clip-rule="evenodd"
+          />
+          <path
+            fill-rule="evenodd"
+            d="M13.28 4.22a.75.75 0 0 1 0 1.06L10.56 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L8.97 8.53a.75.75 0 0 1 0-1.06l3.25-3.25a.75.75 0 0 1 1.06 0Z"
+            clip-rule="evenodd"
+          />
+        </svg>
+      </span>
+      <span class="rotate-180 text-[11px] font-semibold tracking-wider uppercase [writing-mode:vertical-rl]">
+        Dictionaries
+      </span>
+      {#if dictionaries.length > 0}
+        <span class="rounded bg-slate-800 px-1 py-0.5 font-mono text-[10px] leading-none text-amber-300">
+          {activeCount}/{dictionaries.length}
+        </span>
+      {/if}
+    </button>
+  {/if}
+
+  <div
+    style={`width: ${width}px;`}
+    inert={collapsed ? true : undefined}
+    aria-hidden={collapsed ? 'true' : undefined}
+    class="flex h-full min-h-0 flex-col transition-opacity duration-150 {collapsed
+      ? 'pointer-events-none opacity-0'
+      : 'opacity-100'}"
+  >
   <!-- Header -->
   <div class="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
     <div class="min-w-0 flex-1">
@@ -422,5 +484,5 @@
       </label>
     </div>
   </div>
+  </div>
 </aside>
-{/if}

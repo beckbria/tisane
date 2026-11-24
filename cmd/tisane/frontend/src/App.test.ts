@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import App from './App.svelte';
@@ -866,37 +866,58 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     await fireEvent.mouseUp(window);
     await waitFor(() => expect(screen.getByTestId('dictionary-sidebar')).toHaveStyle('width: 340px'));
 
-    // Collapse via sidebar header button -> sidebar and resizer are removed from DOM
+    // Collapse via sidebar header button -> narrow 32px bar remains with expand button, resizer removed
     await fireEvent.click(screen.getByTestId('collapse-sidebar-btn'));
     await waitFor(() => {
-      expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
+      const sidebar = screen.getByTestId('dictionary-sidebar');
+      expect(sidebar).toHaveAttribute('data-collapsed', 'true');
+      expect(sidebar).toHaveStyle('width: 32px');
+      expect(sidebar.className).toContain('transition-[width]');
+      expect(screen.getByTestId('expand-sidebar-btn')).toBeInTheDocument();
       expect(screen.queryByTestId('sidebar-resizer')).not.toBeInTheDocument();
       expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarCollapsed: true });
     });
 
-    // Toolbar toggle button shows active count and expands sidebar back to remembered 340px width
+    // Clicking the narrow bar's expand button restores the remembered 340px width
+    await fireEvent.click(screen.getByTestId('expand-sidebar-btn'));
+    await waitFor(() => {
+      const sidebar = screen.getByTestId('dictionary-sidebar');
+      expect(sidebar).toHaveAttribute('data-collapsed', 'false');
+      expect(sidebar).toHaveStyle('width: 340px');
+      expect(screen.queryByTestId('expand-sidebar-btn')).not.toBeInTheDocument();
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarCollapsed: false });
+    });
+
+    // Collapse again and verify toolbar toggle button shows active count and expands back to 340px
+    await fireEvent.click(screen.getByTestId('collapse-sidebar-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('dictionary-sidebar')).toHaveAttribute('data-collapsed', 'true');
+    });
+
     const toggleBtn = screen.getByTestId('toggle-sidebar-btn');
     expect(toggleBtn).toHaveAttribute('aria-pressed', 'false');
     expect(toggleBtn).toHaveTextContent('Dictionaries (2/2)');
 
     await fireEvent.click(toggleBtn);
     await waitFor(() => {
-      expect(screen.getByTestId('dictionary-sidebar')).toBeInTheDocument();
+      expect(screen.getByTestId('dictionary-sidebar')).toHaveAttribute('data-collapsed', 'false');
       expect(screen.getByTestId('dictionary-sidebar')).toHaveStyle('width: 340px');
       expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarCollapsed: false });
     });
 
     // Dragging the resizer far left past the threshold collapses the sidebar while preserving 340px width
     await fireEvent.mouseDown(screen.getByTestId('sidebar-resizer'), { button: 0, clientX: 340 });
+    expect(screen.getByTestId('dictionary-sidebar').className).not.toContain('transition-[width]');
     await fireEvent.mouseMove(window, { clientX: 60 });
     await waitFor(() => {
-      expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
+      expect(screen.getByTestId('dictionary-sidebar')).toHaveAttribute('data-collapsed', 'true');
+      expect(screen.getByTestId('dictionary-sidebar')).toHaveStyle('width: 32px');
     });
 
     // Ctrl+B expands it again at 340px
     await fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
     await waitFor(() => {
-      expect(screen.getByTestId('dictionary-sidebar')).toBeInTheDocument();
+      expect(screen.getByTestId('dictionary-sidebar')).toHaveAttribute('data-collapsed', 'false');
       expect(screen.getByTestId('dictionary-sidebar')).toHaveStyle('width: 340px');
     });
 
@@ -904,7 +925,7 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     h.emit('ui:toggle-sidebar', null);
     await tick();
     await waitFor(() => {
-      expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
+      expect(screen.getByTestId('dictionary-sidebar')).toHaveAttribute('data-collapsed', 'true');
     });
   });
 
@@ -964,37 +985,58 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     await fireEvent.mouseUp(window);
     await waitFor(() => expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 320px'));
 
-    // Collapse via definition header button -> pane and resizer are removed from DOM
+    // Collapse via definition header button -> narrow 32px bar remains with expand button, resizer removed
     await fireEvent.click(screen.getByTestId('collapse-definition-btn'));
     await waitFor(() => {
-      expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+      const defPane = screen.getByTestId('definition-pane');
+      expect(defPane).toHaveAttribute('data-collapsed', 'true');
+      expect(defPane).toHaveStyle('height: 32px');
+      expect(defPane.className).toContain('transition-[height]');
+      expect(screen.getByTestId('expand-definition-btn')).toBeInTheDocument();
       expect(screen.queryByTestId('definition-resizer')).not.toBeInTheDocument();
       expect(h.backend.updateConfig).toHaveBeenCalledWith({ definitionCollapsed: true });
     });
 
-    // Toolbar toggle button reflects collapsed state and expands back to remembered 320px height
+    // Clicking the narrow bar's expand button restores the remembered 320px height
+    await fireEvent.click(screen.getByTestId('expand-definition-btn'));
+    await waitFor(() => {
+      const defPane = screen.getByTestId('definition-pane');
+      expect(defPane).toHaveAttribute('data-collapsed', 'false');
+      expect(defPane).toHaveStyle('height: 320px');
+      expect(screen.queryByTestId('expand-definition-btn')).not.toBeInTheDocument();
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ definitionCollapsed: false });
+    });
+
+    // Collapse again and verify toolbar toggle button expands back to remembered 320px height
+    await fireEvent.click(screen.getByTestId('collapse-definition-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'true');
+    });
+
     const toggleBtn = screen.getByTestId('toggle-definitions-btn');
     expect(toggleBtn).toHaveAttribute('aria-pressed', 'false');
     expect(toggleBtn).toHaveTextContent('Definitions');
 
     await fireEvent.click(toggleBtn);
     await waitFor(() => {
-      expect(screen.getByTestId('definition-pane')).toBeInTheDocument();
+      expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'false');
       expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 320px');
       expect(h.backend.updateConfig).toHaveBeenCalledWith({ definitionCollapsed: false });
     });
 
     // Dragging the resizer far down past the threshold collapses the pane while preserving 320px height
     await fireEvent.mouseDown(screen.getByTestId('definition-resizer'), { button: 0, clientY: 440 });
+    expect(screen.getByTestId('definition-pane').className).not.toContain('transition-[height]');
     await fireEvent.mouseMove(window, { clientY: 720 });
     await waitFor(() => {
-      expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+      expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'true');
+      expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 32px');
     });
 
     // Ctrl+D expands it again at 320px
     await fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
     await waitFor(() => {
-      expect(screen.getByTestId('definition-pane')).toBeInTheDocument();
+      expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'false');
       expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 320px');
     });
 
@@ -1002,7 +1044,7 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     h.emit('ui:toggle-definitions', null);
     await tick();
     await waitFor(() => {
-      expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+      expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'true');
     });
 
     // Double-clicking a match while collapsed re-opens the definition pane for that word
@@ -1027,15 +1069,17 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     });
     await tick();
 
-    // Single-click does not force-expand while collapsed
-    await fireEvent.click(screen.getByText('cynic'));
+    // Single-click does not force-expand while collapsed, but shows the word in the collapsed bar
+    const matchEl = within(screen.getByTestId('results-workspace')).getByText('cynic');
+    await fireEvent.click(matchEl);
     await tick();
-    expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+    expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'true');
+    expect(screen.getByTestId('expand-definition-btn')).toHaveTextContent('cynic');
 
     // Double-click expands the definition pane at its remembered 320px height
-    await fireEvent.dblClick(screen.getByText('cynic'));
+    await fireEvent.dblClick(matchEl);
     await waitFor(() => {
-      expect(screen.getByTestId('definition-pane')).toBeInTheDocument();
+      expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'false');
       expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 320px');
       expect(screen.getByTestId('definition-entries')).toHaveTextContent('faulty vision sees things as they are');
     });
@@ -1349,14 +1393,14 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       await fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
       await fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
       await tick();
-      expect(screen.getByTestId('dictionary-sidebar')).toBeInTheDocument();
-      expect(screen.getByTestId('definition-pane')).toBeInTheDocument();
+      expect(screen.getByTestId('dictionary-sidebar')).toHaveAttribute('data-collapsed', 'false');
+      expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'false');
 
       h.emit('ui:toggle-sidebar', null);
       h.emit('ui:toggle-definitions', null);
       await waitFor(() => {
-        expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
-        expect(screen.queryByTestId('definition-pane')).not.toBeInTheDocument();
+        expect(screen.getByTestId('dictionary-sidebar')).toHaveAttribute('data-collapsed', 'true');
+        expect(screen.getByTestId('definition-pane')).toHaveAttribute('data-collapsed', 'true');
       });
     } finally {
       if (w._wails) {
@@ -1625,10 +1669,12 @@ describe('Tisane Svelte 5 Desktop UI', () => {
         expect(screen.getByTestId('definition-pane')).toHaveStyle('height: 264px');
       });
 
-      // Clicking the drawer backdrop dismisses the sidebar drawer
+      // Clicking the drawer backdrop dismisses the sidebar drawer back to the narrow collapsed bar
       await fireEvent.click(screen.getByTestId('sidebar-drawer-backdrop'));
       await waitFor(() => {
-        expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('sidebar-drawer-container')).not.toBeInTheDocument();
+        expect(screen.getByTestId('dictionary-sidebar')).toHaveAttribute('data-collapsed', 'true');
+        expect(screen.getByTestId('expand-sidebar-btn')).toBeInTheDocument();
         expect(h.backend.updateConfig).toHaveBeenCalledWith({ sidebarCollapsed: true });
       });
 

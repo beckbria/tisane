@@ -3,9 +3,12 @@
   import { copyTextToClipboard } from '../clipboard';
   import type { LookupResult } from '../types';
 
+  const COLLAPSED_HEIGHT = 32;
+
   interface Props {
     height?: number;
     collapsed?: boolean;
+    isResizing?: boolean;
     selectedWord: string | null;
     lookupResult: LookupResult | null;
     isLoading: boolean;
@@ -20,11 +23,13 @@
     onOpenWebLookup: (word: string, providerId: string) => void;
     onOpenExternalURL: (url: string) => void;
     onCollapse?: () => void;
+    onExpand?: () => void;
   }
 
   let {
     height = 256,
     collapsed = false,
+    isResizing = false,
     selectedWord,
     lookupResult,
     isLoading,
@@ -38,7 +43,8 @@
     onCrossLookupWord,
     onOpenWebLookup,
     onOpenExternalURL,
-    onCollapse
+    onCollapse,
+    onExpand
   }: Props = $props();
 
   let copiedDef = $state(false);
@@ -83,13 +89,70 @@
   }
 </script>
 
-{#if !collapsed}
 <section
   aria-label="Word definitions"
   data-testid="definition-pane"
-  style={`height: ${height}px;`}
-  class="flex max-h-[65%] shrink-0 flex-col overflow-hidden border-t border-slate-800 bg-slate-900/90"
+  data-collapsed={collapsed ? 'true' : 'false'}
+  style={`height: ${collapsed ? COLLAPSED_HEIGHT : height}px;`}
+  class="relative flex max-h-[65%] shrink-0 flex-col overflow-hidden border-t border-slate-800 bg-slate-900/90 {isResizing
+    ? ''
+    : 'transition-[height] duration-200 ease-out'}"
 >
+  {#if collapsed}
+    <button
+      type="button"
+      data-testid="expand-definition-btn"
+      onclick={() => onExpand?.()}
+      aria-label="Expand definitions panel"
+      title="Expand definitions panel (Ctrl+D)"
+      class="group absolute inset-x-0 top-0 z-10 flex h-8 w-full items-center justify-between gap-3 px-4 text-left text-xs text-slate-400 select-none transition-colors hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
+    >
+      <span class="flex min-w-0 items-center gap-2">
+        <span class="text-[11px] font-semibold tracking-wider text-slate-300 uppercase group-hover:text-slate-100">
+          Definitions
+        </span>
+        {#if selectedWord}
+          <span aria-hidden="true" class="text-slate-500">·</span>
+          <span class="truncate font-mono text-xs font-bold text-amber-300">
+            {selectedWord}
+          </span>
+          {#if lookupResult && (lookupResult.entries ?? []).length > 0}
+            <span class="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+              {lookupResult.entries.length} {lookupResult.entries.length === 1 ? 'entry' : 'entries'}
+            </span>
+          {/if}
+        {/if}
+      </span>
+      <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors group-hover:bg-slate-800 group-hover:text-amber-300">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          class="h-3.5 w-3.5 rotate-180"
+          aria-hidden="true"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z"
+            clip-rule="evenodd"
+          />
+          <path
+            fill-rule="evenodd"
+            d="M4.22 9.72a.75.75 0 0 1 1.06 0L8 12.44l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 10.78a.75.75 0 0 1 0-1.06Z"
+            clip-rule="evenodd"
+          />
+        </svg>
+      </span>
+    </button>
+  {/if}
+
+  <div
+    inert={collapsed ? true : undefined}
+    aria-hidden={collapsed ? 'true' : undefined}
+    class="flex h-full min-h-0 flex-col transition-opacity duration-150 {collapsed
+      ? 'pointer-events-none opacity-0'
+      : 'opacity-100'}"
+  >
   <!-- Definition Header Bar -->
   <div class="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 px-4 py-1.5 select-none">
     <div class="flex items-center gap-2 min-w-0">
@@ -308,5 +371,5 @@
       </div>
     {/if}
   </div>
+  </div>
 </section>
-{/if}
