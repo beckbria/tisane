@@ -233,7 +233,6 @@ Function .onInit
   ReadRegStr $ExistingUserDir HKCU "${UNINST_KEY}" "InstallLocation"
   ReadRegStr $ExistingAllDir  HKLM "${UNINST_KEY}" "InstallLocation"
 
-  ; Parse command-line switches.
   ${GetParameters} $R0
   StrCpy $SkipScopePage 0
   StrCpy $ExtraRelaunchArgs ""

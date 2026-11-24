@@ -172,7 +172,7 @@ func (ss *SearchService) CancelSearch() bool {
 	return false
 }
 
-// StartSearch cancels any prior search, validates inputs synchronously, and launches
+// StartSearch validates inputs synchronously, cancels any prior running search, and launches
 // a background streaming search that emits "search:batch", "search:progress", and "search:complete".
 func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
 	activeDicts, activeInfos, extraDefDicts, cfg, release := ss.state.SnapshotSearchDicts()

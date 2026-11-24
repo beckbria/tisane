@@ -166,6 +166,9 @@ func isASCIIDigit(b byte) bool {
 
 // StripRTFForFTS strips RTF groups, control words, hex escapes, and \binN payloads
 // into plain text when tokenizing Pass 2 definitions for Full Text Search.
+// Unlike pkg/lookup's display renderer, header destinations (\fonttbl, \colortbl, \*)
+// are intentionally NOT skipped so compiled Pass 0 FTS token indices stay compatible
+// with classic TEA/TSBuild dictionaries.
 func StripRTFForFTS(rawDef []byte) []byte {
 	if !bytes.HasPrefix(rawDef, []byte(`{\rtf1`)) {
 		if len(rawDef) > 0 && rawDef[len(rawDef)-1] == '\n' {

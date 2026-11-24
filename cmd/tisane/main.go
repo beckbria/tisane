@@ -169,6 +169,8 @@ func buildAppMenu(
 		menu.AddRole(application.AppMenu)
 	}
 
+	// Native menu callbacks execute on the OS UI thread; dispatch modal file dialogs on a
+	// separate goroutine so synchronous dialog result waits never deadlock the event loop.
 	fileMenu := menu.AddSubmenu("File")
 	fileMenu.Add("Add Dictionary (.tsd)...").
 		SetAccelerator("CmdOrCtrl+O").

@@ -158,7 +158,7 @@ func ParseEnumeration(spec string) ([]EnumerationPart, error) {
 	return parts, nil
 }
 
-// TotalLength returns the sum of canonical letter counts across all enumeration parts.
+// TotalEnumerationLength returns the sum of canonical letter counts across all enumeration parts.
 func TotalEnumerationLength(parts []EnumerationPart) int {
 	sum := 0
 	for _, p := range parts {

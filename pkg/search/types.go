@@ -143,15 +143,15 @@ type Request struct {
 	MinLength               int                       // Default 1
 	MaxLength               int                       // Default 100
 	Enumeration             []pattern.EnumerationPart // Optional word/hyphen break constraint (ModeWord)
-	AtMacro                 string                    // Default "[aeiou]" if UseDefaultMacros is true or set explicitly
-	HashMacro               string                    // Default "[^aeiou]"
+	AtMacro                 string                    // Defaults to "[aeiou]" unless DisableDefaultMacros is true
+	HashMacro               string                    // Defaults to "[^aeiou]" unless DisableDefaultMacros is true
 	DisableDefaultMacros    bool                      // Set true ONLY when empty "" AtMacro/HashMacro is intentional
 	ExclusiveVars           bool
 	IgnoreUnusedPunctuation bool
 	ShowBalances            bool
 	ShowAnnotations         bool
 	DedupeMode              DedupeMode
-	EntryFilter             EntryTypeMask // 0 is treated as EntryAll; set ExcludeAll explicitly only if empty desired
+	EntryFilter             EntryTypeMask // 0 is treated as EntryAll; set EntryNone explicitly to exclude all categories
 	Sort                    SortMode
 	Limit                   int // 0 = unlimited
 	ForceSequentialFTS      bool

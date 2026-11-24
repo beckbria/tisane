@@ -33,7 +33,7 @@ type ConfigPatch struct {
 	Fonts                   *profile.FontConfig  `json:"fonts,omitempty"`
 }
 
-// ProfileService exposes persistent user settings (~/.config/tisane/config.toml) to Wails v3.
+// ProfileService exposes persistent user settings (config.toml in the OS user config directory) to Wails v3.
 type ProfileService struct {
 	state *State
 }

@@ -195,7 +195,6 @@
       onsubmit={handleSubmit}
       class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
     >
-      <!-- Header -->
       <div class="flex items-center justify-between border-b border-slate-800 px-5 py-3.5">
         <div>
           <h2 class="text-sm font-semibold text-slate-100">Build Dictionary from Word List</h2>
@@ -214,7 +213,6 @@
         </button>
       </div>
 
-      <!-- Body -->
       <div class="space-y-5 overflow-y-auto px-5 py-4 text-xs">
         <!-- Input & Output Files -->
         <section class="space-y-3">
@@ -512,7 +510,6 @@
         {/if}
       </div>
 
-      <!-- Footer -->
       <div class="flex items-center justify-end gap-2 border-t border-slate-800 bg-slate-950/60 px-5 py-3">
         <button
           type="button"

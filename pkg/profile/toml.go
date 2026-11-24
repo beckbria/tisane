@@ -1,5 +1,9 @@
 package profile
 
+// toml.go implements a dependency-free, single-line TOML serializer and parser
+// for config.toml so pkg/profile stays strictly on the Go standard library.
+// Strings and arrays are intentionally constrained to single lines.
+
 import (
 	"bytes"
 	"fmt"

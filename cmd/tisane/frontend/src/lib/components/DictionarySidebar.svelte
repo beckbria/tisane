@@ -189,7 +189,6 @@
       ? 'pointer-events-none opacity-0'
       : 'opacity-100'}"
   >
-  <!-- Header -->
   <div class="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
     <div class="min-w-0 flex-1">
       <h2 class="truncate text-xs font-semibold tracking-wider text-slate-300 uppercase">

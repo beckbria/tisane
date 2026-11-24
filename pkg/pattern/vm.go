@@ -96,7 +96,6 @@ func (m *Matcher) FormatBalance() (balanceStr string, balanceLetters int) {
 	numTotal := dict.NumTotalLetters()
 	out := m.balanceBuf[:0]
 
-	// Pass 0: negative entries (-OMITTED)
 	wroteMinus := false
 	for li := 0; li < numTotal; li++ {
 		cnt := m.savedBalance[li]
@@ -113,7 +112,6 @@ func (m *Matcher) FormatBalance() (balanceStr string, balanceLetters int) {
 		}
 	}
 
-	// Pass 1: positive entries (+ADDED)
 	wrotePlus := false
 	for li := 0; li < numTotal; li++ {
 		cnt := m.savedBalance[li]
@@ -140,10 +138,8 @@ func (m *Matcher) evalNode(node compiledNode, entry tsd.RawEntry) bool {
 	switch v := node.(type) {
 	case *compiledBinary:
 		if v.op == OpAnd {
-			// Short-circuit AND
 			return m.evalNode(v.left, entry) && m.evalNode(v.right, entry)
 		}
-		// Short-circuit OR
 		return m.evalNode(v.left, entry) || m.evalNode(v.right, entry)
 	case *compiledNot:
 		return !m.evalNode(v.inner, entry)

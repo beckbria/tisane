@@ -16,9 +16,8 @@ import (
 	"tisane/cmd/tisane/app"
 )
 
-// TestWailsServiceBindingsAndEmbeddedAssets verifies that every Go method invoked via @wailsio/runtime
-// Call.ByName(...) from the Svelte 5 frontend is registered under its exact FQN, and that
-// the embedded frontend/dist bundle serves index.html cleanly.
+// TestWailsServiceBindingsAndEmbeddedAssets verifies that the bound Go service methods exposed
+// to Wails v3 match the expected FQN contract, and that embedded frontend/dist serves index.html.
 func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")
 	state, err := app.NewState(cfgPath, app.NoopBridge{})

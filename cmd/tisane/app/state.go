@@ -54,6 +54,9 @@ type DictionaryInfo struct {
 	Enabled        bool   `json:"enabled"`
 }
 
+// loadedDict wraps an open *tsd.Dictionary with atomic reference counting.
+// State.dicts owns a base reference of 1 while registered; acquire() must only be called
+// while holding State.mu on a live State.dicts entry so 0 -> 1 resurrection cannot occur.
 type loadedDict struct {
 	info DictionaryInfo
 	dict *tsd.Dictionary

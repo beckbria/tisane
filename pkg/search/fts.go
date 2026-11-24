@@ -117,8 +117,6 @@ func collectIndexedLeafOffsets(
 			return nil, false, err
 		}
 
-		// Quick length check by testing a dummy length check via MatchLeafEntry:
-		// Note: ScanAllRawWords only opened if L can match leafIdx.
 		var lt *tsd.LinkTable
 		var ftsPtrs []uint32
 		loadedFTSPtrs := false

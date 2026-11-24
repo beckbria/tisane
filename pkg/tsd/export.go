@@ -490,7 +490,6 @@ func (d *Dictionary) Export(w io.Writer, opts ExportOptions) (*ExportStats, erro
 		}
 	}
 
-	// Collect standalone (undefined) words.
 	var standalone []*exportWord
 	for _, ew := range allWords {
 		if !ew.emitted {

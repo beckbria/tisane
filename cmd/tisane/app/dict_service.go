@@ -143,7 +143,8 @@ func (ds *DictionaryService) scanDirectory(ctx context.Context, dir string) ([]D
 	return ds.addDictionaryPaths(found)
 }
 
-// RemoveDictionary closes and unregisters dictionary id from the profile.
+// RemoveDictionary unregisters dictionary id from the profile and releases State's reference
+// so the underlying file handle closes once any in-flight searches or lookups finish.
 func (ds *DictionaryService) RemoveDictionary(id string) ([]DictionaryInfo, error) {
 	ds.state.mu.Lock()
 	idx := ds.state.findIndexLocked(id)
