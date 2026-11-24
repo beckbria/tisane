@@ -11,6 +11,7 @@ go_library(
     importpath = "tisane/cmd/tisane-cli",
     visibility = ["//visibility:private"],
     deps = [
+        "//:version",
         "//pkg/lookup",
         "//pkg/pattern",
         "//pkg/profile",

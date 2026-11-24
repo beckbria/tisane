@@ -124,7 +124,7 @@ type Config struct {
 	ShowBalances            bool                 `json:"showBalances"`
 	ShowAnnotations         bool                 `json:"showAnnotations"`
 	SuppressDuplicates      bool                 `json:"suppressDuplicates"`
-	EntryFilter             []string             `json:"entryFilter"` // "lowercase", "capitalized", "punctuated", "phrase"
+	EntryFilter             []string             `json:"entryFilter"`      // "lowercase", "capitalized", "punctuated", "phrase"
 	SortMode                string               `json:"sortMode"`         // "dict", "alpha", "alpha-desc", "len", "len-desc", "smart"
 	LayoutMode              string               `json:"layoutMode"`       // "tiled" (default) or "unified"
 	SidebarWidth            int                  `json:"sidebarWidth"`     // expanded pixel width of the dictionary sidebar
@@ -202,18 +202,41 @@ func LoadOrDefault() (*Config, string, error) {
 	return cfg, p, nil
 }
 
-// Save writes cfg as clean TOML to path atomically via a temporary sibling file.
+// Save writes cfg as clean TOML to path atomically via a private temporary sibling file.
 func Save(path string, cfg *Config) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create config directory %q: %w", dir, err)
 	}
 	data := MarshalTOML(cfg)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
+	f, err := os.CreateTemp(dir, ".config-*.toml.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp config in %q: %w", dir, err)
 	}
-	return os.Rename(tmp, path)
+	tmpPath := f.Name()
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write config %q: %w", path, err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("sync config %q: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close temp config %q: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace config %q: %w", path, err)
+	}
+	keepTmp = true
+	return nil
 }
 
 // SplitDictPathEnv splits TISANE_DICT_PATH on os.PathListSeparator (and ';' on Unix when paths don't exist with ';').

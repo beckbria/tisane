@@ -20,7 +20,7 @@ import (
 
 	"github.com/tc-hib/winres"
 
-	"tisane/pkg/profile"
+	"tisane"
 )
 
 // iconSizes are the standard Windows 10/11 icon resolutions embedded in the
@@ -69,7 +69,7 @@ func run(args []string) error {
 	fs.StringVar(&cfg.scriptPath, "script", "", "path to NSIS .nsi script")
 	fs.StringVar(&cfg.iconPath, "icon", "", "path to source PNG icon")
 	fs.StringVar(&cfg.outPath, "out", "", "output Windows installer .exe path")
-	fs.StringVar(&cfg.appVersion, "version", profile.Version, "application version string")
+	fs.StringVar(&cfg.appVersion, "version", tisane.Version, "application version string")
 	fs.StringVar(&cfg.makensisPath, "makensis", "", "path to makensis executable (defaults to PATH lookup)")
 	fs.Var(&bins, "bin", "executable binary mapping in src=dst format (repeatable)")
 	fs.Var(&files, "file", "regular file mapping in src=dst format (repeatable)")
@@ -94,7 +94,7 @@ func buildInstaller(cfg config) error {
 		return fmt.Errorf("-out is required")
 	}
 	if strings.TrimSpace(cfg.appVersion) == "" {
-		cfg.appVersion = profile.Version
+		cfg.appVersion = tisane.Version
 	}
 
 	entries, err := parseEntries(cfg.bins, cfg.files)

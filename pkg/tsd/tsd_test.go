@@ -396,3 +396,50 @@ func TestConcurrentDictionaryAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestBuildAndExportFileAtomicNoTmpLeak(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "words.txt")
+	if err := os.WriteFile(srcPath, []byte("alpha\nbeta|second letter\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tsdPath := filepath.Join(dir, "out.tsd")
+	if _, err := tsd.BuildFile(srcPath, tsdPath, tsd.DefaultBuildOptions()); err != nil {
+		t.Fatalf("BuildFile: %v", err)
+	}
+
+	d, err := tsd.Open(tsdPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer d.Close()
+
+	exportPath := filepath.Join(dir, "exported.txt")
+	victimPath := filepath.Join(dir, "victim.txt")
+	if err := os.WriteFile(victimPath, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Symlink(victimPath, exportPath+".tmp")
+
+	if _, err := d.ExportFile(exportPath, tsd.DefaultExportOptions(tsd.ExportSimple)); err != nil {
+		t.Fatalf("ExportFile: %v", err)
+	}
+	gotVictim, err := os.ReadFile(victimPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotVictim) != "keep" {
+		t.Fatalf("predictable .tmp symlink target clobbered: %q", string(gotVictim))
+	}
+
+	_ = os.Remove(exportPath + ".tmp")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".tmp" {
+			t.Fatalf("unexpected leftover temp file: %s", e.Name())
+		}
+	}
+}

@@ -6,7 +6,7 @@ go_library(
     importpath = "tisane/cmd/tisane-merge",
     visibility = ["//visibility:private"],
     deps = [
-        "//pkg/profile",
+        "//:version",
         "//pkg/wordlist",
     ],
 )

@@ -326,6 +326,50 @@ func MergeBytes(primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *
 	return outBytes, stats, nil
 }
 
+func writeBytesAtomic(outputPath string, data []byte) error {
+	if info, err := os.Lstat(outputPath); err == nil && (info.Mode()&os.ModeCharDevice) != 0 {
+		return os.WriteFile(outputPath, data, 0o644)
+	}
+	dir := filepath.Dir(outputPath)
+	if dir == "" {
+		dir = "."
+	}
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	f, err := os.CreateTemp(dir, ".tisane-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := f.Name()
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	_ = f.Chmod(0o644)
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, outputPath); err != nil {
+		return err
+	}
+	keepTmp = true
+	return nil
+}
+
 // MergeFiles reads primaryPath and secondaryPath, merges them with opts, and writes the result to outputPath.
 func MergeFiles(primaryPath, secondaryPath, outputPath string, opts MergeOptions) (*MergeStats, error) {
 	primaryData, err := os.ReadFile(primaryPath)
@@ -342,7 +386,7 @@ func MergeFiles(primaryPath, secondaryPath, outputPath string, opts MergeOptions
 		return nil, err
 	}
 
-	if err := os.WriteFile(outputPath, outBytes, 0o644); err != nil {
+	if err := writeBytesAtomic(outputPath, outBytes); err != nil {
 		return nil, fmt.Errorf("failed to write output word list %q: %w", outputPath, err)
 	}
 	return stats, nil

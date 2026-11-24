@@ -9,11 +9,11 @@ import (
 	"os"
 	"time"
 
-	"tisane/pkg/profile"
+	"tisane"
 	"tisane/pkg/wordlist"
 )
 
-var version = profile.Version
+var version = tisane.Version
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))

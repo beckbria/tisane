@@ -198,23 +198,13 @@ func writeEncodedLine(bw *bufio.Writer, cp1252Line []byte, enc InputEncoding) er
 
 // ExportFile extracts a word list (simple or metadata) from d and writes it atomically to outputPath.
 func (d *Dictionary) ExportFile(outputPath string, opts ExportOptions) (*ExportStats, error) {
-	tmpPath := outputPath + ".tmp"
-	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	var stats *ExportStats
+	err := writeFileAtomic(outputPath, func(f *os.File) error {
+		var exportErr error
+		stats, exportErr = d.Export(f, opts)
+		return exportErr
+	})
 	if err != nil {
-		return nil, err
-	}
-	stats, exportErr := d.Export(f, opts)
-	closeErr := f.Close()
-	if exportErr != nil {
-		_ = os.Remove(tmpPath)
-		return nil, exportErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(tmpPath)
-		return nil, closeErr
-	}
-	if err := os.Rename(tmpPath, outputPath); err != nil {
-		_ = os.Remove(tmpPath)
 		return nil, err
 	}
 	return stats, nil

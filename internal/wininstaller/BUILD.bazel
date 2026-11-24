@@ -6,7 +6,7 @@ go_library(
     importpath = "tisane/internal/wininstaller",
     visibility = ["//visibility:private"],
     deps = [
-        "//pkg/profile",
+        "//:version",
         "@com_github_tc_hib_winres//:winres",
     ],
 )

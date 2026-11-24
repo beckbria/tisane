@@ -16,7 +16,7 @@ import (
 	"github.com/tc-hib/winres"
 	"github.com/tc-hib/winres/version"
 
-	"tisane/pkg/profile"
+	"tisane"
 )
 
 // iconSizes are the standard Windows 10/11 icon resolutions embedded in the
@@ -234,23 +234,44 @@ func run(cfg config) error {
 		return err
 	}
 
-	if dir := filepath.Dir(cfg.outPath); dir != "" && dir != "." {
+	dir := filepath.Dir(cfg.outPath)
+	if dir == "" {
+		dir = "."
+	}
+	if dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create output directory %q: %w", dir, err)
 		}
 	}
 
-	out, err := os.Create(cfg.outPath)
+	tmp, err := os.CreateTemp(dir, ".winrsrc-*.syso.tmp")
 	if err != nil {
-		return fmt.Errorf("create output %q: %w", cfg.outPath, err)
+		return fmt.Errorf("create temp output in %q: %w", dir, err)
 	}
-	if err := rs.WriteObject(out, targetArch); err != nil {
-		_ = out.Close()
+	tmpPath := tmp.Name()
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := rs.WriteObject(tmp, targetArch); err != nil {
+		_ = tmp.Close()
 		return fmt.Errorf("write COFF object %q: %w", cfg.outPath, err)
 	}
-	if err := out.Close(); err != nil {
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync output %q: %w", cfg.outPath, err)
+	}
+	_ = tmp.Chmod(0o644)
+	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close output %q: %w", cfg.outPath, err)
 	}
+	if err := os.Rename(tmpPath, cfg.outPath); err != nil {
+		return fmt.Errorf("rename output %q: %w", cfg.outPath, err)
+	}
+	keepTmp = true
 	return nil
 }
 
@@ -261,7 +282,7 @@ func main() {
 	flag.StringVar(&cfg.infoPath, "info", "", "Optional path to Windows version metadata JSON (Wails info.json format)")
 	flag.StringVar(&cfg.outPath, "out", "", "Path to output .syso COFF file")
 	flag.StringVar(&cfg.arch, "arch", "amd64", "Target Windows architecture (amd64, arm64, 386)")
-	flag.StringVar(&cfg.appVersion, "version", profile.Version, "Application version string")
+	flag.StringVar(&cfg.appVersion, "version", tisane.Version, "Application version string")
 	flag.StringVar(&cfg.productName, "name", "Tisane", "Application product name")
 	flag.StringVar(&cfg.description, "desc", "High-speed crossword, anagram, and wordplay dictionary search", "Application description")
 	flag.Parse()

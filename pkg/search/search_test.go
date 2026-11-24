@@ -54,7 +54,7 @@ func matchWords(matches []search.Match) []string {
 
 func TestMultiDictDedupeSortingFiltersEnumerationAndDefEnrichment(t *testing.T) {
 	wordnet := openRepoDict(t, "english-wordnet-2025-plus.tsd") // TSD1 (no definitions)
-	defs := buildSynthDict(t, "defs", "cynic|one who sneers\n")  // TSD1 (has definitions)
+	defs := buildSynthDict(t, "defs", "cynic|one who sneers\n") // TSD1 (has definitions)
 
 	eng := search.NewEngine()
 

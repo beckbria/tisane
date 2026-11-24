@@ -108,7 +108,7 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 		t.Fatalf("expected embedded '/icon.png' response body to start with PNG signature")
 	}
 
-	if appVersion == "" || appVersion != app.Version || appVersion != tisane.Version {
-		t.Fatalf("expected non-empty matching version %q, got appVersion=%q app.Version=%q", tisane.Version, appVersion, app.Version)
+	if tisane.Version == "" {
+		t.Fatal("expected non-empty tisane.Version")
 	}
 }

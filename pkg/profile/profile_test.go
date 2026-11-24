@@ -159,3 +159,39 @@ func TestSidebarConfigRoundTripAndNormalization(t *testing.T) {
 		t.Fatalf("expected clamped high width %d, got %d", profile.MaxSidebarWidth, clampedHigh.SidebarWidth)
 	}
 }
+
+func TestSaveAtomicAndDoesNotClobberPredictableTmp(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "sub", "config.toml")
+	trapTarget := filepath.Join(dir, "victim.txt")
+	if err := os.WriteFile(trapTarget, []byte("untouched"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A pre-existing ".tmp" sibling must never be overwritten by Save.
+	_ = os.Symlink(trapTarget, cfgPath+".tmp")
+
+	cfg := profile.DefaultConfig()
+	cfg.MinLength = 3
+	if err := profile.Save(cfgPath, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	victimBytes, err := os.ReadFile(trapTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(victimBytes) != "untouched" {
+		t.Fatalf("predictable .tmp symlink target was clobbered: %q", string(victimBytes))
+	}
+
+	loaded, err := profile.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.MinLength != 3 {
+		t.Fatalf("MinLength = %d, want 3", loaded.MinLength)
+	}
+}

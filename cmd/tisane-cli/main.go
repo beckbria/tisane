@@ -18,13 +18,14 @@ import (
 	"syscall"
 	"time"
 
+	"tisane"
 	"tisane/pkg/lookup"
 	"tisane/pkg/profile"
 	"tisane/pkg/search"
 	"tisane/pkg/tsd"
 )
 
-var cliVersion = profile.Version
+var cliVersion = tisane.Version
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

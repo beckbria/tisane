@@ -25,11 +25,11 @@ type recordedEvent struct {
 }
 
 type mockBridge struct {
-	mu          sync.Mutex
-	events      []recordedEvent
-	openedURLs  []string
-	picked      []string
-	pickedDir   string
+	mu              sync.Mutex
+	events          []recordedEvent
+	openedURLs      []string
+	picked          []string
+	pickedDir       string
 	pickedWord      string
 	pickedSave      string
 	pickedSaveWord  string
