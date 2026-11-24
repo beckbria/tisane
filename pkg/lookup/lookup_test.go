@@ -106,3 +106,101 @@ func TestLookupAndWebURLs(t *testing.T) {
 		t.Fatalf("unexpected Wiktionary URL: %s", links[1].URL)
 	}
 }
+
+func TestRTFSafetyLinkifierSpeedSubstream2AndURLValidation(t *testing.T) {
+	// 1. \bin signed int overflow must not panic, malformed \' must not eat '}', and UTF-16 surrogates combine
+	_ = lookup.DefinitionToHTML([]byte(`{\rtf1\ansi{\*\pict\bin9223372036854775807 abc}}`))
+	malformed := []byte(`{\rtf1\ansi{\b bold\'}\par\pard Header\par\li360 Indented \uc1\u-10179?\u-9032?\par }`)
+	htmlOut := lookup.DefinitionToHTML(malformed)
+	if !strings.Contains(htmlOut, "<strong>bold</strong>") {
+		t.Fatalf("malformed hex escape ate closing brace: %s", htmlOut)
+	}
+	if !strings.Contains(htmlOut, `<p class="tsd-par">Header</p><p class="tsd-par tsd-indent">Indented`) {
+		t.Fatalf("expected \\pard + \\li360 indentation preserved: %s", htmlOut)
+	}
+	if !strings.Contains(htmlOut, "💸") {
+		t.Fatalf("expected UTF-16 surrogate pair \\u-10179\\u-9032 (U+1F4B8) to decode to 💸, got: %s", htmlOut)
+	}
+
+	// 2. O(N) linkifier handles 100k trailing ')' and bare schemes instantaneously
+	hugeParens := "see http://example.com/path" + strings.Repeat(")", 100_000) + " and mailto: and http://"
+	linked := lookup.DefinitionToHTML([]byte(hugeParens))
+	if !strings.Contains(linked, `href="http://example.com/path"`) {
+		t.Fatalf("unexpected linkified URL in huge-paren input")
+	}
+	if strings.Contains(linked, `href="mailto:"`) || strings.Contains(linked, `href="http://"`) || !strings.Contains(linked, "mailto:") {
+		t.Fatalf("bare scheme mishandled: %s", linked[len(linked)-120:])
+	}
+
+	// 3. BuildWebURL / BuildWebLinks reject unsafe schemes and userinfo spoofing
+	for _, bad := range []struct{ tmpl, word string }{
+		{"javascript:alert({entry})", "1"},
+		{"file:///etc/{entry}", "passwd"},
+		{"{entry}", "javascript:alert(1)"},
+		{"https://{entry}", "user@evil.com"},
+	} {
+		if got := lookup.BuildWebURL(bad.tmpl, bad.word); got != "" {
+			t.Fatalf("BuildWebURL(%q, %q) = %q, want empty", bad.tmpl, bad.word, got)
+		}
+	}
+	filtered := lookup.BuildWebLinks("cat", []lookup.WebProvider{
+		{ID: "bad", Name: "Bad", URLTemplate: "javascript:{entry}"},
+		{ID: "ok", Name: "OK", URLTemplate: "https://example.com/{entry}?q={entry}"},
+	})
+	if len(filtered) != 1 || filtered[0].URL != "https://example.com/cat?q=cat" {
+		t.Fatalf("BuildWebLinks filtered = %+v", filtered)
+	}
+
+	// 4. Sub-stream 2 FTS-only mention lookup & exact-mention vs case-insensitive-direct fallback
+	src := strings.Join([]string{
+		"alpha|mentions zephyr inside body",
+		"March",
+		"march|to walk in step",
+		"other|mentions March in spring",
+	}, "\n") + "\n"
+	raw, _, err := tsd.BuildBytes([]byte(src), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := tsd.OpenBytes(raw, "sub2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	// "zephyr" (len 6, same length bucket as "other"=5? No, let's ensure bucket 6 exists!)
+	src2 := src + "abcdef\n"
+	raw2, _, err := tsd.BuildBytes([]byte(src2), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2, err := tsd.OpenBytes(raw2, "sub2b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d2.Close()
+
+	zephyrRes, err := lookup.Lookup(context.Background(), "zephyr", []*tsd.Dictionary{d2}, lookup.Options{
+		CaseInsensitiveFallback: true,
+		IncludeMentions:         true,
+	})
+	if err != nil {
+		t.Fatalf("Lookup(zephyr): %v", err)
+	}
+	if len(zephyrRes.Entries) != 1 || !zephyrRes.Entries[0].IsMention {
+		t.Fatalf("expected 1 Sub-stream 2 mention for 'zephyr', got %+v", zephyrRes.Entries)
+	}
+
+	// "March" has only an FTS mention while "march" has a direct definition;
+	// Lookup("March") with IncludeMentions=false must fall back to "march"'s direct definition!
+	marchRes, err := lookup.Lookup(context.Background(), "March", []*tsd.Dictionary{d2}, lookup.Options{
+		CaseInsensitiveFallback: true,
+		IncludeMentions:         false,
+	})
+	if err != nil {
+		t.Fatalf("Lookup(March): %v", err)
+	}
+	if len(marchRes.Entries) != 1 || marchRes.Entries[0].IsMention || !strings.Contains(marchRes.Entries[0].Text, "walk in step") {
+		t.Fatalf("expected fallback to direct definition of 'march', got %+v", marchRes.Entries)
+	}
+}

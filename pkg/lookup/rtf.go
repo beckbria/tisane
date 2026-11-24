@@ -6,8 +6,15 @@ import (
 	"bytes"
 	"html"
 	"strings"
+	"unicode"
+	"unicode/utf16"
 
 	"tisane/pkg/tsd"
+)
+
+const (
+	maxRTFParam      = 1 << 28
+	maxRTFGroupDepth = 512
 )
 
 type rtfStyle struct {
@@ -37,21 +44,30 @@ type rtfParagraph struct {
 }
 
 var ignoredRTFDestinations = map[string]bool{
-	"fonttbl":    true,
-	"colortbl":   true,
-	"stylesheet": true,
-	"info":       true,
-	"pict":       true,
-	"object":     true,
-	"header":     true,
-	"footer":     true,
-	"footnote":   true,
-	"fldinst":    true,
+	"fonttbl":           true,
+	"colortbl":          true,
+	"stylesheet":        true,
+	"info":              true,
+	"pict":              true,
+	"object":            true,
+	"header":            true,
+	"headerl":           true,
+	"headerr":           true,
+	"headerf":           true,
+	"footer":            true,
+	"footerl":           true,
+	"footerr":           true,
+	"footerf":           true,
+	"footnote":          true,
+	"fldinst":           true,
+	"listtable":         true,
+	"listoverridetable": true,
 }
 
 // parseRTFDocument parses an RTF byte slice (starting with "{\rtf1") into structured paragraphs.
 func parseRTFDocument(raw []byte) []rtfParagraph {
 	stack := make([]rtfStyle, 0, 16)
+	overflowDepth := 0
 	cur := rtfStyle{ucSkip: 1}
 
 	var paragraphs []rtfParagraph
@@ -60,7 +76,7 @@ func parseRTFDocument(raw []byte) []rtfParagraph {
 	curTextStyle := cur
 	skipFallbackChars := 0
 	justOpenedGroup := false
-	minNonZeroIndent := 0
+	var highSurrogate rune
 
 	flushSpan := func() {
 		if textBuf.Len() == 0 {
@@ -88,10 +104,22 @@ func parseRTFDocument(raw []byte) []rtfParagraph {
 		}
 	}
 
+	flushPendingSurrogate := func() {
+		if highSurrogate != 0 {
+			highSurrogate = 0
+			if !cur.ignoreDest {
+				syncStyle()
+				textBuf.WriteRune(unicode.ReplacementChar)
+			}
+		}
+	}
+
 	emitRune := func(r rune) {
-		if cur.ignoreDest {
+		if r == 0 || cur.ignoreDest {
+			highSurrogate = 0
 			return
 		}
+		flushPendingSurrogate()
 		syncStyle()
 		textBuf.WriteRune(r)
 	}
@@ -100,11 +128,8 @@ func parseRTFDocument(raw []byte) []rtfParagraph {
 		if cur.ignoreDest {
 			return
 		}
+		flushPendingSurrogate()
 		flushSpan()
-		// Trim trailing whitespace on final span; skip completely empty trailing paragraphs at end.
-		if cur.leftIndent > 0 && (minNonZeroIndent == 0 || cur.leftIndent < minNonZeroIndent) {
-			minNonZeroIndent = cur.leftIndent
-		}
 		paragraphs = append(paragraphs, rtfParagraph{
 			leftIndent: cur.leftIndent,
 			spans:      curSpans,
@@ -120,15 +145,22 @@ func parseRTFDocument(raw []byte) []rtfParagraph {
 			continue
 		}
 		if b == '{' {
-			stack = append(stack, cur)
+			if len(stack) >= maxRTFGroupDepth {
+				overflowDepth++
+			} else {
+				stack = append(stack, cur)
+			}
 			justOpenedGroup = true
 			skipFallbackChars = 0
 			i++
 			continue
 		}
 		if b == '}' {
+			flushPendingSurrogate()
 			flushSpan()
-			if len(stack) > 0 {
+			if overflowDepth > 0 {
+				overflowDepth--
+			} else if len(stack) > 0 {
 				cur = stack[len(stack)-1]
 				stack = stack[:len(stack)-1]
 			}
@@ -186,24 +218,18 @@ func parseRTFDocument(raw []byte) []rtfParagraph {
 			case nb == '\'':
 				justOpenedGroup = false
 				i++
-				var hexVal byte
-				for k := 0; k < 2 && i < n; k++ {
-					hb := raw[i]
-					hexVal <<= 4
-					switch {
-					case hb >= '0' && hb <= '9':
-						hexVal += hb - '0'
-					case hb >= 'a' && hb <= 'f':
-						hexVal += hb - 'a' + 10
-					case hb >= 'A' && hb <= 'F':
-						hexVal += hb - 'A' + 10
+				if i+1 < n {
+					h1, ok1 := parseHexNibble(raw[i])
+					h2, ok2 := parseHexNibble(raw[i+1])
+					if ok1 && ok2 {
+						i += 2
+						hexVal := (h1 << 4) | h2
+						if skipFallbackChars > 0 {
+							skipFallbackChars--
+						} else if hexVal != 0 {
+							emitRune(tsd.DecodeCP1252Byte(hexVal))
+						}
 					}
-					i++
-				}
-				if skipFallbackChars > 0 {
-					skipFallbackChars--
-				} else {
-					emitRune(tsd.DecodeCP1252Byte(hexVal))
 				}
 			case (nb >= 'A' && nb <= 'Z') || (nb >= 'a' && nb <= 'z'):
 				cwStart := i
@@ -220,7 +246,12 @@ func parseRTFDocument(raw []byte) []rtfParagraph {
 				}
 				for i < n && raw[i] >= '0' && raw[i] <= '9' {
 					hasParam = true
-					paramVal = paramVal*10 + int(raw[i]-'0')
+					if paramVal < maxRTFParam {
+						paramVal = paramVal*10 + int(raw[i]-'0')
+						if paramVal > maxRTFParam {
+							paramVal = maxRTFParam
+						}
+					}
 					i++
 				}
 				if negParam {
@@ -242,9 +273,10 @@ func parseRTFDocument(raw []byte) []rtfParagraph {
 				switch cw {
 				case "bin":
 					if paramVal > 0 {
-						i += paramVal
-						if i > n {
+						if paramVal >= n-i {
 							i = n
+						} else {
+							i += paramVal
 						}
 					}
 				case "uc":
@@ -253,7 +285,19 @@ func parseRTFDocument(raw []byte) []rtfParagraph {
 					}
 				case "u":
 					if hasParam {
-						emitRune(rune(uint16(int16(paramVal))))
+						u := rune(uint16(int16(paramVal)))
+						if u >= 0xD800 && u <= 0xDBFF {
+							flushPendingSurrogate()
+							if !cur.ignoreDest {
+								highSurrogate = u
+							}
+						} else if u >= 0xDC00 && u <= 0xDFFF && highSurrogate != 0 {
+							combined := utf16.DecodeRune(highSurrogate, u)
+							highSurrogate = 0
+							emitRune(combined)
+						} else {
+							emitRune(u)
+						}
 						skipFallbackChars = cur.ucSkip
 					}
 				case "b":
@@ -330,31 +374,51 @@ func parseRTFDocument(raw []byte) []rtfParagraph {
 		i++
 	}
 
+	flushPendingSurrogate()
 	flushSpan()
 	if len(curSpans) > 0 {
-		if cur.leftIndent > 0 && (minNonZeroIndent == 0 || cur.leftIndent < minNonZeroIndent) {
-			minNonZeroIndent = cur.leftIndent
-		}
 		paragraphs = append(paragraphs, rtfParagraph{
 			leftIndent: cur.leftIndent,
 			spans:      curSpans,
 		})
 	}
 
-	// Normalize relative indentation (e.g. \li180 base header vs \li360 body in TEA dictionaries).
-	if minNonZeroIndent > 0 {
-		for idx := range paragraphs {
-			if paragraphs[idx].leftIndent >= minNonZeroIndent {
-				paragraphs[idx].leftIndent -= minNonZeroIndent
-			}
-		}
-	}
-
-	// Drop trailing empty paragraphs produced by closing "\par }".
+	// Drop trailing empty paragraphs produced by closing "\par }" before normalizing indentation.
 	for len(paragraphs) > 0 && isParagraphEmpty(paragraphs[len(paragraphs)-1]) {
 		paragraphs = paragraphs[:len(paragraphs)-1]
 	}
+
+	// Normalize relative indentation (e.g. \li180 base header vs \li360 body in TEA dictionaries,
+	// while preserving \li360 when a \pard header paragraph has leftIndent == 0).
+	if len(paragraphs) > 0 {
+		minIndent := -1
+		for _, p := range paragraphs {
+			if p.leftIndent >= 0 && (minIndent < 0 || p.leftIndent < minIndent) {
+				minIndent = p.leftIndent
+			}
+		}
+		if minIndent > 0 {
+			for idx := range paragraphs {
+				if paragraphs[idx].leftIndent >= minIndent {
+					paragraphs[idx].leftIndent -= minIndent
+				}
+			}
+		}
+	}
 	return paragraphs
+}
+
+func parseHexNibble(b byte) (byte, bool) {
+	switch {
+	case b >= '0' && b <= '9':
+		return b - '0', true
+	case b >= 'a' && b <= 'f':
+		return b - 'a' + 10, true
+	case b >= 'A' && b <= 'F':
+		return b - 'A' + 10, true
+	default:
+		return 0, false
+	}
 }
 
 func isParagraphEmpty(p rtfParagraph) bool {
@@ -367,41 +431,56 @@ func isParagraphEmpty(p rtfParagraph) bool {
 }
 
 // linkifyAndEscapeHTML escapes text for HTML and converts http://, https://, and mailto: URLs
-// into safe clickable anchor tags.
+// into safe clickable anchor tags in O(len(s)) time.
 func linkifyAndEscapeHTML(s string) string {
 	var out strings.Builder
 	out.Grow(len(s) + 16)
 
 	i := 0
 	for i < len(s) {
-		idxHTTP := indexURLStart(s[i:])
-		if idxHTTP < 0 {
+		idxURL, prefixLen := indexURLStart(s[i:])
+		if idxURL < 0 {
 			out.WriteString(html.EscapeString(s[i:]))
 			break
 		}
-		urlStart := i + idxHTTP
+		urlStart := i + idxURL
 		out.WriteString(html.EscapeString(s[i:urlStart]))
 
-		urlEnd := urlStart
+		urlEnd := urlStart + prefixLen
+		openParens := 0
+		closeParens := 0
 		for urlEnd < len(s) {
 			c := s[urlEnd]
 			if c <= ' ' || c == '<' || c == '>' || c == '"' || c == '{' || c == '}' {
 				break
 			}
+			if c == '(' {
+				openParens++
+			} else if c == ')' {
+				closeParens++
+			}
 			urlEnd++
 		}
-		// Strip trailing sentence punctuation ('.', ',', ';', ')', '!') unless balanced '(' inside URL.
-		for urlEnd > urlStart {
+		minBodyEnd := urlStart + prefixLen
+		// Strip trailing sentence punctuation unless balanced '(' inside URL.
+		for urlEnd > minBodyEnd {
 			last := s[urlEnd-1]
-			if last == '.' || last == ',' || last == ';' || last == ':' || last == '!' || last == '?' {
+			if last == '.' || last == ',' || last == ';' || last == ':' || last == '!' || last == '?' || last == '\'' || last == ']' {
 				urlEnd--
 				continue
 			}
-			if last == ')' && strings.Count(s[urlStart:urlEnd], "(") < strings.Count(s[urlStart:urlEnd], ")") {
+			if last == ')' && closeParens > openParens {
 				urlEnd--
+				closeParens--
 				continue
 			}
 			break
+		}
+
+		if urlEnd <= minBodyEnd {
+			out.WriteString(html.EscapeString(s[urlStart:minBodyEnd]))
+			i = minBodyEnd
+			continue
 		}
 
 		rawURL := s[urlStart:urlEnd]
@@ -416,36 +495,19 @@ func linkifyAndEscapeHTML(s string) string {
 	return out.String()
 }
 
-func indexURLStart(s string) int {
+func indexURLStart(s string) (idx int, prefixLen int) {
 	best := -1
+	bestLen := 0
 	for _, prefix := range []string{"http://", "https://", "mailto:"} {
-		if idx := strings.Index(s, prefix); idx >= 0 && (best < 0 || idx < best) {
-			best = idx
+		if pos := strings.Index(s, prefix); pos >= 0 && (best < 0 || pos < best) {
+			best = pos
+			bestLen = len(prefix)
 		}
 	}
-	return best
+	return best, bestLen
 }
 
-// DefinitionToHTML converts a raw CP1252 definition payload (plain text or {\rtf1...})
-// into sanitized semantic HTML.
-func DefinitionToHTML(rawBody []byte) string {
-	if !bytes.HasPrefix(rawBody, []byte(`{\rtf1`)) {
-		plain := strings.ReplaceAll(tsd.DecodeCP1252(rawBody), "\r\n", "\n")
-		plain = strings.TrimSpace(plain)
-		if plain == "" {
-			return ""
-		}
-		lines := strings.Split(plain, "\n")
-		var sb strings.Builder
-		for _, ln := range lines {
-			sb.WriteString(`<p class="tsd-par">`)
-			sb.WriteString(linkifyAndEscapeHTML(ln))
-			sb.WriteString(`</p>`)
-		}
-		return sb.String()
-	}
-
-	paras := parseRTFDocument(rawBody)
+func renderParagraphsHTML(paras []rtfParagraph) string {
 	var sb strings.Builder
 	for _, p := range paras {
 		if p.leftIndent > 0 {
@@ -498,15 +560,7 @@ func DefinitionToHTML(rawBody []byte) string {
 	return sb.String()
 }
 
-// DefinitionToText converts a raw CP1252 definition payload (plain text or {\rtf1...})
-// into clean UTF-8 plain text suitable for terminal display or clipboard copy.
-func DefinitionToText(rawBody []byte) string {
-	if !bytes.HasPrefix(rawBody, []byte(`{\rtf1`)) {
-		plain := strings.ReplaceAll(tsd.DecodeCP1252(rawBody), "\r\n", "\n")
-		return strings.TrimSpace(plain)
-	}
-
-	paras := parseRTFDocument(rawBody)
+func renderParagraphsText(paras []rtfParagraph) string {
 	var sb strings.Builder
 	for pIdx, p := range paras {
 		if pIdx > 0 {
@@ -531,5 +585,45 @@ func DefinitionToText(rawBody []byte) string {
 			sb.WriteString(strings.TrimLeft(text, " "))
 		}
 	}
-	return strings.TrimSpace(sb.String())
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func renderDefinitionBoth(rawBody []byte) (htmlOut string, textOut string) {
+	if !bytes.HasPrefix(rawBody, []byte(`{\rtf1`)) {
+		plain := strings.ReplaceAll(tsd.DecodeCP1252(rawBody), "\r\n", "\n")
+		plain = strings.TrimSpace(plain)
+		if plain == "" {
+			return "", ""
+		}
+		lines := strings.Split(plain, "\n")
+		var sb strings.Builder
+		for _, ln := range lines {
+			sb.WriteString(`<p class="tsd-par">`)
+			sb.WriteString(linkifyAndEscapeHTML(ln))
+			sb.WriteString(`</p>`)
+		}
+		return sb.String(), plain
+	}
+	paras := parseRTFDocument(rawBody)
+	return renderParagraphsHTML(paras), strings.TrimSpace(renderParagraphsText(paras))
+}
+
+// DefinitionToHTML converts a raw CP1252 definition payload (plain text or {\rtf1...})
+// into sanitized semantic HTML.
+func DefinitionToHTML(rawBody []byte) string {
+	if !bytes.HasPrefix(rawBody, []byte(`{\rtf1`)) {
+		htmlOut, _ := renderDefinitionBoth(rawBody)
+		return htmlOut
+	}
+	return renderParagraphsHTML(parseRTFDocument(rawBody))
+}
+
+// DefinitionToText converts a raw CP1252 definition payload (plain text or {\rtf1...})
+// into clean UTF-8 plain text suitable for terminal display or clipboard copy.
+func DefinitionToText(rawBody []byte) string {
+	if !bytes.HasPrefix(rawBody, []byte(`{\rtf1`)) {
+		plain := strings.ReplaceAll(tsd.DecodeCP1252(rawBody), "\r\n", "\n")
+		return strings.TrimSpace(plain)
+	}
+	return strings.TrimSpace(renderParagraphsText(parseRTFDocument(rawBody)))
 }
