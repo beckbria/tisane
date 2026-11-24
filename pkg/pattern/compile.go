@@ -1,6 +1,7 @@
 package pattern
 
 import (
+	"errors"
 	"sort"
 
 	"tisane/pkg/tsd"
@@ -112,11 +113,13 @@ type compiledAnagram struct {
 	varMult     [10]int
 	choices     []anagChoiceReq
 	subs        []anagSubReq
+	flatSubs    []*compiledAtom
 	hasVars     bool
 	dots        int
 	hasStar     bool
 	specCount   int
 	minLen      int
+	maxExtra    int  // additional letters allowed by variable-length embedded sub-patterns
 	impossible  bool // true if a required letter does not exist in dict's used letters and cannot be omitted
 }
 
@@ -221,7 +224,8 @@ type CompiledQuery struct {
 func Validate(raw string, parseOpts ParseOptions, compOpts CompileOptions, dicts ...*tsd.Dictionary) ValidationResult {
 	pq, err := Parse(raw, parseOpts)
 	if err != nil {
-		if se, ok := err.(*SyntaxError); ok {
+		var se *SyntaxError
+		if errors.As(err, &se) {
 			return ValidationResult{
 				Valid:   false,
 				Code:    se.Code,
@@ -274,9 +278,13 @@ func Validate(raw string, parseOpts ParseOptions, compOpts CompileOptions, dicts
 	globalMin := 0
 	globalMax := 0
 	for _, d := range dicts {
+		if d == nil {
+			continue
+		}
 		cq, cerr := Compile(pq, d, compOpts)
 		if cerr != nil {
-			if se, ok := cerr.(*SyntaxError); ok {
+			var se *SyntaxError
+			if errors.As(cerr, &se) {
 				return ValidationResult{
 					Valid:   false,
 					Code:    se.Code,
@@ -356,27 +364,44 @@ func estimateAtomBounds(a *AtomicPattern) (minL, maxL int, univ bool) {
 	}
 
 	aMin := 0
+	aSpec := 0
+	aDots := 0
+	aMaxExtra := 0
 	aHasStar := false
+	aHasSubs := false
 	for _, it := range a.Anagram.Items {
 		switch it.Kind {
-		case ItemLetter, ItemDot, ItemChoice, ItemVariable:
+		case ItemLetter, ItemChoice, ItemVariable:
 			aMin++
+			aSpec++
+		case ItemDot:
+			aMin++
+			aDots++
 		case ItemStar:
 			aHasStar = true
 		case ItemSubPattern:
-			sMin, _, _ := estimateAtomBounds(it.Sub)
+			aHasSubs = true
+			sMin, sMax, _ := estimateAtomBounds(it.Sub)
 			aMin += sMin
+			aSpec += sMin
+			if aMaxExtra >= unboundedMaxLen || sMax >= unboundedMaxLen {
+				aMaxExtra = unboundedMaxLen
+			} else {
+				aMaxExtra += sMax - sMin
+			}
 		}
+	}
+	anagMax := unboundedMaxLen
+	if !aHasStar && aMaxExtra < unboundedMaxLen {
+		anagMax = min(aMin+aMaxExtra, unboundedMaxLen)
 	}
 	if !hasTmpl {
-		if aHasStar {
-			return aMin, unboundedMaxLen, aMin == 0
-		}
-		return aMin, aMin, false
+		univ := !aHasSubs && ((aHasStar && aSpec == 0) || (!aHasStar && aSpec == 0 && aDots > 0))
+		return aMin, anagMax, univ
 	}
 	minOut, maxOut := tMin, tMax
-	if tMax > tMin && !aHasStar && tMin < aMin && aMin < maxOut {
-		maxOut = aMin
+	if tMax > tMin && anagMax < unboundedMaxLen && tMin < anagMax && anagMax < maxOut {
+		maxOut = anagMax
 	}
 	return minOut, maxOut, false
 }
@@ -414,6 +439,9 @@ func estimateASTLengths(root Expr, minBound, maxBound int) (minMatched, maxMatch
 
 // Compile binds a ParsedQuery to a specific *tsd.Dictionary and CompileOptions.
 func Compile(pq *ParsedQuery, dict *tsd.Dictionary, opts CompileOptions) (*CompiledQuery, error) {
+	if pq == nil || pq.Root == nil || dict == nil {
+		return nil, &SyntaxError{Code: ErrEmpty}
+	}
 	if opts.MinLength <= 0 {
 		opts.MinLength = 1
 	}
@@ -464,9 +492,9 @@ func Compile(pq *ParsedQuery, dict *tsd.Dictionary, opts CompileOptions) (*Compi
 		}
 	}
 
-	// Detect if top-level root has a synthetic enumeration RHS (Span == Left.ExprSpan() and BinaryExpr OpAnd).
+	// Detect if top-level root has a synthetic enumeration RHS injected by Parse.
 	var err error
-	if bin, ok := pq.Root.(*BinaryExpr); ok && bin.Op == OpAnd && bin.Span == bin.Left.ExprSpan() {
+	if bin, ok := pq.Root.(*BinaryExpr); ok && bin.Op == OpAnd && bin.SyntheticEnum {
 		leftNode, lerr := compileExpr(bin.Left, false)
 		if lerr != nil {
 			return nil, lerr
@@ -582,22 +610,34 @@ func compileChoiceMask(ch *ChoiceSpec, dict *tsd.Dictionary) (LetterBitmask, err
 	return mask, nil
 }
 
-func collectActivePunct(a *AtomicPattern, punctUsed *[256]bool, hasAnyPunct *bool, hasExactAlpha *bool) {
+func collectActivePunct(a *AtomicPattern, dict *tsd.Dictionary, punctUsed *[256]bool, hasAnyPunct *bool, hasExactAlpha *bool) {
 	for _, it := range a.Template {
 		switch it.Kind {
-		case ItemPunct:
-			punctUsed[it.Byte] = true
-			*hasAnyPunct = true
+		case ItemLetter:
+			if !dict.IsLetter(it.Byte) {
+				punctUsed[it.Byte] = true
+				*hasAnyPunct = true
+			}
 		case ItemExactLetter:
-			*hasExactAlpha = true
+			if !dict.IsLetter(it.Byte) {
+				punctUsed[it.Byte] = true
+				*hasAnyPunct = true
+			} else {
+				*hasExactAlpha = true
+			}
+		case ItemPunct:
+			if !dict.IsLetter(it.Byte) {
+				punctUsed[it.Byte] = true
+				*hasAnyPunct = true
+			}
 		case ItemSubPattern:
-			collectActivePunct(it.Sub, punctUsed, hasAnyPunct, hasExactAlpha)
+			collectActivePunct(it.Sub, dict, punctUsed, hasAnyPunct, hasExactAlpha)
 		}
 	}
 	if a.Anagram != nil {
 		for _, it := range a.Anagram.Items {
 			if it.Kind == ItemSubPattern {
-				collectActivePunct(it.Sub, punctUsed, hasAnyPunct, hasExactAlpha)
+				collectActivePunct(it.Sub, dict, punctUsed, hasAnyPunct, hasExactAlpha)
 			}
 		}
 	}
@@ -613,10 +653,10 @@ func compileAtomic(a *AtomicPattern, dict *tsd.Dictionary, opts CompileOptions, 
 	var punctUsed [256]bool
 	hasAnyPunct := false
 	hasExactAlpha := false
-	if isRootAtom {
-		collectActivePunct(a, &punctUsed, &hasAnyPunct, &hasExactAlpha)
-		if hasAnyPunct || hasExactAlpha {
-			ca.needsRawPrep = true
+	collectActivePunct(a, dict, &punctUsed, &hasAnyPunct, &hasExactAlpha)
+	if hasAnyPunct || hasExactAlpha {
+		ca.needsRawPrep = true
+		if isRootAtom {
 			for b := 0; b < 256; b++ {
 				if dict.IsLetter(byte(b)) {
 					ca.punctMode[b] = 0xFE
@@ -650,16 +690,6 @@ func compileAtomic(a *AtomicPattern, dict *tsd.Dictionary, opts CompileOptions, 
 				allWild = false
 				li := dict.LetterIndex(it.Byte)
 				if li < 0 {
-					// In a custom dictionary where this byte is non-alphabetic, treat as active punctuation!
-					ca.needsRawPrep = true
-					ca.punctMode[it.Byte] = 0xFF
-					if !opts.IgnoreUnusedPunctuation {
-						for b := 0; b < 256; b++ {
-							if !dict.IsLetter(byte(b)) {
-								ca.punctMode[b] = 0xFF
-							}
-						}
-					}
 					ops = append(ops, compiledTmplOp{kind: tOpPunct, rawByte: it.Byte})
 				} else {
 					ops = append(ops, compiledTmplOp{kind: tOpLetter, letterIdx: li, rawByte: it.Byte})
@@ -672,8 +702,6 @@ func compileAtomic(a *AtomicPattern, dict *tsd.Dictionary, opts CompileOptions, 
 				allWild = false
 				li := dict.LetterIndex(it.Byte)
 				if li < 0 {
-					ca.needsRawPrep = true
-					ca.punctMode[it.Byte] = 0xFF
 					ops = append(ops, compiledTmplOp{kind: tOpPunct, rawByte: it.Byte})
 				} else {
 					ops = append(ops, compiledTmplOp{kind: tOpExactLetter, letterIdx: li, rawByte: it.Byte})
@@ -787,13 +815,13 @@ func compileAtomic(a *AtomicPattern, dict *tsd.Dictionary, opts CompileOptions, 
 	// Compute overall [minLen, maxLen] using TEA's exact hybrid length rules (0x40aae3..0x40ab65).
 	if !ca.hasTemplate {
 		ca.minLen = ca.anag.minLen
-		if ca.anag.hasStar {
+		if ca.anag.hasStar || ca.anag.maxExtra >= unboundedMaxLen {
 			ca.maxLen = unboundedMaxLen
-			ca.universal = ca.anag.specCount == 0
 		} else {
-			ca.maxLen = ca.anag.minLen
-			ca.universal = ca.anag.specCount == 0 && ca.anag.dots > 0
+			ca.maxLen = min(ca.anag.minLen+ca.anag.maxExtra, unboundedMaxLen)
 		}
+		ca.universal = !ca.needsRawPrep && len(ca.anag.subs) == 0 &&
+			((ca.anag.hasStar && ca.anag.specCount == 0) || (!ca.anag.hasStar && ca.anag.specCount == 0 && ca.anag.dots > 0))
 	} else if ca.anag == nil {
 		ca.minLen = ca.tmplMinLen
 		ca.maxLen = ca.tmplMaxLen
@@ -801,9 +829,13 @@ func compileAtomic(a *AtomicPattern, dict *tsd.Dictionary, opts CompileOptions, 
 	} else {
 		ca.minLen = ca.tmplMinLen
 		ca.maxLen = ca.tmplMaxLen
-		if ca.tmplMaxLen > ca.tmplMinLen && !ca.anag.hasStar && ca.tmplMinLen < ca.anag.minLen {
-			if ca.anag.minLen < ca.maxLen {
-				ca.maxLen = ca.anag.minLen
+		anagMax := unboundedMaxLen
+		if !ca.anag.hasStar && ca.anag.maxExtra < unboundedMaxLen {
+			anagMax = min(ca.anag.minLen+ca.anag.maxExtra, unboundedMaxLen)
+		}
+		if ca.tmplMaxLen > ca.tmplMinLen && anagMax < unboundedMaxLen && ca.tmplMinLen < anagMax {
+			if anagMax < ca.maxLen {
+				ca.maxLen = anagMax
 			}
 		}
 		ca.universal = false
@@ -956,7 +988,13 @@ func compileAnagramSpec(spec *AnagramSpec, dict *tsd.Dictionary, opts CompileOpt
 				ca.hasVars = true
 			}
 			ca.subs = append(ca.subs, anagSubReq{sub: subCA, mult: 1})
+			ca.flatSubs = append(ca.flatSubs, subCA)
 			ca.specCount += subCA.minLen
+			if ca.maxExtra >= unboundedMaxLen || subCA.maxLen >= unboundedMaxLen {
+				ca.maxExtra = unboundedMaxLen
+			} else {
+				ca.maxExtra += subCA.maxLen - subCA.minLen
+			}
 		}
 	}
 

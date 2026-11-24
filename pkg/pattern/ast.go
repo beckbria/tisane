@@ -17,10 +17,11 @@ type Expr interface {
 
 // BinaryExpr represents (Left & Right) or (Left | Right).
 type BinaryExpr struct {
-	Op    LogicOp
-	Left  Expr
-	Right Expr
-	Span  Span
+	Op            LogicOp
+	Left          Expr
+	Right         Expr
+	Span          Span
+	SyntheticEnum bool // True when Parse conjoined a synthetic enumeration constraint on Right
 }
 
 func (*BinaryExpr) exprNode()        {}
@@ -40,8 +41,13 @@ type AtomExpr struct {
 	Atom *AtomicPattern
 }
 
-func (*AtomExpr) exprNode()        {}
-func (e *AtomExpr) ExprSpan() Span { return e.Atom.Span }
+func (*AtomExpr) exprNode() {}
+func (e *AtomExpr) ExprSpan() Span {
+	if e == nil || e.Atom == nil {
+		return Span{}
+	}
+	return e.Atom.Span
+}
 
 // AtomicPattern represents `[Template][;Anagram]` (where at least one of Template or Anagram is non-empty).
 type AtomicPattern struct {

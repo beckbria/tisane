@@ -14,10 +14,11 @@ type Matcher struct {
 	cq *CompiledQuery
 
 	// Backtracking step budget & variable-free (opIdx, pos) failure memoization
-	steps     int
-	memoAtom  *compiledAtom
-	failGen   uint32
-	failStamp [maxMemoOps * memoStride]uint32
+	steps             int
+	allowTotalLetters bool
+	memoAtom          *compiledAtom
+	failGen           uint32
+	failStamp         [maxMemoOps * memoStride]uint32
 
 	// Raw punctuation & case-exact prep buffers (populated lazily only when needsRawPrep is true)
 	filteredRaw       [768]byte
@@ -43,22 +44,27 @@ func (cq *CompiledQuery) NewMatcher() *Matcher {
 
 // MatchEntry tests a decoded RawEntry against the full boolean CompiledQuery.
 func (m *Matcher) MatchEntry(entry tsd.RawEntry) bool {
+	m.hasBalance = false
+	m.allowTotalLetters = false
 	L := len(entry.LetterIndices)
 	if L <= 0 || L > tsd.MaxWordLengthLimit || !m.cq.compatLengths[L] {
 		return false
 	}
-	m.hasBalance = false
 	return m.evalNode(m.cq.root, entry)
 }
 
 // MatchCanonicalToken tests a tokenized plain/RTF word (canonical letter indices + optional raw bytes)
 // against leaf idx of the CompiledQuery (used by Sequential Full Text Search).
 func (m *Matcher) MatchLeafToken(leafIdx int, letterIndices []byte, rawWordBytes []byte) bool {
-	leaf := m.cq.leaves[leafIdx]
-	L := len(letterIndices)
-	if L < leaf.minLen || L > leaf.maxLen {
+	if leafIdx < 0 || leafIdx >= len(m.cq.leaves) {
 		return false
 	}
+	leaf := m.cq.leaves[leafIdx]
+	L := len(letterIndices)
+	if L <= 0 || L > tsd.MaxWordLengthLimit || L < leaf.minLen || L > leaf.maxLen {
+		return false
+	}
+	m.allowTotalLetters = true
 	entry := tsd.RawEntry{
 		WordBytes:     rawWordBytes,
 		LetterIndices: letterIndices,
@@ -68,11 +74,15 @@ func (m *Matcher) MatchLeafToken(leafIdx int, letterIndices []byte, rawWordBytes
 
 // MatchLeafEntry tests a dictionary/FTS stream entry against leaf idx (used by Indexed Full Text Search).
 func (m *Matcher) MatchLeafEntry(leafIdx int, entry tsd.RawEntry) bool {
-	leaf := m.cq.leaves[leafIdx]
-	L := len(entry.LetterIndices)
-	if L < leaf.minLen || L > leaf.maxLen {
+	if leafIdx < 0 || leafIdx >= len(m.cq.leaves) {
 		return false
 	}
+	leaf := m.cq.leaves[leafIdx]
+	L := len(entry.LetterIndices)
+	if L <= 0 || L > tsd.MaxWordLengthLimit || L < leaf.minLen || L > leaf.maxLen {
+		return false
+	}
+	m.allowTotalLetters = false
 	return m.matchAtom(leaf, entry, false)
 }
 
@@ -123,7 +133,7 @@ func (m *Matcher) FormatBalance() (balanceStr string, balanceLetters int) {
 	if len(out) == 0 {
 		return "", 0
 	}
-	return string(out), balanceLetters
+	return tsd.DecodeCP1252(out), balanceLetters
 }
 
 func (m *Matcher) evalNode(node compiledNode, entry tsd.RawEntry) bool {
@@ -158,6 +168,9 @@ func (m *Matcher) resetVars() {
 }
 
 func (m *Matcher) prepRawWord(atom *compiledAtom, wordBytes []byte, L int) bool {
+	if wordBytes == nil {
+		return false
+	}
 	fLen := 0
 	pCnt := 0
 	letterPos := 0
@@ -182,15 +195,15 @@ func (m *Matcher) prepRawWord(atom *compiledAtom, wordBytes []byte, L int) bool 
 			fLen++
 		}
 	}
-	for letterPos <= L {
-		m.punctPrefixCounts[letterPos] = pCnt
-		letterPos++
+	if letterPos != L {
+		return false
 	}
+	m.punctPrefixCounts[L] = pCnt
 	return true
 }
 
 func (m *Matcher) matchAtom(atom *compiledAtom, entry tsd.RawEntry, recordBalance bool) bool {
-	if atom.universal {
+	if atom.universal && !recordBalance {
 		return true
 	}
 	word := entry.LetterIndices
@@ -214,7 +227,7 @@ func (m *Matcher) matchAtom(atom *compiledAtom, entry tsd.RawEntry, recordBalanc
 		return true
 
 	case fastDistinctAnagram:
-		if atom.anag.impossible {
+		if atom.anag.impossible && !m.allowTotalLetters {
 			return false
 		}
 		numTotal := atom.dict.NumTotalLetters()
@@ -237,7 +250,7 @@ func (m *Matcher) matchAtom(atom *compiledAtom, entry tsd.RawEntry, recordBalanc
 		return true
 
 	case fastMultiAnagram:
-		if atom.anag.impossible {
+		if atom.anag.impossible && !m.allowTotalLetters {
 			return false
 		}
 		numTotal := atom.dict.NumTotalLetters()
@@ -278,64 +291,83 @@ func (m *Matcher) matchAtom(atom *compiledAtom, entry tsd.RawEntry, recordBalanc
 		m.memoAtom = nil
 	}
 	m.resetVars()
-	return m.matchSliceRange(atom, word, 0, L, 0, atom.needsRawPrep, recordBalance)
+	return m.matchSliceRangeCont(atom, word, 0, L, 0, atom.needsRawPrep, recordBalance, nil)
 }
 
-func (m *Matcher) subMatchesWithEndPCnt(sub *compiledAtom, word []byte, subStart, subEnd, startP, targetEndP int) bool {
-	// Temporarily adjust punctPrefixCounts[subEnd] to targetEndP while matching sub, then restore!
+func (m *Matcher) subMatchesWithEndPCnt(
+	sub *compiledAtom,
+	word []byte,
+	subStart, subEnd int,
+	startP, targetEndP int,
+	outerCont func() bool,
+) bool {
 	orig := m.punctPrefixCounts[subEnd]
 	m.punctPrefixCounts[subEnd] = targetEndP
-	ok := m.matchSliceRange(sub, word, subStart, subEnd, startP, true, false)
+	var wrappedCont func() bool
+	if outerCont != nil {
+		wrappedCont = func() bool {
+			m.punctPrefixCounts[subEnd] = orig
+			if outerCont() {
+				return true
+			}
+			m.punctPrefixCounts[subEnd] = targetEndP
+			return false
+		}
+	}
+	ok := m.matchSliceRangeCont(sub, word, subStart, subEnd, startP, true, false, wrappedCont)
 	m.punctPrefixCounts[subEnd] = orig
 	return ok
 }
 
-func (m *Matcher) matchSliceRange(
+func (m *Matcher) matchSliceRangeCont(
 	atom *compiledAtom,
 	word []byte,
 	sliceStart, sliceEnd int,
 	startPCnt int,
 	rawActive bool,
 	recordBalance bool,
+	cont func() bool,
 ) bool {
 	m.steps++
 	if m.steps > maxMatcherSteps {
 		return false
 	}
-	subWord := word[sliceStart:sliceEnd]
 	if !rawActive {
 		if atom.universal && !recordBalance {
+			if cont != nil {
+				return cont()
+			}
 			return true
 		}
 		if !atom.hasTemplate {
-			return m.solveAnagram(atom, subWord, false, recordBalance)
+			return m.solveAnagramCont(atom, word, sliceStart, sliceEnd, 0, false, false, recordBalance, cont)
 		}
-		return m.execTmplSubNoRaw(atom, atom.tmplOps, 0, subWord, 0, recordBalance)
+		return m.execTmplSubNoRawCont(atom, atom.tmplOps, 0, word[sliceStart:sliceEnd], 0, recordBalance, cont)
 	}
-	// When rawActive is true and sliceStart > 0, shift filteredRaw/punctPrefixCounts or pass sliceStart:
 	if !atom.hasTemplate {
-		if startPCnt != m.punctPrefixCounts[sliceEnd] {
+		if len(atom.anag.flatSubs) == 0 && startPCnt != m.punctPrefixCounts[sliceEnd] {
 			return false
 		}
-		return m.solveAnagram(atom, subWord, false, recordBalance)
+		return m.solveAnagramCont(atom, word, sliceStart, sliceEnd, startPCnt, true, false, recordBalance, cont)
 	}
-	return m.execTmplOpsRange(atom, atom.tmplOps, 0, word, sliceStart, sliceStart, sliceEnd, startPCnt, true, recordBalance)
+	return m.execTmplOpsRangeCont(atom, atom.tmplOps, 0, word, sliceStart, sliceStart, sliceEnd, startPCnt, true, recordBalance, cont)
 }
 
-func (m *Matcher) execTmplSubNoRaw(
+func (m *Matcher) execTmplSubNoRawCont(
 	atom *compiledAtom,
 	ops []compiledTmplOp,
 	opIdx int,
 	word []byte,
 	pos int,
 	recordBalance bool,
+	cont func() bool,
 ) bool {
 	m.steps++
 	if m.steps > maxMatcherSteps {
 		return false
 	}
 	L := len(word)
-	useMemo := atom == m.memoAtom && opIdx < maxMemoOps && pos <= tsd.MaxWordLengthLimit+1
+	useMemo := cont == nil && atom == m.memoAtom && opIdx < maxMemoOps && pos <= tsd.MaxWordLengthLimit+1
 	memoCell := 0
 	if useMemo {
 		memoCell = opIdx*memoStride + pos
@@ -347,10 +379,6 @@ func (m *Matcher) execTmplSubNoRaw(
 		if useMemo {
 			m.failStamp[memoCell] = m.failGen
 		}
-		return false
-	}
-	m.steps++
-	if m.steps > maxMatcherSteps {
 		return false
 	}
 	for opIdx < len(ops) {
@@ -398,7 +426,7 @@ func (m *Matcher) execTmplSubNoRaw(
 			if m.cq.opts.ExclusiveVars {
 				m.varUsed[candLI] = true
 			}
-			if m.execTmplSubNoRaw(atom, ops, opIdx+1, word, pos+1, recordBalance) {
+			if m.execTmplSubNoRawCont(atom, ops, opIdx+1, word, pos+1, recordBalance, cont) {
 				return true
 			}
 			m.varBound[v] = -1
@@ -418,7 +446,7 @@ func (m *Matcher) execTmplSubNoRaw(
 			savedVars := m.varBound
 			savedUsed := m.varUsed
 			for k := 0; k <= maxTake; k++ {
-				if m.execTmplSubNoRaw(atom, ops, opIdx+1, word, pos+k, recordBalance) {
+				if m.execTmplSubNoRawCont(atom, ops, opIdx+1, word, pos+k, recordBalance, cont) {
 					return true
 				}
 				m.varBound = savedVars
@@ -436,9 +464,18 @@ func (m *Matcher) execTmplSubNoRaw(
 			}
 			savedVars := m.varBound
 			savedUsed := m.varUsed
+			nextOpIdx := opIdx + 1
 			for slen := sub.minLen; slen <= maxSub; slen++ {
-				if m.matchSliceRange(sub, word, pos, pos+slen, 0, false, false) &&
-					m.execTmplSubNoRaw(atom, ops, opIdx+1, word, pos+slen, recordBalance) {
+				subEnd := pos + slen
+				if sub.hasVars {
+					stepCont := func() bool {
+						return m.execTmplSubNoRawCont(atom, ops, nextOpIdx, word, subEnd, recordBalance, cont)
+					}
+					if m.matchSliceRangeCont(sub, word, pos, subEnd, 0, false, false, stepCont) {
+						return true
+					}
+				} else if m.matchSliceRangeCont(sub, word, pos, subEnd, 0, false, false, nil) &&
+					m.execTmplSubNoRawCont(atom, ops, nextOpIdx, word, subEnd, recordBalance, cont) {
 					return true
 				}
 				m.varBound = savedVars
@@ -456,15 +493,18 @@ func (m *Matcher) execTmplSubNoRaw(
 		return fail()
 	}
 	if atom.anag != nil {
-		if m.solveAnagram(atom, word, true, recordBalance) {
+		if m.solveAnagramCont(atom, word, 0, L, 0, false, true, recordBalance, cont) {
 			return true
 		}
 		return fail()
 	}
+	if cont != nil {
+		return cont()
+	}
 	return true
 }
 
-func (m *Matcher) execTmplOpsRange(
+func (m *Matcher) execTmplOpsRangeCont(
 	atom *compiledAtom,
 	ops []compiledTmplOp,
 	opIdx int,
@@ -475,6 +515,7 @@ func (m *Matcher) execTmplOpsRange(
 	pCnt int,
 	rawActive bool,
 	recordBalance bool,
+	cont func() bool,
 ) bool {
 	m.steps++
 	if m.steps > maxMatcherSteps {
@@ -538,7 +579,7 @@ func (m *Matcher) execTmplOpsRange(
 			if m.cq.opts.ExclusiveVars {
 				m.varUsed[candLI] = true
 			}
-			if m.execTmplOpsRange(atom, ops, opIdx+1, word, sliceStart, pos+1, sliceEnd, pCnt, true, recordBalance) {
+			if m.execTmplOpsRangeCont(atom, ops, opIdx+1, word, sliceStart, pos+1, sliceEnd, pCnt, true, recordBalance, cont) {
 				return true
 			}
 			m.varBound[v] = -1
@@ -558,10 +599,13 @@ func (m *Matcher) execTmplOpsRange(
 			maxP := m.punctPrefixCounts[newPos]
 			savedVars, savedUsed := m.varBound, m.varUsed
 			for tryP := minP; tryP <= maxP; tryP++ {
-				if m.execTmplOpsRange(atom, ops, opIdx+1, word, sliceStart, newPos, sliceEnd, tryP, true, recordBalance) {
+				if m.execTmplOpsRangeCont(atom, ops, opIdx+1, word, sliceStart, newPos, sliceEnd, tryP, true, recordBalance, cont) {
 					return true
 				}
 				m.varBound, m.varUsed = savedVars, savedUsed
+				if m.steps > maxMatcherSteps {
+					return false
+				}
 			}
 			return false
 		case tOpStar:
@@ -575,10 +619,13 @@ func (m *Matcher) execTmplOpsRange(
 				}
 				maxP := m.punctPrefixCounts[newPos]
 				for tryP := minP; tryP <= maxP; tryP++ {
-					if m.execTmplOpsRange(atom, ops, opIdx+1, word, sliceStart, newPos, sliceEnd, tryP, true, recordBalance) {
+					if m.execTmplOpsRangeCont(atom, ops, opIdx+1, word, sliceStart, newPos, sliceEnd, tryP, true, recordBalance, cont) {
 						return true
 					}
 					m.varBound, m.varUsed = savedVars, savedUsed
+					if m.steps > maxMatcherSteps {
+						return false
+					}
 				}
 			}
 			return false
@@ -589,6 +636,7 @@ func (m *Matcher) execTmplOpsRange(
 				maxSub = sub.maxLen
 			}
 			savedVars, savedUsed := m.varBound, m.varUsed
+			nextOpIdx := opIdx + 1
 			for slen := sub.minLen; slen <= maxSub; slen++ {
 				subEnd := pos + slen
 				minP := pCnt
@@ -597,11 +645,22 @@ func (m *Matcher) execTmplOpsRange(
 				}
 				maxP := m.punctPrefixCounts[subEnd]
 				for endP := minP; endP <= maxP; endP++ {
-					if m.subMatchesWithEndPCnt(sub, word, pos, subEnd, pCnt, endP) &&
-						m.execTmplOpsRange(atom, ops, opIdx+1, word, sliceStart, subEnd, sliceEnd, endP, true, recordBalance) {
+					tryEndP := endP
+					if sub.hasVars {
+						stepCont := func() bool {
+							return m.execTmplOpsRangeCont(atom, ops, nextOpIdx, word, sliceStart, subEnd, sliceEnd, tryEndP, true, recordBalance, cont)
+						}
+						if m.subMatchesWithEndPCnt(sub, word, pos, subEnd, pCnt, tryEndP, stepCont) {
+							return true
+						}
+					} else if m.subMatchesWithEndPCnt(sub, word, pos, subEnd, pCnt, tryEndP, nil) &&
+						m.execTmplOpsRangeCont(atom, ops, nextOpIdx, word, sliceStart, subEnd, sliceEnd, tryEndP, true, recordBalance, cont) {
 						return true
 					}
 					m.varBound, m.varUsed = savedVars, savedUsed
+					if m.steps > maxMatcherSteps {
+						return false
+					}
 				}
 			}
 			return false
@@ -611,13 +670,26 @@ func (m *Matcher) execTmplOpsRange(
 		return false
 	}
 	if atom.anag != nil {
-		return m.solveAnagram(atom, word[sliceStart:sliceEnd], true, recordBalance)
+		return m.solveAnagramCont(atom, word, sliceStart, sliceEnd, m.punctPrefixCounts[sliceEnd], true, true, recordBalance, cont)
+	}
+	if cont != nil {
+		return cont()
 	}
 	return true
 }
 
-func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, recordBalance bool) bool {
+func (m *Matcher) solveAnagramCont(
+	atom *compiledAtom,
+	fullWord []byte,
+	sliceStart, sliceEnd int,
+	startPCnt int,
+	rawActive bool,
+	hasTmpl bool,
+	recordBalance bool,
+	cont func() bool,
+) bool {
 	anag := atom.anag
+	word := fullWord[sliceStart:sliceEnd]
 	L := len(word)
 	maxOmit := 0
 	if hasTmpl && anag.minLen > L {
@@ -631,46 +703,251 @@ func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, re
 		bal[li]++
 	}
 
-	// Fast deterministic reduction of fixed anagram letters before any backtracking!
-	remOmit := maxOmit
-	for _, req := range anag.fixed {
-		bal[req.letterIdx] -= req.mult
-		used := avail[req.letterIdx]
-		if used > req.mult {
-			used = req.mult
+	numTotal := atom.dict.NumTotalLetters()
+	subs := anag.flatSubs
+	acceptWithRem := func(remLeft int) bool {
+		if !hasTmpl && !anag.hasStar {
+			remAvail := 0
+			for li := 0; li < numTotal; li++ {
+				remAvail += avail[li]
+			}
+			if remAvail != anag.dots {
+				return false
+			}
 		}
-		omitted := req.mult - used
-		remOmit -= omitted
-		if remOmit < 0 {
-			return false
-		}
-		avail[req.letterIdx] -= used
-	}
-
-	// Flatten embedded sub-patterns and choice lists if present.
-	hasVars := false
-	for _, mult := range anag.varMult {
-		if mult > 0 {
-			hasVars = true
-			break
-		}
-	}
-	if !hasVars && len(anag.choices) == 0 && len(anag.subs) == 0 {
 		if recordBalance {
 			m.savedBalance = bal
 			m.hasBalance = true
 		}
+		if cont != nil {
+			if cont() {
+				return true
+			}
+			if recordBalance {
+				m.hasBalance = false
+			}
+			return false
+		}
 		return true
 	}
 
-	var claimed [tsd.MaxWordLengthLimit + 2]bool
-	var subs []*compiledAtom
-	for _, sr := range anag.subs {
-		for k := 0; k < sr.mult; k++ {
-			subs = append(subs, sr.sub)
+	// Fast path when there are no embedded sub-patterns: reduce fixed letters upfront.
+	if len(subs) == 0 {
+		if !hasTmpl && !anag.hasStar && L != anag.minLen {
+			return false
 		}
+		remOmit := maxOmit
+		for _, req := range anag.fixed {
+			bal[req.letterIdx] -= req.mult
+			used := avail[req.letterIdx]
+			if used > req.mult {
+				used = req.mult
+			}
+			omitted := req.mult - used
+			remOmit -= omitted
+			if remOmit < 0 {
+				return false
+			}
+			avail[req.letterIdx] -= used
+		}
+		if !anag.hasVars && len(anag.choices) == 0 {
+			return acceptWithRem(remOmit)
+		}
+		return m.solveAnagramVarsAndChoices(atom, &avail, &bal, remOmit, recordBalance, acceptWithRem)
 	}
-	numUsed := atom.dict.NumUsedLetters()
+
+	var claimed [tsd.MaxWordLengthLimit + 2]bool
+	var punctClaimed [768]bool
+	totalPunct := 0
+	punctBase := 0
+	if rawActive && !hasTmpl {
+		punctBase = startPCnt
+		totalPunct = m.punctPrefixCounts[sliceEnd] - startPCnt
+	}
+
+	reduceFixedAndFinish := func(extraSubLen int, pConsumed int) bool {
+		if rawActive && !hasTmpl && pConsumed != totalPunct {
+			return false
+		}
+		effMin := anag.minLen + extraSubLen
+		if !hasTmpl && !anag.hasStar && L != effMin {
+			return false
+		}
+		remAfterFixed := maxOmit
+		for _, req := range anag.fixed {
+			bal[req.letterIdx] -= req.mult
+			used := avail[req.letterIdx]
+			if used > req.mult {
+				used = req.mult
+			}
+			omitted := req.mult - used
+			remAfterFixed -= omitted
+			if remAfterFixed < 0 {
+				return false
+			}
+			avail[req.letterIdx] -= used
+		}
+		if !anag.hasVars && len(anag.choices) == 0 {
+			return acceptWithRem(remAfterFixed)
+		}
+		return m.solveAnagramVarsAndChoices(atom, &avail, &bal, remAfterFixed, recordBalance, acceptWithRem)
+	}
+
+	var matchSubs func(sIdx int, extraSubLen int, pConsumed int) bool
+	matchSubs = func(sIdx int, extraSubLen int, pConsumed int) bool {
+		m.steps++
+		if m.steps > maxMatcherSteps {
+			return false
+		}
+		if sIdx >= len(subs) {
+			savedAvail := avail
+			savedBal := bal
+			if reduceFixedAndFinish(extraSubLen, pConsumed) {
+				return true
+			}
+			avail = savedAvail
+			bal = savedBal
+			return false
+		}
+		sub := subs[sIdx]
+		maxSubL := L
+		if sub.maxLen < maxSubL {
+			maxSubL = sub.maxLen
+		}
+		savedVars := m.varBound
+		savedUsed := m.varUsed
+
+		for slen := sub.minLen; slen <= maxSubL; slen++ {
+			nextExtra := extraSubLen + (slen - sub.minLen)
+			for start := 0; start+slen <= L; start++ {
+				canClaim := true
+				for k := start; k < start+slen; k++ {
+					if claimed[k] {
+						canClaim = false
+						break
+					}
+				}
+				if !canClaim {
+					continue
+				}
+				validAvail := true
+				for k := start; k < start+slen; k++ {
+					li := word[k]
+					avail[li]--
+					if avail[li] < 0 {
+						validAvail = false
+					}
+				}
+				if !validAvail {
+					for k := start; k < start+slen; k++ {
+						avail[word[k]]++
+					}
+					continue
+				}
+
+				absStart := sliceStart + start
+				absEnd := absStart + slen
+
+				trySubPlacement := func(subStartP, subEndP int) bool {
+					for k := start; k < start+slen; k++ {
+						claimed[k] = true
+						bal[word[k]]--
+					}
+					nextPConsumed := pConsumed + (subEndP - subStartP)
+					stepNext := func() bool {
+						return matchSubs(sIdx+1, nextExtra, nextPConsumed)
+					}
+					var matched bool
+					if !rawActive {
+						if sub.hasVars {
+							matched = m.matchSliceRangeCont(sub, fullWord, absStart, absEnd, 0, false, false, stepNext)
+						} else {
+							matched = m.matchSliceRangeCont(sub, fullWord, absStart, absEnd, 0, false, false, nil) && stepNext()
+						}
+					} else {
+						if sub.hasVars {
+							matched = m.subMatchesWithEndPCnt(sub, fullWord, absStart, absEnd, subStartP, subEndP, stepNext)
+						} else {
+							matched = m.subMatchesWithEndPCnt(sub, fullWord, absStart, absEnd, subStartP, subEndP, nil) && stepNext()
+						}
+					}
+					for k := start; k < start+slen; k++ {
+						claimed[k] = false
+						bal[word[k]]++
+					}
+					return matched
+				}
+
+				if !rawActive {
+					if trySubPlacement(0, 0) {
+						return true
+					}
+				} else {
+					minStartP := punctBase
+					if absStart > sliceStart && m.punctPrefixCounts[absStart-1] > minStartP {
+						minStartP = m.punctPrefixCounts[absStart-1]
+					}
+					maxStartP := m.punctPrefixCounts[absStart]
+					maxEndP := m.punctPrefixCounts[absEnd]
+					for sp := minStartP; sp <= maxStartP; sp++ {
+						minEndP := sp
+						if slen > 0 && m.punctPrefixCounts[absEnd-1] > minEndP {
+							minEndP = m.punctPrefixCounts[absEnd-1]
+						}
+						for ep := minEndP; ep <= maxEndP; ep++ {
+							pFree := true
+							for pi := sp; pi < ep; pi++ {
+								if punctClaimed[pi] {
+									pFree = false
+									break
+								}
+							}
+							if !pFree {
+								continue
+							}
+							for pi := sp; pi < ep; pi++ {
+								punctClaimed[pi] = true
+							}
+							ok := trySubPlacement(sp, ep)
+							for pi := sp; pi < ep; pi++ {
+								punctClaimed[pi] = false
+							}
+							if ok {
+								return true
+							}
+						}
+					}
+				}
+
+				for k := start; k < start+slen; k++ {
+					avail[word[k]]++
+				}
+				m.varBound = savedVars
+				m.varUsed = savedUsed
+				if m.steps > maxMatcherSteps {
+					return false
+				}
+			}
+		}
+		return false
+	}
+
+	return matchSubs(0, 0, 0)
+}
+
+func (m *Matcher) solveAnagramVarsAndChoices(
+	atom *compiledAtom,
+	avail *[256]int,
+	bal *[256]int,
+	remOmit int,
+	recordBalance bool,
+	accept func(remLeft int) bool,
+) bool {
+	anag := atom.anag
+	numLetters := atom.dict.NumUsedLetters()
+	if m.allowTotalLetters {
+		numLetters = atom.dict.NumTotalLetters()
+	}
 	choiceGroups := anag.choices
 
 	var matchChoices func(cIdx int, copyIdx int, minLI int, rem int) bool
@@ -680,18 +957,14 @@ func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, re
 			return false
 		}
 		if cIdx >= len(choiceGroups) {
-			if recordBalance {
-				m.savedBalance = bal
-				m.hasBalance = true
-			}
-			return true
+			return accept(rem)
 		}
 		cr := choiceGroups[cIdx]
 		if copyIdx >= cr.mult {
 			return matchChoices(cIdx+1, 0, 0, rem)
 		}
 		mask := cr.mask
-		for li := minLI; li < numUsed; li++ {
+		for li := minLI; li < numLetters; li++ {
 			if avail[li] > 0 && mask.Contains(uint8(li)) {
 				avail[li]--
 				bal[li]--
@@ -745,14 +1018,16 @@ func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, re
 			return ok
 		}
 
-		// Try binding unbound variable vIdx to each candidate letter index.
+		// Unbound variable: try binding to each candidate letter index.
+		// When used == 0 (the entire unbound variable is omitted), no letter in the word bound it,
+		// so do not fabricate a negative balance for an arbitrary letter.
 		triedZeroAvail := false
-		for li := 0; li < numUsed; li++ {
+		for li := 0; li < numLetters; li++ {
 			if m.cq.opts.ExclusiveVars && m.varUsed[li] {
 				continue
 			}
 			used := avail[li]
-			if used == 0 && !recordBalance && !m.cq.opts.ExclusiveVars {
+			if used == 0 && !m.cq.opts.ExclusiveVars {
 				if triedZeroAvail {
 					continue
 				}
@@ -765,19 +1040,23 @@ func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, re
 			if rem < omitted {
 				continue
 			}
+			balSub := mult
+			if used == 0 {
+				balSub = 0
+			}
 			m.varBound[vIdx] = int16(li)
 			if m.cq.opts.ExclusiveVars {
 				m.varUsed[li] = true
 			}
 			avail[li] -= used
-			bal[li] -= mult
+			bal[li] -= balSub
 
 			if matchVars(vIdx+1, rem-omitted) {
 				return true
 			}
 
 			avail[li] += used
-			bal[li] += mult
+			bal[li] += balSub
 			m.varBound[vIdx] = -1
 			if m.cq.opts.ExclusiveVars {
 				m.varUsed[li] = false
@@ -789,74 +1068,5 @@ func (m *Matcher) solveAnagram(atom *compiledAtom, word []byte, hasTmpl bool, re
 		return false
 	}
 
-	var matchSubs func(sIdx int, rem int) bool
-	matchSubs = func(sIdx int, rem int) bool {
-		m.steps++
-		if m.steps > maxMatcherSteps {
-			return false
-		}
-		if sIdx >= len(subs) {
-			return matchVars(0, rem)
-		}
-		sub := subs[sIdx]
-		maxSubL := L
-		if sub.maxLen < maxSubL {
-			maxSubL = sub.maxLen
-		}
-		savedVars := m.varBound
-		savedUsed := m.varUsed
-
-		for slen := sub.minLen; slen <= maxSubL; slen++ {
-			for start := 0; start+slen <= L; start++ {
-				// Check slice [start, start+slen) is unclaimed and its letters are still available in avail[].
-				canClaim := true
-				for k := start; k < start+slen; k++ {
-					if claimed[k] {
-						canClaim = false
-						break
-					}
-				}
-				if !canClaim {
-					continue
-				}
-				// Temporarily consume slice letters from avail[] and check non-negativity.
-				validAvail := true
-				for k := start; k < start+slen; k++ {
-					li := word[k]
-					avail[li]--
-					if avail[li] < 0 {
-						validAvail = false
-					}
-				}
-				if validAvail && m.matchSliceRange(sub, word, start, start+slen, 0, false, false) {
-					for k := start; k < start+slen; k++ {
-						claimed[k] = true
-						bal[word[k]]--
-					}
-					if matchSubs(sIdx+1, rem) {
-						return true
-					}
-					for k := start; k < start+slen; k++ {
-						claimed[k] = false
-						bal[word[k]]++
-					}
-				}
-				for k := start; k < start+slen; k++ {
-					avail[word[k]]++
-				}
-				m.varBound = savedVars
-				m.varUsed = savedUsed
-			}
-		}
-
-		// Try omitting the embedded sub-pattern if omission budget permits.
-		if rem >= sub.minLen && sub.minLen > 0 {
-			if matchSubs(sIdx+1, rem-sub.minLen) {
-				return true
-			}
-		}
-		return false
-	}
-
-	return matchSubs(0, remOmit)
+	return matchVars(0, remOmit)
 }

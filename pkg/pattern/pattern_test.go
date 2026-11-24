@@ -3,7 +3,9 @@ package pattern_test
 import (
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"tisane/pkg/pattern"
 	"tisane/pkg/tsd"
@@ -289,4 +291,166 @@ func TestParserAndVMAdversarialBounds(t *testing.T) {
 			t.Fatalf("unexpected match for %q: %v", q, got)
 		}
 	})
+}
+
+func TestSubpatternVariableBacktrackingAnagramSubsAndBalances(t *testing.T) {
+	d := buildTestDict(t,
+		"abcb",
+		"ab-b",
+		"abDefc",
+		"abcdef",
+		"ad-ebc",
+		"ab",
+		"abc",
+		"abbb",
+		"acbb",
+		"cat",
+		"æon",
+	)
+	opts := pattern.DefaultCompileOptions()
+
+	// 1. Variable backtracking across sub-patterns (note: "ab-b" is L=3, "abcb"/"abbb"/"acbb" are L=4)
+	for _, tc := range []struct {
+		query string
+		want  []string
+	}{
+		{"(*1*)1", []string{"ab-b", "abcb", "abbb", "acbb"}},
+		{"(;1..)1", []string{"abcb", "abbb", "acbb"}},
+		{"(*1*);11*", []string{"ab-b +A", "abcb +AC", "abbb +AB", "acbb +AC"}},
+		{";(a*1*)1", []string{"ab-b", "abcb", "abbb", "acbb"}},
+		{";(a*1)1", []string{"ab-b", "abbb", "acbb"}},
+		{";(*1*)1", []string{"ab-b", "abcb", "abbb", "acbb"}},
+		{"(a*1*)-1", []string{"ab-b"}},
+	} {
+		if got := evalQuery(t, d, tc.query, opts); !slices.Equal(got, tc.want) {
+			t.Fatalf("query %q = %v, want %v", tc.query, got, tc.want)
+		}
+	}
+
+	// 2. Anagram sub-patterns: exact escapes, punctuation, variable length, fixed-after-sub, and §6.5 non-omission
+	if got := evalQuery(t, d, `;abc(\Def)`, opts); !slices.Equal(got, []string{"abDefc"}) {
+		t.Fatalf(`;abc(\Def) = %v`, got)
+	}
+	if got := evalQuery(t, d, `;abc(d-e)`, opts); !slices.Equal(got, []string{"ad-ebc"}) {
+		t.Fatalf(`;abc(d-e) = %v`, got)
+	}
+	if got := evalQuery(t, d, `;(-)*`, opts); !slices.Equal(got, []string{"ab-b +ABB", "ad-ebc +ABCDE"}) {
+		t.Fatalf(`;(-)* = %v`, got)
+	}
+	// Note: in TEA syntax, (b*) is 'b' followed by 0..N arbitrary letters (glob '*', not Kleene star).
+	if got := evalQuery(t, d, `;a(b*)`, opts); !slices.Equal(got, []string{"ab", "ab-b", "abc", "abcb", "abbb", "abDefc", "abcdef"}) {
+		t.Fatalf(`;a(b*) = %v`, got)
+	}
+	if got := evalQuery(t, d, `..*;a(ab)`, opts); !slices.Equal(got, []string{"ab -A"}) {
+		t.Fatalf(`..*;a(ab) = %v, want ["ab -A"]`, got)
+	}
+	if got := evalQuery(t, d, `...*;abc(de)`, opts); !slices.Equal(got, []string{"ad-ebc"}) {
+		t.Fatalf(`...*;abc(de) must match ad-ebc and not omit subpattern (de) for abc, got %v`, got)
+	}
+
+	// 3. Universal anagram balances, UTF-8 CP1252 balances, and omitted unbound variables
+	if got := evalQuery(t, d, `;...`, opts); !slices.Contains(got, "cat +ACT") || !slices.Contains(got, "æon +NOÆ") {
+		t.Fatalf(`;... = %v, expected +ACT and valid UTF-8 +NOÆ`, got)
+	}
+	for _, s := range evalQuery(t, d, `;*`, opts) {
+		if !utf8.ValidString(s) {
+			t.Fatalf("invalid UTF-8 in balance output: %q", s)
+		}
+	}
+	if got := evalQuery(t, d, `..*;ab11`, opts); !slices.Contains(got, "ab") {
+		t.Fatalf(`..*;ab11 = %v, expected "ab" with empty balance (not fabricated -AA)`, got)
+	}
+
+	// 4. Macro expanding to '&' must not force IgnoreUnusedPunctuation=true when configured false
+	strictOpts := opts
+	strictOpts.IgnoreUnusedPunctuation = false
+	pOpts := pattern.DefaultParseOptions()
+	pOpts.AtMacro = "ab & .."
+	pq, err := pattern.Parse("@", pOpts)
+	if err != nil {
+		t.Fatalf("Parse macro '&': %v", err)
+	}
+	cq, err := pattern.Compile(pq, d, strictOpts)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	// Verify MatchLeafToken bounds & nil rawWordBytes safety
+	m := cq.NewMatcher()
+	if m.MatchLeafToken(0, make([]byte, 105), nil) {
+		t.Fatal("expected MatchLeafToken to reject L > 100")
+	}
+
+	// Raw-requiring leaf with nil rawWordBytes must return false cleanly, never reading stale filteredRaw
+	pqRaw, _ := pattern.Parse(`\Ab`, pattern.DefaultParseOptions())
+	cqRaw, _ := pattern.Compile(pqRaw, d, opts)
+	mRaw := cqRaw.NewMatcher()
+	_ = mRaw.MatchLeafToken(0, []byte{0, 1}, []byte("Ab"))
+	if mRaw.MatchLeafToken(0, []byte{0, 1}, nil) {
+		t.Fatal("expected MatchLeafToken with nil rawWordBytes on case-exact pattern to return false")
+	}
+
+	//Unused dictionary letter ('z') in FTS token must still match MatchLeafToken
+	zIdx := byte(d.LetterIndex('z'))
+	pqZ, _ := pattern.Parse(";az", pattern.DefaultParseOptions())
+	cqZ, _ := pattern.Compile(pqZ, d, opts)
+	mZ := cqZ.NewMatcher()
+	if !mZ.MatchLeafToken(0, []byte{byte(d.LetterIndex('a')), zIdx}, []byte("az")) {
+		t.Fatal("expected MatchLeafToken to match unused headword letter 'z' in FTS token")
+	}
+}
+
+func TestCustomTSMAndConcurrentMatchers(t *testing.T) {
+	// Custom TSM where '-' is alphabetic and 'x' is non-alphabetic punctuation.
+	tsm, err := tsd.ParseTSM([]byte("-=-\nx=\na=A\nb=B\n"))
+	if err != nil {
+		t.Fatalf("ParseTSM: %v", err)
+	}
+	bOpts := tsd.DefaultBuildOptions()
+	bOpts.Alphabet = tsm
+	raw, _, err := tsd.BuildBytes([]byte("a-b\naxb\na-xb\n"), bOpts)
+	if err != nil {
+		t.Fatalf("BuildBytes: %v", err)
+	}
+	d, err := tsd.OpenBytes(raw, "custom")
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer d.Close()
+
+	cOpts := pattern.DefaultCompileOptions()
+	cOpts.IgnoreUnusedPunctuation = false
+	// 'x' is punctuation in d while '-' is a letter in d!
+	if got := evalQuery(t, d, "a-xb", cOpts); !slices.Equal(got, []string{"a-xb"}) {
+		t.Fatalf("custom TSM 'a-xb' = %v, want [a-xb]", got)
+	}
+
+	// Concurrent Matcher execution against a shared *CompiledQuery under -race
+	pq, err := pattern.Parse("(*1*) | ;ab*", pattern.DefaultParseOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cq, err := pattern.Compile(pq, d, pattern.DefaultCompileOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for g := 0; g < 16; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m := cq.NewMatcher()
+			for i := 0; i < 50; i++ {
+				for L := 1; L <= d.MaxWordLength(); L++ {
+					for entry, sErr := range d.ScanRawWords(L) {
+						if sErr != nil {
+							t.Errorf("ScanRawWords: %v", sErr)
+							return
+						}
+						_ = m.MatchEntry(entry)
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }

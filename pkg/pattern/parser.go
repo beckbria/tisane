@@ -245,10 +245,11 @@ func Parse(raw string, opts ParseOptions) (*ParsedQuery, error) {
 			return nil, err
 		}
 		root = &BinaryExpr{
-			Op:    OpAnd,
-			Left:  root,
-			Right: enumParsed.Root,
-			Span:  root.ExprSpan(),
+			Op:            OpAnd,
+			Left:          root,
+			Right:         enumParsed.Root,
+			Span:          root.ExprSpan(),
+			SyntheticEnum: true,
 		}
 	}
 
