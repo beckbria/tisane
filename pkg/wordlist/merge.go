@@ -2,8 +2,11 @@
 package wordlist
 
 import (
+	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +15,8 @@ import (
 
 	"tisane/pkg/tsd"
 )
+
+const maxWordListFileBytes = 512 << 20 // 512 MiB
 
 // Conversion controls how each word list entry is transformed prior to merging.
 type Conversion string
@@ -151,8 +156,19 @@ func ConvertEntry(s string, conv Conversion) string {
 	case ConvertASCII:
 		return ToASCII(s)
 	case ConvertASCIILetters:
+		allLetters := true
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+				allLetters = false
+				break
+			}
+		}
+		if allLetters {
+			return s
+		}
 		ascii := ToASCII(s)
-		var buf []byte
+		buf := make([]byte, 0, len(ascii))
 		for i := 0; i < len(ascii); i++ {
 			c := ascii[i]
 			if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
@@ -161,8 +177,19 @@ func ConvertEntry(s string, conv Conversion) string {
 		}
 		return string(buf)
 	case ConvertASCIILower:
+		allLower := true
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if c < 'a' || c > 'z' {
+				allLower = false
+				break
+			}
+		}
+		if allLower {
+			return s
+		}
 		ascii := ToASCII(s)
-		var buf []byte
+		buf := make([]byte, 0, len(ascii))
 		for i := 0; i < len(ascii); i++ {
 			c := ascii[i]
 			if c >= 'A' && c <= 'Z' {
@@ -173,8 +200,19 @@ func ConvertEntry(s string, conv Conversion) string {
 		}
 		return string(buf)
 	case ConvertASCIIUpper:
+		allUpper := true
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if c < 'A' || c > 'Z' {
+				allUpper = false
+				break
+			}
+		}
+		if allUpper {
+			return s
+		}
 		ascii := ToASCII(s)
-		var buf []byte
+		buf := make([]byte, 0, len(ascii))
 		for i := 0; i < len(ascii); i++ {
 			c := ascii[i]
 			if c >= 'a' && c <= 'z' {
@@ -189,18 +227,49 @@ func ConvertEntry(s string, conv Conversion) string {
 	}
 }
 
-// decodeText decodes raw file bytes into a UTF-8 string according to enc.
-func decodeText(data []byte, enc tsd.InputEncoding) string {
+func validateMergeOptions(opts MergeOptions) (Operation, Conversion, tsd.InputEncoding, error) {
+	op := opts.Operation
+	if op == "" {
+		op = OpOR
+	}
+	switch op {
+	case OpOR, OpAND, OpEXCLUDE:
+	default:
+		return "", "", 0, fmt.Errorf("wordlist: unsupported operation %q", op)
+	}
+
+	conv := opts.Conversion
+	if conv == "" {
+		conv = ConvertNone
+	}
+	switch conv {
+	case ConvertNone, ConvertASCII, ConvertASCIILetters, ConvertASCIILower, ConvertASCIIUpper:
+	default:
+		return "", "", 0, fmt.Errorf("wordlist: unsupported conversion %q", conv)
+	}
+
+	enc := opts.Encoding
+	switch enc {
+	case tsd.EncodingAuto, tsd.EncodingUTF8, tsd.EncodingCP1252:
+	default:
+		return "", "", 0, fmt.Errorf("wordlist: unsupported input encoding %d", enc)
+	}
+	return op, conv, enc, nil
+}
+
+// resolveByteEncoding resolves EncodingAuto on data to either EncodingUTF8 or EncodingCP1252
+// and returns the slice with any UTF-8 BOM stripped.
+func resolveByteEncoding(data []byte, enc tsd.InputEncoding) ([]byte, tsd.InputEncoding) {
 	switch enc {
 	case tsd.EncodingCP1252:
-		return tsd.DecodeCP1252(data)
+		return data, tsd.EncodingCP1252
 	case tsd.EncodingUTF8:
-		return string(bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}))
-	default: // tsd.EncodingAuto
+		return bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}), tsd.EncodingUTF8
+	default:
 		if bytes.HasPrefix(data, []byte{0xEF, 0xBB, 0xBF}) {
 			trimmed := data[3:]
 			if utf8.Valid(trimmed) {
-				return string(trimmed)
+				return trimmed, tsd.EncodingUTF8
 			}
 		}
 		hasHigh := false
@@ -211,68 +280,158 @@ func decodeText(data []byte, enc tsd.InputEncoding) string {
 			}
 		}
 		if !hasHigh || utf8.Valid(data) {
-			return string(data)
+			return data, tsd.EncodingUTF8
 		}
-		return tsd.DecodeCP1252(data)
+		return data, tsd.EncodingCP1252
 	}
 }
 
-// parseAndConvertEntries splits text into lines, converts each non-empty line,
-// and returns the deduplicated set of non-empty converted entries along with the raw non-empty line count.
-func parseAndConvertEntries(text string, conv Conversion) (set map[string]struct{}, lines int) {
-	set = make(map[string]struct{})
-	for len(text) > 0 {
-		var line string
-		if idx := strings.IndexByte(text, '\n'); idx >= 0 {
-			line = text[:idx]
-			text = text[idx+1:]
-		} else {
-			line = text
-			text = ""
+// detectFileEncoding streams f in 32 KiB chunks to classify EncodingAuto without loading the entire file into RAM.
+func detectFileEncoding(f *os.File, enc tsd.InputEncoding) (startOffset int64, resolved tsd.InputEncoding, err error) {
+	var bom [3]byte
+	nBOM, readErr := io.ReadFull(f, bom[:])
+	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		return 0, 0, readErr
+	}
+	hasBOM := nBOM == 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF
+
+	switch enc {
+	case tsd.EncodingCP1252:
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return 0, 0, err
 		}
-		line = strings.TrimSuffix(line, "\r")
-		if line == "" {
+		return 0, tsd.EncodingCP1252, nil
+	case tsd.EncodingUTF8:
+		off := int64(0)
+		if hasBOM {
+			off = 3
+		}
+		if _, err := f.Seek(off, io.SeekStart); err != nil {
+			return 0, 0, err
+		}
+		return off, tsd.EncodingUTF8, nil
+	}
+
+	scanStart := int64(0)
+	if hasBOM {
+		scanStart = 3
+	}
+	if _, err := f.Seek(scanStart, io.SeekStart); err != nil {
+		return 0, 0, err
+	}
+	validUTF8, err := isValidUTF8Stream(f)
+	if err != nil {
+		return 0, 0, err
+	}
+	if validUTF8 {
+		if _, err := f.Seek(scanStart, io.SeekStart); err != nil {
+			return 0, 0, err
+		}
+		return scanStart, tsd.EncodingUTF8, nil
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return 0, 0, err
+	}
+	return 0, tsd.EncodingCP1252, nil
+}
+
+func isValidUTF8Stream(r io.Reader) (bool, error) {
+	buf := make([]byte, 32*1024+utf8.UTFMax)
+	carry := 0
+	for {
+		n, err := r.Read(buf[carry : carry+32*1024])
+		total := carry + n
+		if total > 0 {
+			if errors.Is(err, io.EOF) {
+				return utf8.Valid(buf[:total]), nil
+			}
+			// Keep up to 3 trailing incomplete UTF-8 continuation lead bytes for the next chunk.
+			cut := total
+			for back := 1; back < utf8.UTFMax && back <= total; back++ {
+				if utf8.RuneStart(buf[total-back]) {
+					if !utf8.FullRune(buf[total-back : total]) {
+						cut = total - back
+					}
+					break
+				}
+			}
+			if !utf8.Valid(buf[:cut]) {
+				return false, nil
+			}
+			carry = total - cut
+			copy(buf[:carry], buf[cut:total])
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return carry == 0, nil
+			}
+			return false, err
+		}
+	}
+}
+
+// forEachRawLine splits r on \r\n, \n, or standalone \r without loading all lines into memory at once.
+func forEachRawLine(r io.Reader, fn func(rawLine []byte) error) error {
+	br := bufio.NewReaderSize(r, 64*1024)
+	var lineBuf []byte
+	for {
+		b, err := br.ReadByte()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if len(lineBuf) > 0 {
+					if cbErr := fn(lineBuf); cbErr != nil {
+						return cbErr
+					}
+				}
+				return nil
+			}
+			return err
+		}
+		if b == '\r' {
+			if next, peekErr := br.Peek(1); peekErr == nil && next[0] == '\n' {
+				_, _ = br.ReadByte()
+			}
+			if cbErr := fn(lineBuf); cbErr != nil {
+				return cbErr
+			}
+			lineBuf = lineBuf[:0]
 			continue
+		}
+		if b == '\n' {
+			if cbErr := fn(lineBuf); cbErr != nil {
+				return cbErr
+			}
+			lineBuf = lineBuf[:0]
+			continue
+		}
+		lineBuf = append(lineBuf, b)
+	}
+}
+
+func collectWordSet(r io.Reader, resolvedEnc tsd.InputEncoding, conv Conversion) (map[string]struct{}, int, error) {
+	set := make(map[string]struct{})
+	lines := 0
+	err := forEachRawLine(r, func(rawLine []byte) error {
+		if len(rawLine) == 0 {
+			return nil
 		}
 		lines++
-		converted := ConvertEntry(line, conv)
-		if converted == "" {
-			continue
+		var line string
+		if resolvedEnc == tsd.EncodingCP1252 {
+			line = tsd.DecodeCP1252(rawLine)
+		} else {
+			line = string(rawLine)
 		}
-		set[converted] = struct{}{}
-	}
-	return set, lines
+		converted := ConvertEntry(line, conv)
+		if converted != "" {
+			set[converted] = struct{}{}
+		}
+		return nil
+	})
+	return set, lines, err
 }
 
-// MergeBytes converts and merges two raw word list byte slices according to opts.
-// Conversion is always applied to both lists before performing the set operation.
-func MergeBytes(primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *MergeStats, error) {
-	op := opts.Operation
-	if op == "" {
-		op = OpOR
-	}
-	switch op {
-	case OpOR, OpAND, OpEXCLUDE:
-	default:
-		return nil, nil, fmt.Errorf("wordlist: unsupported operation %q", op)
-	}
-
-	conv := opts.Conversion
-	if conv == "" {
-		conv = ConvertNone
-	}
-	switch conv {
-	case ConvertNone, ConvertASCII, ConvertASCIILetters, ConvertASCIILower, ConvertASCIIUpper:
-	default:
-		return nil, nil, fmt.Errorf("wordlist: unsupported conversion %q", conv)
-	}
-
-	primaryText := decodeText(primaryData, opts.Encoding)
-	secondaryText := decodeText(secondaryData, opts.Encoding)
-
-	primarySet, primaryLines := parseAndConvertEntries(primaryText, conv)
-	secondarySet, secondaryLines := parseAndConvertEntries(secondaryText, conv)
-
+func computeSetOpSorted(primarySet, secondarySet map[string]struct{}, op Operation) []string {
 	var result []string
 	switch op {
 	case OpOR:
@@ -286,7 +445,6 @@ func MergeBytes(primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *
 			}
 		}
 	case OpAND:
-		// Iterate over the smaller set for efficiency.
 		small, large := primarySet, secondarySet
 		if len(secondarySet) < len(primarySet) {
 			small, large = secondarySet, primarySet
@@ -305,8 +463,31 @@ func MergeBytes(primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *
 			}
 		}
 	}
-
 	slices.Sort(result)
+	return result
+}
+
+// MergeBytes converts and merges two raw word list byte slices according to opts.
+// Conversion is always applied to both lists before performing the set operation.
+func MergeBytes(primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *MergeStats, error) {
+	op, conv, enc, err := validateMergeOptions(opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pSlice, pEnc := resolveByteEncoding(primaryData, enc)
+	sSlice, sEnc := resolveByteEncoding(secondaryData, enc)
+
+	primarySet, primaryLines, err := collectWordSet(bytes.NewReader(pSlice), pEnc, conv)
+	if err != nil {
+		return nil, nil, err
+	}
+	secondarySet, secondaryLines, err := collectWordSet(bytes.NewReader(sSlice), sEnc, conv)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result := computeSetOpSorted(primarySet, secondarySet, op)
 
 	var out bytes.Buffer
 	for _, w := range result {
@@ -326,9 +507,67 @@ func MergeBytes(primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *
 	return outBytes, stats, nil
 }
 
-func writeBytesAtomic(outputPath string, data []byte) error {
+func readFileWordSet(path, label string, enc tsd.InputEncoding, conv Conversion) (map[string]struct{}, int, os.FileInfo, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, nil, fmt.Errorf("failed to open %s word list %q: %w", label, path, err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, 0, nil, fmt.Errorf("failed to stat %s word list %q: %w", label, path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, 0, nil, fmt.Errorf("%s word list %q is not a regular file", label, path)
+	}
+	if info.Size() > maxWordListFileBytes {
+		return nil, 0, nil, fmt.Errorf("%s word list %q exceeds maximum size (%d MiB)", label, path, maxWordListFileBytes>>20)
+	}
+
+	_, resolvedEnc, err := detectFileEncoding(f, enc)
+	if err != nil {
+		return nil, 0, nil, fmt.Errorf("failed to read %s word list %q: %w", label, path, err)
+	}
+	set, lines, err := collectWordSet(io.LimitReader(f, maxWordListFileBytes), resolvedEnc, conv)
+	if err != nil {
+		return nil, 0, nil, fmt.Errorf("failed to read %s word list %q: %w", label, path, err)
+	}
+	return set, lines, info, nil
+}
+
+func writeLinesBuffered(w io.Writer, lines []string) (int, error) {
+	bw := bufio.NewWriterSize(w, 64*1024)
+	total := 0
+	for _, s := range lines {
+		n, err := bw.WriteString(s)
+		total += n
+		if err != nil {
+			return total, err
+		}
+		if err := bw.WriteByte('\n'); err != nil {
+			return total, err
+		}
+		total++
+	}
+	if err := bw.Flush(); err != nil {
+		return total, err
+	}
+	return total, nil
+}
+
+func writeLinesAtomic(outputPath string, lines []string) (int, error) {
 	if info, err := os.Lstat(outputPath); err == nil && (info.Mode()&os.ModeCharDevice) != 0 {
-		return os.WriteFile(outputPath, data, 0o644)
+		f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			return 0, err
+		}
+		n, wErr := writeLinesBuffered(f, lines)
+		cErr := f.Close()
+		if wErr != nil {
+			return n, wErr
+		}
+		return n, cErr
 	}
 	dir := filepath.Dir(outputPath)
 	if dir == "" {
@@ -336,12 +575,12 @@ func writeBytesAtomic(outputPath string, data []byte) error {
 	}
 	if dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	f, err := os.CreateTemp(dir, ".tisane-*.tmp")
 	if err != nil {
-		return err
+		return 0, err
 	}
 	tmpPath := f.Name()
 	keepTmp := false
@@ -351,45 +590,66 @@ func writeBytesAtomic(outputPath string, data []byte) error {
 		}
 	}()
 
-	if _, err := f.Write(data); err != nil {
+	written, err := writeLinesBuffered(f, lines)
+	if err != nil {
 		_ = f.Close()
-		return err
+		return 0, err
 	}
 	if err := f.Sync(); err != nil {
 		_ = f.Close()
-		return err
+		return 0, err
 	}
 	_ = f.Chmod(0o644)
 	if err := f.Close(); err != nil {
-		return err
+		return 0, err
 	}
 	if err := os.Rename(tmpPath, outputPath); err != nil {
-		return err
+		return 0, err
 	}
 	keepTmp = true
-	return nil
+	return written, nil
 }
 
-// MergeFiles reads primaryPath and secondaryPath, merges them with opts, and writes the result to outputPath.
+// MergeFiles streams primaryPath and secondaryPath, merges them with opts, and writes the result atomically to outputPath.
 func MergeFiles(primaryPath, secondaryPath, outputPath string, opts MergeOptions) (*MergeStats, error) {
-	primaryData, err := os.ReadFile(primaryPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read primary word list %q: %w", primaryPath, err)
-	}
-	secondaryData, err := os.ReadFile(secondaryPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read secondary word list %q: %w", secondaryPath, err)
-	}
-
-	outBytes, stats, err := MergeBytes(primaryData, secondaryData, opts)
+	op, conv, enc, err := validateMergeOptions(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := writeBytesAtomic(outputPath, outBytes); err != nil {
+	if filepath.Clean(outputPath) == filepath.Clean(primaryPath) || filepath.Clean(outputPath) == filepath.Clean(secondaryPath) {
+		return nil, fmt.Errorf("output word list %q cannot overwrite an input word list", outputPath)
+	}
+
+	primarySet, primaryLines, pInfo, err := readFileWordSet(primaryPath, "primary", enc, conv)
+	if err != nil {
+		return nil, err
+	}
+	secondarySet, secondaryLines, sInfo, err := readFileWordSet(secondaryPath, "secondary", enc, conv)
+	if err != nil {
+		return nil, err
+	}
+
+	if outInfo, statErr := os.Stat(outputPath); statErr == nil {
+		if os.SameFile(outInfo, pInfo) || os.SameFile(outInfo, sInfo) {
+			return nil, fmt.Errorf("output word list %q refers to the same file as an input word list", outputPath)
+		}
+	}
+
+	result := computeSetOpSorted(primarySet, secondarySet, op)
+	written, err := writeLinesAtomic(outputPath, result)
+	if err != nil {
 		return nil, fmt.Errorf("failed to write output word list %q: %w", outputPath, err)
 	}
-	return stats, nil
+
+	return &MergeStats{
+		PrimaryLines:     primaryLines,
+		PrimaryEntries:   len(primarySet),
+		SecondaryLines:   secondaryLines,
+		SecondaryEntries: len(secondarySet),
+		OutputEntries:    len(result),
+		BytesWritten:     written,
+	}, nil
 }
 
 // MergeFilesWithParams resolves params, reads the two input files, merges them, and writes the output file.

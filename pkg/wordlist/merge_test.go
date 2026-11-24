@@ -201,8 +201,10 @@ func TestMergeFilesWithParams(t *testing.T) {
 }
 
 func TestDefaultMergedOutputPath(t *testing.T) {
-	if got := DefaultMergedOutputPath("/tmp/words.txt"); got != "/tmp/words-merged.txt" {
-		t.Fatalf("got %q", got)
+	inPath := filepath.Join("tmp", "words.txt")
+	wantPath := filepath.Join("tmp", "words-merged.txt")
+	if got := DefaultMergedOutputPath(inPath); got != wantPath {
+		t.Fatalf("got %q, want %q", got, wantPath)
 	}
 	if got := DefaultMergedOutputPath("list.lst"); got != "list-merged.txt" {
 		t.Fatalf("got %q", got)
@@ -218,5 +220,47 @@ func TestParseValidationErrors(t *testing.T) {
 	}
 	if _, err := ParseOperation("xor"); err == nil {
 		t.Fatal("expected error for invalid operation")
+	}
+	if _, _, err := MergeBytes([]byte("a\n"), []byte("b\n"), MergeOptions{Encoding: tsd.InputEncoding(99)}); err == nil {
+		t.Fatal("expected error for invalid InputEncoding")
+	}
+}
+
+func TestCROnlyLineEndingsExtendedLatinNFCNFDAndSameFileCollision(t *testing.T) {
+	// Classic Mac CR-only line endings + Vietnamese NFC ("Phở") vs NFD ("Pho\u031B\u0309") + Indic "ṛṣi".
+	primaryCR := []byte("Phở\rṛṣi\ralpha\r")
+	secondaryNFD := []byte("Pho\u031B\u0309\rr\u0323s\u0323i\rbeta\r")
+
+	out, stats, err := MergeBytes(primaryCR, secondaryNFD, MergeOptions{
+		Operation:  OpAND,
+		Conversion: ConvertASCIILower,
+	})
+	if err != nil {
+		t.Fatalf("MergeBytes CR+NFC/NFD: %v", err)
+	}
+	if string(out) != "pho\nrsi\n" || stats.PrimaryLines != 3 || stats.SecondaryLines != 3 || stats.OutputEntries != 2 {
+		t.Fatalf("got %q (%+v), want \"pho\\nrsi\\n\"", string(out), stats)
+	}
+
+	dir := t.TempDir()
+	p1 := filepath.Join(dir, "p1.txt")
+	p2 := filepath.Join(dir, "p2.txt")
+	linkOut := filepath.Join(dir, "alias-p1.txt")
+	if err := os.WriteFile(p1, primaryCR, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p2, secondaryNFD, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Direct same-path collision must fail without truncating input.
+	if _, err := MergeFiles(p1, p2, p1, MergeOptions{}); err == nil {
+		t.Fatal("expected error when outputPath == primaryPath")
+	}
+	// Hardlink/symlink os.SameFile collision must also be rejected.
+	if err := os.Link(p1, linkOut); err == nil {
+		if _, err := MergeFiles(p1, p2, linkOut, MergeOptions{}); err == nil {
+			t.Fatal("expected error when outputPath is os.SameFile with primaryPath")
+		}
 	}
 }
