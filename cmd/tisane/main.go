@@ -211,7 +211,6 @@ func buildAppMenu(
 		})
 	searchMenu.AddSeparator()
 	searchMenu.Add("Cancel Active Search").
-		SetAccelerator("Escape").
 		OnClick(func(*application.Context) {
 			searchSvc.CancelSearch()
 		})

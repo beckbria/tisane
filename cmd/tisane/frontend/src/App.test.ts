@@ -1163,4 +1163,46 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     await fireEvent.click(screen.getByTestId('dismiss-error-btn'));
     await waitFor(() => expect(screen.getByTestId('status-bar')).not.toHaveTextContent('Error: disk full'));
   });
+
+  it('prevents desktop menu shortcut double-firing and closes modals on Escape without cancelling search', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+    render(App);
+    await waitFor(() => expect(h.backend.getConfig).toHaveBeenCalled());
+
+    // Start a search that stays active, then open Settings and press Escape.
+    const input = screen.getByTestId('pattern-input');
+    await fireEvent.input(input, { target: { value: 'c*' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(h.backend.startSearch).toHaveBeenCalled());
+
+    h.emit('ui:open-settings', null);
+    await tick();
+    await waitFor(() => expect(screen.getByTestId('settings-modal')).toBeInTheDocument());
+
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).not.toBeInTheDocument());
+    expect(h.backend.cancelSearch).not.toHaveBeenCalled();
+
+    // Pressing Escape again with no modal open cancels the active search.
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(h.backend.cancelSearch).toHaveBeenCalledTimes(1));
+
+    // In desktop WebView mode, Ctrl+B in the webview is ignored so native menu ui:toggle-sidebar does not double-fire.
+    const w = window as unknown as { _wails?: { environment?: { OS?: string } } };
+    const prevEnv = w._wails?.environment;
+    w._wails = { ...(w._wails ?? {}), environment: { OS: 'linux' } };
+    try {
+      await fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
+      await tick();
+      expect(screen.getByTestId('dictionary-sidebar')).toBeInTheDocument();
+
+      h.emit('ui:toggle-sidebar', null);
+      await waitFor(() => expect(screen.queryByTestId('dictionary-sidebar')).not.toBeInTheDocument());
+    } finally {
+      if (w._wails) {
+        w._wails.environment = prevEnv;
+      }
+    }
+  });
 });

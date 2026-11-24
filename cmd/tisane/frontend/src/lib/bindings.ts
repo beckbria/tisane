@@ -148,3 +148,11 @@ export function getBackend(): TisaneBackend {
 export function setBackendForTesting(mock: TisaneBackend | null): void {
   activeBackend = mock ?? wailsBackend;
 }
+
+// Returns true when running inside the native Wails v3 desktop WebView (which owns native menu accelerators).
+export function isDesktopWebview(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as unknown as { _wails?: { environment?: { OS?: string } } };
+  const os = w._wails?.environment?.OS;
+  return os === 'windows' || os === 'linux' || os === 'darwin';
+}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getBackend } from './lib/bindings';
+  import { getBackend, isDesktopWebview } from './lib/bindings';
   import { buildFontCssVars, DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
   import type {
     Config,
@@ -576,6 +576,30 @@
   }
 
   function handleWindowKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      if (showAbout) {
+        showAbout = false;
+      } else if (showWordListMerger) {
+        showWordListMerger = false;
+      } else if (showDictBuilder) {
+        showDictBuilder = false;
+      } else if (showFontSettings) {
+        showFontSettings = false;
+      } else if (showSettings) {
+        showSettings = false;
+      } else if (showCheatsheet) {
+        showCheatsheet = false;
+      } else if (isSearching) {
+        void cancelActiveSearch();
+      }
+      return;
+    }
+
+    // Native Wails menu accelerators own these shortcuts on desktop; keep webview fallback for server mode and tests.
+    if (isDesktopWebview()) {
+      return;
+    }
+
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'w') {
       e.preventDefault();
@@ -608,22 +632,6 @@
     } else if (e.key === 'F1') {
       e.preventDefault();
       showCheatsheet = !showCheatsheet;
-    } else if (e.key === 'Escape') {
-      if (showAbout) {
-        showAbout = false;
-      } else if (showWordListMerger) {
-        showWordListMerger = false;
-      } else if (showDictBuilder) {
-        showDictBuilder = false;
-      } else if (showFontSettings) {
-        showFontSettings = false;
-      } else if (showSettings) {
-        showSettings = false;
-      } else if (showCheatsheet) {
-        showCheatsheet = false;
-      } else if (isSearching) {
-        void cancelActiveSearch();
-      }
     }
   }
 
