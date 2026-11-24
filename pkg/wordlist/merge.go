@@ -4,6 +4,7 @@ package wordlist
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -409,10 +410,15 @@ func forEachRawLine(r io.Reader, fn func(rawLine []byte) error) error {
 	}
 }
 
-func collectWordSet(r io.Reader, resolvedEnc tsd.InputEncoding, conv Conversion) (map[string]struct{}, int, error) {
+func collectWordSet(ctx context.Context, r io.Reader, resolvedEnc tsd.InputEncoding, conv Conversion) (map[string]struct{}, int, error) {
 	set := make(map[string]struct{})
 	lines := 0
 	err := forEachRawLine(r, func(rawLine []byte) error {
+		if lines&0xFFF == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		if len(rawLine) == 0 {
 			return nil
 		}
@@ -471,6 +477,14 @@ func computeSetOpSorted(primarySet, secondarySet map[string]struct{}, op Operati
 // MergeBytes converts and merges two raw word list byte slices according to opts.
 // Conversion is always applied to both lists before performing the set operation.
 func MergeBytes(primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *MergeStats, error) {
+	return MergeBytesContext(context.Background(), primaryData, secondaryData, opts)
+}
+
+// MergeBytesContext is the cancellable form of MergeBytes.
+func MergeBytesContext(ctx context.Context, primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *MergeStats, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	op, conv, enc, err := validateMergeOptions(opts)
 	if err != nil {
 		return nil, nil, err
@@ -479,12 +493,15 @@ func MergeBytes(primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *
 	pSlice, pEnc := resolveByteEncoding(primaryData, enc)
 	sSlice, sEnc := resolveByteEncoding(secondaryData, enc)
 
-	primarySet, primaryLines, err := collectWordSet(bytes.NewReader(pSlice), pEnc, conv)
+	primarySet, primaryLines, err := collectWordSet(ctx, bytes.NewReader(pSlice), pEnc, conv)
 	if err != nil {
 		return nil, nil, err
 	}
-	secondarySet, secondaryLines, err := collectWordSet(bytes.NewReader(sSlice), sEnc, conv)
+	secondarySet, secondaryLines, err := collectWordSet(ctx, bytes.NewReader(sSlice), sEnc, conv)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 
@@ -508,7 +525,10 @@ func MergeBytes(primaryData, secondaryData []byte, opts MergeOptions) ([]byte, *
 	return outBytes, stats, nil
 }
 
-func readFileWordSet(path, label string, enc tsd.InputEncoding, conv Conversion) (map[string]struct{}, int, os.FileInfo, error) {
+func readFileWordSet(ctx context.Context, path, label string, enc tsd.InputEncoding, conv Conversion) (map[string]struct{}, int, os.FileInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("failed to open %s word list %q: %w", label, path, err)
@@ -530,7 +550,7 @@ func readFileWordSet(path, label string, enc tsd.InputEncoding, conv Conversion)
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("failed to read %s word list %q: %w", label, path, err)
 	}
-	set, lines, err := collectWordSet(io.LimitReader(f, maxWordListFileBytes), resolvedEnc, conv)
+	set, lines, err := collectWordSet(ctx, io.LimitReader(f, maxWordListFileBytes), resolvedEnc, conv)
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("failed to read %s word list %q: %w", label, path, err)
 	}
@@ -569,20 +589,28 @@ func writeLinesAtomic(outputPath string, lines []string) (int, error) {
 
 // MergeFiles streams primaryPath and secondaryPath, merges them with opts, and writes the result atomically to outputPath.
 func MergeFiles(primaryPath, secondaryPath, outputPath string, opts MergeOptions) (*MergeStats, error) {
+	return MergeFilesContext(context.Background(), primaryPath, secondaryPath, outputPath, opts)
+}
+
+// MergeFilesContext is the cancellable form of MergeFiles.
+func MergeFilesContext(ctx context.Context, primaryPath, secondaryPath, outputPath string, opts MergeOptions) (*MergeStats, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	op, conv, enc, err := validateMergeOptions(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	if filepath.Clean(outputPath) == filepath.Clean(primaryPath) || filepath.Clean(outputPath) == filepath.Clean(secondaryPath) {
+	if fsutil.SameFileOrClean(outputPath, primaryPath) || fsutil.SameFileOrClean(outputPath, secondaryPath) {
 		return nil, fmt.Errorf("output word list %q cannot overwrite an input word list", outputPath)
 	}
 
-	primarySet, primaryLines, pInfo, err := readFileWordSet(primaryPath, "primary", enc, conv)
+	primarySet, primaryLines, pInfo, err := readFileWordSet(ctx, primaryPath, "primary", enc, conv)
 	if err != nil {
 		return nil, err
 	}
-	secondarySet, secondaryLines, sInfo, err := readFileWordSet(secondaryPath, "secondary", enc, conv)
+	secondarySet, secondaryLines, sInfo, err := readFileWordSet(ctx, secondaryPath, "secondary", enc, conv)
 	if err != nil {
 		return nil, err
 	}
@@ -591,6 +619,9 @@ func MergeFiles(primaryPath, secondaryPath, outputPath string, opts MergeOptions
 		if os.SameFile(outInfo, pInfo) || os.SameFile(outInfo, sInfo) {
 			return nil, fmt.Errorf("output word list %q refers to the same file as an input word list", outputPath)
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	result := computeSetOpSorted(primarySet, secondarySet, op)
@@ -611,6 +642,14 @@ func MergeFiles(primaryPath, secondaryPath, outputPath string, opts MergeOptions
 
 // MergeFilesWithParams resolves params, reads the two input files, merges them, and writes the output file.
 func MergeFilesWithParams(params MergeParams) (string, *MergeStats, error) {
+	return MergeFilesWithParamsContext(context.Background(), params)
+}
+
+// MergeFilesWithParamsContext is the cancellable form of MergeFilesWithParams.
+func MergeFilesWithParamsContext(ctx context.Context, params MergeParams) (string, *MergeStats, error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
 	primaryPath := strings.TrimSpace(params.PrimaryPath)
 	if primaryPath == "" {
 		return "", nil, fmt.Errorf("primary word list file is required")
@@ -629,7 +668,7 @@ func MergeFilesWithParams(params MergeParams) (string, *MergeStats, error) {
 		return "", nil, err
 	}
 
-	stats, err := MergeFiles(primaryPath, secondaryPath, outputPath, opts)
+	stats, err := MergeFilesContext(ctx, primaryPath, secondaryPath, outputPath, opts)
 	if err != nil {
 		return "", nil, err
 	}

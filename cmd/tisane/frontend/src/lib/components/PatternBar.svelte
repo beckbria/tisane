@@ -435,7 +435,7 @@
         {/each}
       </div>
       <p class="mt-3 text-[11px] text-slate-400">
-        Wildcards: <code class="text-slate-200">.</code> any letter · <code class="text-slate-200">?</code> optional letter (0 or 1) · <code class="text-slate-200">*</code> 0+ letters · <code class="text-slate-200">[abc]</code> / <code class="text-slate-200">[^abc]</code> letter sets · <code class="text-slate-200">\</code> literal escape. Click any card above to try it.
+        Wildcards: <code class="text-slate-200">.</code> or <code class="text-slate-200">?</code> any single letter · <code class="text-slate-200">*</code> 0+ letters · <code class="text-slate-200">[abc]</code> / <code class="text-slate-200">[^abc]</code> letter sets · <code class="text-slate-200">\</code> literal escape. Click any card above to try it.
       </p>
     </div>
   {/if}

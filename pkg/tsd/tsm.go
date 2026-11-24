@@ -48,6 +48,7 @@ func buildCP1252SortTable() [256]byte {
 	// Windows-1252 extended Latin letters (0x80..0x9F).
 	tbl[0x8A], tbl[0x9A] = 'S', 'S'   // Š, š
 	tbl[0x8C], tbl[0x9C] = 0x8C, 0x8C // Œ, œ
+	tbl[0x8E], tbl[0x9E] = 'Z', 'Z'   // Ž, ž
 	tbl[0x9F] = 'Y'                   // Ÿ
 
 	// Latin-1 uppercase (0xC0..0xDF) and lowercase (0xE0..0xFF) pairs.

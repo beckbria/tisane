@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"tisane/pkg/tsd"
 )
@@ -450,27 +451,32 @@ func linkifyAndEscapeHTML(s string) string {
 		openParens := 0
 		closeParens := 0
 		for urlEnd < len(s) {
-			c := s[urlEnd]
-			if c <= ' ' || c == '<' || c == '>' || c == '"' || c == '{' || c == '}' {
+			r, rLen := utf8.DecodeRuneInString(s[urlEnd:])
+			if r <= ' ' || unicode.IsSpace(r) || unicode.IsControl(r) {
 				break
 			}
-			if c == '(' {
+			switch r {
+			case '<', '>', '"', '{', '}', '“', '”', '‘', '—', '–', '«', '»':
+				urlEnd -= 0
+				goto urlScanDone
+			case '(':
 				openParens++
-			} else if c == ')' {
+			case ')':
 				closeParens++
 			}
-			urlEnd++
+			urlEnd += rLen
 		}
+	urlScanDone:
 		minBodyEnd := urlStart + prefixLen
 		// Strip trailing sentence punctuation unless balanced '(' inside URL.
 		for urlEnd > minBodyEnd {
-			last := s[urlEnd-1]
-			if last == '.' || last == ',' || last == ';' || last == ':' || last == '!' || last == '?' || last == '\'' || last == ']' {
-				urlEnd--
+			last, rLen := utf8.DecodeLastRuneInString(s[minBodyEnd:urlEnd])
+			if last == '.' || last == ',' || last == ';' || last == ':' || last == '!' || last == '?' || last == '\'' || last == '’' || last == ']' {
+				urlEnd -= rLen
 				continue
 			}
 			if last == ')' && closeParens > openParens {
-				urlEnd--
+				urlEnd -= rLen
 				closeParens--
 				continue
 			}

@@ -151,8 +151,11 @@ func runContext(ctx context.Context, args []string, _ io.Reader, stdout, stderr 
 			fmt.Fprintf(stderr, "tisane-merge: %v\n", readErr)
 			return 1
 		}
-		outBytes, s, mergeErr := wordlist.MergeBytes(primaryData, secondaryData, opts)
+		outBytes, s, mergeErr := wordlist.MergeBytesContext(ctx, primaryData, secondaryData, opts)
 		if mergeErr != nil {
+			if ctx.Err() != nil || errors.Is(mergeErr, context.Canceled) {
+				return 130
+			}
 			fmt.Fprintf(stderr, "tisane-merge: %v\n", mergeErr)
 			return 1
 		}
@@ -163,8 +166,11 @@ func runContext(ctx context.Context, args []string, _ io.Reader, stdout, stderr 
 		stats = s
 	} else {
 		var mergeErr error
-		stats, mergeErr = wordlist.MergeFiles(primaryPath, secondaryPath, outputPath, opts)
+		stats, mergeErr = wordlist.MergeFilesContext(ctx, primaryPath, secondaryPath, outputPath, opts)
 		if mergeErr != nil {
+			if ctx.Err() != nil || errors.Is(mergeErr, context.Canceled) {
+				return 130
+			}
 			fmt.Fprintf(stderr, "tisane-merge: %v\n", mergeErr)
 			return 1
 		}

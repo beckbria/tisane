@@ -21,7 +21,7 @@ On first launch, Tisane automatically scans `TISANE_DICT_PATH`, the directory th
 | Syntax | Meaning | Example |
 | :--- | :--- | :--- |
 | `.` | Any single letter | `c.o..w.rd` → `crossword` |
-| `?` | Optional single letter (0 or 1) | `colou?r` → `color`, `colour` |
+| `?` | Any single letter (alias for `.`) | `c?o??w?rd` → `crossword` |
 | `*` | Zero or more letters | `anti*dis*` |
 | `[abc]` / `[^abc]` | Character choice list / negated choice list | `[^aeiou]at` → `bat`, `cat`, … |
 | `;letters` | Anagram letter pool (usable with `.`, `?`, `*`) | `;listen` → `enlist`, `silent`, `tinsel` |

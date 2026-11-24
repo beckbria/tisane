@@ -205,8 +205,11 @@ func runContext(ctx context.Context, args []string, stdin io.Reader, stdout, std
 		if ctx.Err() != nil {
 			return 130
 		}
-		outBytes, s, buildErr := tsd.BuildBytes(rawInput, opts)
+		outBytes, s, buildErr := tsd.BuildBytesContext(ctx, rawInput, opts)
 		if buildErr != nil {
+			if ctx.Err() != nil || errors.Is(buildErr, context.Canceled) {
+				return 130
+			}
 			fmt.Fprintf(stderr, "tisane-build: build failed: %v\n", buildErr)
 			return 1
 		}
@@ -217,8 +220,11 @@ func runContext(ctx context.Context, args []string, stdin io.Reader, stdout, std
 		stats = s
 	} else {
 		var buildErr error
-		stats, buildErr = tsd.BuildFile(inputPath, outputPath, opts)
+		stats, buildErr = tsd.BuildFileContext(ctx, inputPath, outputPath, opts)
 		if buildErr != nil {
+			if ctx.Err() != nil || errors.Is(buildErr, context.Canceled) {
+				return 130
+			}
 			fmt.Fprintf(stderr, "tisane-build: %v\n", buildErr)
 			return 1
 		}

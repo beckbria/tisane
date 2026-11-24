@@ -197,3 +197,46 @@ func TestExportSimpleAndMetadataRoundTrip(t *testing.T) {
 		}
 	})
 }
+
+func TestExportMetadataSortLengthAndCP1252ZCaron(t *testing.T) {
+	src := strings.Join([]string{
+		"longheadword|Definition of a twelve-letter word",
+		"cat|Small feline",
+		"ox",
+		"zebra",
+	}, "\n") + "\n"
+
+	built, _, err := tsd.BuildBytes([]byte(src), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatalf("BuildBytes: %v", err)
+	}
+	d, err := tsd.OpenBytes(built, "sortlen")
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer d.Close()
+
+	opts := tsd.DefaultExportOptions(tsd.ExportMetadata)
+	opts.IncludeHeader = false
+	opts.Sort = tsd.ExportSortLength
+
+	var buf bytes.Buffer
+	if _, err := d.Export(&buf, opts); err != nil {
+		t.Fatalf("Export(ExportMetadata, ExportSortLength): %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	wantPrefixes := []string{"ox", "cat|", "zebra", "longheadword|"}
+	if len(lines) != len(wantPrefixes) {
+		t.Fatalf("got %d lines (%v), want %d", len(lines), lines, len(wantPrefixes))
+	}
+	for i, p := range wantPrefixes {
+		if !strings.HasPrefix(lines[i], p) {
+			t.Fatalf("line %d = %q, want prefix %q (all=%v)", i, lines[i], p, lines)
+		}
+	}
+
+	// CP1252 0x8E ('Ž') and 0x9E ('ž') sort with 'Z' rather than being stripped as non-letters.
+	if tsd.CompareWordsAlpha([]byte{0x9E, 'a'}, []byte{'y', 'z'}) <= 0 {
+		t.Fatal("expected CP1252 'ž' (0x9E) to sort after 'y'")
+	}
+}

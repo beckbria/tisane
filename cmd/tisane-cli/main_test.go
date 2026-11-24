@@ -423,6 +423,23 @@ func TestCLIHardeningConfigIsolationDefineJSONAndSignals(t *testing.T) {
 	if code != 130 || stdout.Len() != 0 {
 		t.Fatalf("expected exit 130 and empty stdout on canceled context, got code=%d stdout=%q", code, stdout.String())
 	}
+
+	// Verify REPL :len alias and :fts :val ignoring word :len/:enum bounds.
+	stdout.Reset()
+	stderr.Reset()
+	replCommands := ":len 7 7\n:enum 4,3\n:fts\n:val blackguard\n:q\n"
+	code = run(context.Background(), []string{"-d", dictPath, "-i", "-q"}, strings.NewReader(replCommands), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("REPL :fts/:val/:len failed (%d): %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Length range set to 7..7.") || !strings.Contains(stdout.String(), "Valid (") {
+		t.Fatalf("unexpected REPL output for :len and :fts :val:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+	}
+
+	// Verify /O:4 transliterates Windows-1252 Ž/ž (0x8E/0x9E) to Z/z.
+	if got := transformWordAndAnnot("Žižek", "", false, 4); got != "ZIZEK" {
+		t.Fatalf("transformWordAndAnnot(Žižek, mode=4) = %q, want %q", got, "ZIZEK")
+	}
 }
 
 func BenchmarkSearchWordNet(b *testing.B) {

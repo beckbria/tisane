@@ -54,6 +54,7 @@ ManifestDPIAware true
 !insertmacro GetOptions
 !insertmacro GetSize
 !insertmacro un.GetParameters
+!insertmacro un.GetOptions
 
 Name "${APP_NAME} ${APP_VERSION}"
 OutFile "${OUT_FILE}"
@@ -92,6 +93,7 @@ Var ExistingUserDir   ; Existing per-user InstallLocation (if any)
 Var ExistingAllDir    ; Existing global InstallLocation (if any)
 Var CreateStartMenu   ; 1 (default) or 0
 Var AddToPath         ; 0 (default) or 1
+Var PrevPathAdded     ; Existing PathAdded DWORD before upgrade (0 or 1)
 Var ExtraRelaunchArgs ; Preserved CLI args across UAC relaunch
 
 Var Dialog
@@ -146,6 +148,7 @@ Function LoadScopePreferences
   ; Defaults: CreateStartMenu = 1, AddToPath = 0.
   StrCpy $CreateStartMenu 1
   StrCpy $AddToPath 0
+  StrCpy $PrevPathAdded 0
 
   ${If} $InstallMode == "all"
     ClearErrors
@@ -157,6 +160,7 @@ Function LoadScopePreferences
     ReadRegDWORD $0 HKLM "${UNINST_KEY}" "PathAdded"
     ${IfNot} ${Errors}
       StrCpy $AddToPath $0
+      StrCpy $PrevPathAdded $0
     ${EndIf}
   ${Else}
     ClearErrors
@@ -168,6 +172,7 @@ Function LoadScopePreferences
     ReadRegDWORD $0 HKCU "${UNINST_KEY}" "PathAdded"
     ${IfNot} ${Errors}
       StrCpy $AddToPath $0
+      StrCpy $PrevPathAdded $0
     ${EndIf}
   ${EndIf}
 FunctionEnd
@@ -188,6 +193,20 @@ Function AddInstallDirToPath
   System::Call 'Kernel32::SetEnvironmentVariable(t "TISANE_INSTALL_DIR", t "$INSTDIR")'
   System::Call 'Kernel32::SetEnvironmentVariable(t "TISANE_PATH_SCOPE", t "$0")'
   nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$dir = $$env:TISANE_INSTALL_DIR.TrimEnd(\"\\\"); $$scope = $$env:TISANE_PATH_SCOPE; $$cur = [Environment]::GetEnvironmentVariable(\"Path\", $$scope); $$parts = @(); if ($$cur) { $$parts = $$cur -split \";\" | Where-Object { $$_ -ne \"\" } }; if (-not ($$parts | Where-Object { $$_.TrimEnd(\"\\\") -ieq $$dir })) { $$parts += $$dir; [Environment]::SetEnvironmentVariable(\"Path\", ($$parts -join \";\"), $$scope) }"'
+  Pop $1
+  Pop $2
+FunctionEnd
+
+Function RemoveInstallDirFromPath
+  ${If} $InstallMode == "all"
+    StrCpy $0 "Machine"
+  ${Else}
+    StrCpy $0 "User"
+  ${EndIf}
+
+  System::Call 'Kernel32::SetEnvironmentVariable(t "TISANE_INSTALL_DIR", t "$INSTDIR")'
+  System::Call 'Kernel32::SetEnvironmentVariable(t "TISANE_PATH_SCOPE", t "$0")'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$dir = $$env:TISANE_INSTALL_DIR.TrimEnd(\"\\\"); $$scope = $$env:TISANE_PATH_SCOPE; $$cur = [Environment]::GetEnvironmentVariable(\"Path\", $$scope); if ($$cur) { $$parts = $$cur -split \";\" | Where-Object { $$_ -ne \"\" -and $$_.TrimEnd(\"\\\") -ine $$dir }; [Environment]::SetEnvironmentVariable(\"Path\", ($$parts -join \";\"), $$scope) }"'
   Pop $1
   Pop $2
 FunctionEnd
@@ -452,7 +471,7 @@ Section "Install"
     ClearErrors
     FileOpen $0 "$INSTDIR\${APP_EXE}" a
     ${If} ${Errors}
-      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${APP_NAME} appears to be running.$\r$\n$\r$\nPlease close ${APP_NAME} and click Retry to continue." IDRETRY CheckRunning
+      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${APP_NAME} appears to be running.$\r$\n$\r$\nPlease close ${APP_NAME} and click Retry to continue." /SD IDCANCEL IDRETRY CheckRunning
       Abort
     ${Else}
       FileClose $0
@@ -470,11 +489,17 @@ Section "Install"
     CreateDirectory "$SMPROGRAMS\${APP_NAME}"
     CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
     CreateShortcut "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk" "$INSTDIR\uninstall.exe"
+  ${Else}
+    Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
+    Delete "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk"
+    RMDir  "$SMPROGRAMS\${APP_NAME}"
   ${EndIf}
 
   ; Optional PATH update (opt-in, unchecked by default)
   ${If} $AddToPath == 1
     Call AddInstallDirToPath
+  ${ElseIf} $PrevPathAdded == 1
+    Call RemoveInstallDirFromPath
   ${EndIf}
 
   ; Compute total installed size in KB for Add/Remove Programs
@@ -540,16 +565,23 @@ Function un.onInit
     ${EndIf}
   ${EndIf}
 
-  ; If uninstalling a global install without admin privileges, prompt for UAC.
+  ; If uninstalling a global install without admin privileges, copy uninstaller to $TEMP
+  ; before elevating so _?=$INSTDIR does not lock $INSTDIR\uninstall.exe during removal.
   ${If} $UnInstallMode == "all"
     UserInfo::GetAccountType
     Pop $0
     ${If} $0 != "Admin"
       ${un.GetParameters} $R0
       ClearErrors
-      ExecShell "runas" "$INSTDIR\uninstall.exe" "$R0"
+      ${un.GetOptions} $R0 "_?=" $R1
       ${If} ${Errors}
-        MessageBox MB_OK|MB_ICONEXCLAMATION "Administrator privileges are required to uninstall ${APP_NAME} for all users."
+        StrCpy $R0 '$R0 _?=$INSTDIR'
+      ${EndIf}
+      CopyFiles /SILENT "$INSTDIR\uninstall.exe" "$TEMP\tisane-uninstall.exe"
+      ClearErrors
+      ExecShell "runas" "$TEMP\tisane-uninstall.exe" "$R0"
+      ${If} ${Errors}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "Administrator privileges are required to uninstall ${APP_NAME} for all users." /SD IDOK
         Abort
       ${EndIf}
       Quit
@@ -572,7 +604,7 @@ Section "Uninstall"
     ClearErrors
     FileOpen $0 "$INSTDIR\${APP_EXE}" a
     ${If} ${Errors}
-      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${APP_NAME} appears to be running.$\r$\n$\r$\nPlease close ${APP_NAME} and click Retry to continue." IDRETRY UnCheckRunning
+      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${APP_NAME} appears to be running.$\r$\n$\r$\nPlease close ${APP_NAME} and click Retry to continue." /SD IDCANCEL IDRETRY UnCheckRunning
       Abort
     ${Else}
       FileClose $0

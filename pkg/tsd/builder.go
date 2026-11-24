@@ -2,6 +2,7 @@ package tsd
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -110,6 +111,14 @@ func ResolveBuildOptions(params BuildParams) (BuildOptions, error) {
 // BuildFileWithParams resolves params, compiles params.InputPath into a TSD1 dictionary,
 // and writes the resulting .tsd file to params.OutputPath (or DefaultOutputPath if empty).
 func BuildFileWithParams(params BuildParams) (string, *BuildStats, error) {
+	return BuildFileWithParamsContext(context.Background(), params)
+}
+
+// BuildFileWithParamsContext is the cancellable form of BuildFileWithParams.
+func BuildFileWithParamsContext(ctx context.Context, params BuildParams) (string, *BuildStats, error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
 	inputPath := strings.TrimSpace(params.InputPath)
 	if inputPath == "" {
 		return "", nil, fmt.Errorf("tsd: input word list path is required")
@@ -125,7 +134,7 @@ func BuildFileWithParams(params BuildParams) (string, *BuildStats, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	stats, err := BuildFile(inputPath, outputPath, opts)
+	stats, err := BuildFileContext(ctx, inputPath, outputPath, opts)
 	if err != nil {
 		return "", nil, err
 	}
@@ -412,12 +421,23 @@ func readBoundedSourceFile(inputPath string) ([]byte, error) {
 // BuildFile reads a .txt source file from inputPath, compiles a TSD1 dictionary with opts,
 // and writes the resulting .tsd file atomically to outputPath.
 func BuildFile(inputPath, outputPath string, opts BuildOptions) (*BuildStats, error) {
+	return BuildFileContext(context.Background(), inputPath, outputPath, opts)
+}
+
+// BuildFileContext is the cancellable form of BuildFile.
+func BuildFileContext(ctx context.Context, inputPath, outputPath string, opts BuildOptions) (*BuildStats, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	inData, err := readBoundedSourceFile(inputPath)
 	if err != nil {
 		return nil, err
 	}
-	outBytes, stats, err := BuildBytes(inData, opts)
+	outBytes, stats, err := BuildBytesContext(ctx, inData, opts)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := writeFileAtomic(outputPath, func(f *os.File) error {
@@ -447,6 +467,15 @@ func Build(r io.Reader, w io.Writer, opts BuildOptions) (*BuildStats, error) {
 
 // BuildBytes compiles raw .txt source data into an in-memory TSD1 byte slice.
 func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error) {
+	return BuildBytesContext(context.Background(), rawInput, opts)
+}
+
+// BuildBytesContext compiles raw .txt source data into an in-memory TSD1 byte slice,
+// aborting promptly if ctx is cancelled.
+func BuildBytesContext(ctx context.Context, rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if opts.MinLen == 0 && opts.MaxLen == 0 {
 		opts.MinLen = 1
 		opts.MaxLen = MaxWordLengthLimit
@@ -512,6 +541,11 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 
 	// Pass 0: Scan source lines, collect words (MapA), tokenize Pass 2 definitions (MapB), and count byte frequencies.
 	for lineIdx, line := range lines {
+		if lineIdx&0xFFF == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, err
+			}
+		}
 		if len(line) > 0 && line[0] == '|' {
 			linePass[lineIdx] = 0
 			continue
@@ -820,6 +854,11 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 			defPassOffsets[1] = headerSize + uint32(len(defsBuf))
 		}
 		for lineIdx, line := range lines {
+			if lineIdx&0xFFF == 0 {
+				if err := ctx.Err(); err != nil {
+					return nil, nil, err
+				}
+			}
 			if linePass[lineIdx] != passNum {
 				continue
 			}
@@ -972,6 +1011,9 @@ func BuildBytes(rawInput []byte, opts BuildOptions) ([]byte, *BuildStats, error)
 
 	var bw bitStreamWriter
 	for L := 1; L < numLengths; L++ {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		if wordCounts[L] == 0 {
 			continue
 		}

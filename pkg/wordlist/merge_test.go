@@ -1,6 +1,8 @@
 package wordlist
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -262,5 +264,11 @@ func TestCROnlyLineEndingsExtendedLatinNFCNFDAndSameFileCollision(t *testing.T) 
 		if _, err := MergeFiles(p1, p2, linkOut, MergeOptions{}); err == nil {
 			t.Fatal("expected error when outputPath is os.SameFile with primaryPath")
 		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := MergeBytesContext(ctx, primaryCR, secondaryNFD, MergeOptions{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled from MergeBytesContext, got %v", err)
 	}
 }

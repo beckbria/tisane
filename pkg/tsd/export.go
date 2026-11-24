@@ -106,9 +106,23 @@ type exportWord struct {
 }
 
 type exportRecord struct {
-	sortKey []byte // Primary CP1252 word for ExportSortAlpha
+	sortKey []byte // Primary CP1252 word for ExportSortAlpha / tie-breaking
+	keyLen  int    // Canonical letter count of primary word for ExportSortLength
 	line    []byte // Complete CP1252 line without trailing '\n'
 	isDef   bool
+}
+
+func (d *Dictionary) canonicalWordLen(raw []byte) int {
+	n := 0
+	for _, b := range raw {
+		if b == '\n' {
+			break
+		}
+		if d.charTable[b].MappedChar != 0 {
+			n++
+		}
+	}
+	return n
 }
 
 func appendEscapedSourceToken(dst, src []byte) []byte {
@@ -483,6 +497,7 @@ func (d *Dictionary) Export(w io.Writer, opts ExportOptions) (*ExportStats, erro
 
 			records = append(records, exportRecord{
 				sortKey: primaryKey,
+				keyLen:  d.canonicalWordLen(primaryKey),
 				line:    append([]byte(nil), lineBuf...),
 				isDef:   true,
 			})
@@ -508,6 +523,7 @@ func (d *Dictionary) Export(w io.Writer, opts ExportOptions) (*ExportStats, erro
 		line := formatWordAnnotCP1252(nil, ew.wordRaw, ew.annotRaw)
 		standaloneRecords = append(standaloneRecords, exportRecord{
 			sortKey: ew.rawFull,
+			keyLen:  ew.length,
 			line:    line,
 			isDef:   false,
 		})
@@ -519,8 +535,19 @@ func (d *Dictionary) Export(w io.Writer, opts ExportOptions) (*ExportStats, erro
 		sort.SliceStable(records, func(i, j int) bool {
 			return CompareWordsAlpha(records[i].sortKey, records[j].sortKey) < 0
 		})
+	case ExportSortLength:
+		combined := make([]exportRecord, 0, len(standaloneRecords)+len(records))
+		combined = append(combined, standaloneRecords...)
+		combined = append(combined, records...)
+		sort.SliceStable(combined, func(i, j int) bool {
+			if combined[i].keyLen != combined[j].keyLen {
+				return combined[i].keyLen < combined[j].keyLen
+			}
+			return CompareWordsAlpha(combined[i].sortKey, combined[j].sortKey) < 0
+		})
+		records = combined
 	default:
-		// ExportSortSection / ExportSortLength: emit standalone words first, then definitions in offset order.
+		// ExportSortSection / ExportSortAuto: emit standalone words first, then definitions in offset order.
 		combined := make([]exportRecord, 0, len(standaloneRecords)+len(records))
 		combined = append(combined, standaloneRecords...)
 		combined = append(combined, records...)

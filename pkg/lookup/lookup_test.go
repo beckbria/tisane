@@ -225,3 +225,17 @@ func TestBuildWebURLHardening(t *testing.T) {
 		t.Fatalf("unexpected escaped URL %q", got)
 	}
 }
+
+func TestRTFLinkifierStopsAtNBSPAndTypographicPunctuation(t *testing.T) {
+	rtf := []byte(`{\rtf1 Visit \ldblquote https://example.org/entry\rdblquote\~next or https://example.org/dash\emdash see also 'https://example.org/apos\rquote.}`)
+	htmlOut := lookup.DefinitionToHTML(rtf)
+	for _, wantHref := range []string{
+		`href="https://example.org/entry"`,
+		`href="https://example.org/dash"`,
+		`href="https://example.org/apos"`,
+	} {
+		if !strings.Contains(htmlOut, wantHref) {
+			t.Fatalf("expected %s in rendered RTF HTML, got: %s", wantHref, htmlOut)
+		}
+	}
+}

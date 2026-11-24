@@ -1,6 +1,8 @@
 package tsd_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,5 +127,11 @@ func TestBuildFileRejectsDirectoryAndOversizedInput(t *testing.T) {
 	}
 	if _, err := tsd.BuildFile(sparse, outPath, tsd.DefaultBuildOptions()); err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
 		t.Fatalf("expected BuildFile size-limit error, got %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := tsd.BuildBytesContext(ctx, []byte("alpha\nbeta\n"), tsd.DefaultBuildOptions()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled from BuildBytesContext, got %v", err)
 	}
 }

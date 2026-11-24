@@ -183,7 +183,7 @@ func (s *replSession) handleCommand(ctx context.Context, cmdLine string) (quit b
   :def <word>                Look up local .tsd definitions (and fallback web links)
   :mode word|fts             Switch between Word Search and Full Text Search (:word / :fts)
   :enum [spec|off]           Set or clear crossword enumeration (e.g. :enum 4,3 or :enum off)
-  :range <min> <max>         Set minimum and maximum word length (1..100)
+  :range <min> <max>         Set minimum and maximum word length (1..100, alias :len)
   :sort <mode>               Set sort mode: dict, alpha, alpha-desc, len, len-desc, smart
   :filter <cats>             Set entry filter: all, or comma list of lower,upper,punct,phrase
   :dedupe [on|off]           Toggle cross-dictionary duplicate suppression
@@ -223,13 +223,18 @@ func (s *replSession) handleCommand(ctx context.Context, cmdLine string) (quit b
 			return false
 		}
 		pOpts := pattern.ParseOptions{
-			AtMacro:     s.opts.AtMacro,
-			HashMacro:   s.opts.HashMacro,
-			Enumeration: s.opts.EnumParts,
+			AtMacro:   s.opts.AtMacro,
+			HashMacro: s.opts.HashMacro,
+		}
+		minL, maxL := s.opts.MinLen, s.opts.MaxLen
+		if s.opts.FTSMode {
+			minL, maxL = 1, tsd.MaxWordLengthLimit
+		} else {
+			pOpts.Enumeration = s.opts.EnumParts
 		}
 		cOpts := pattern.CompileOptions{
-			MinLength:               s.opts.MinLen,
-			MaxLength:               s.opts.MaxLen,
+			MinLength:               minL,
+			MaxLength:               maxL,
 			ExclusiveVars:           s.opts.ExclusiveVars,
 			IgnoreUnusedPunctuation: s.opts.IgnorePunct,
 		}
@@ -276,7 +281,7 @@ func (s *replSession) handleCommand(ctx context.Context, cmdLine string) (quit b
 		fmt.Fprintf(s.stdout, "Enumeration set to %s -> template %q (%d letters).\n",
 			argRest, pattern.EnumerationTemplate(parts), pattern.TotalEnumerationLength(parts))
 
-	case ":range":
+	case ":range", ":len":
 		if len(fields) != 3 {
 			fmt.Fprintln(s.stderr, "Usage: :range <min> <max>")
 			return false
