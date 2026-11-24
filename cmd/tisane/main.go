@@ -143,12 +143,14 @@ func newServices(state *app.State) (
 	[]application.Service,
 ) {
 	dictSvc := app.NewDictionaryService(state)
+	toolsSvc := app.NewToolsService(state)
 	searchSvc := app.NewSearchService(state)
 	lookupSvc := app.NewLookupService(state)
 	profileSvc := app.NewProfileService(state)
 
 	services := []application.Service{
 		application.NewService(dictSvc),
+		application.NewService(toolsSvc),
 		application.NewService(searchSvc),
 		application.NewService(lookupSvc),
 		application.NewService(profileSvc),

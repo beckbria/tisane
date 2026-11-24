@@ -44,25 +44,14 @@ type BuildDictionaryResult struct {
 }
 
 // BrowseWordListFile opens the native OS file picker for selecting a source word list file.
-func (ds *DictionaryService) BrowseWordListFile() (string, error) {
-	return ds.state.Bridge().PickWordListFile()
+func (ts *ToolsService) BrowseWordListFile() (string, error) {
+	return ts.state.Bridge().PickWordListFile()
 }
 
 // BrowseSaveDictionaryFile opens the native OS save dialog for choosing the output .tsd file path.
-func (ds *DictionaryService) BrowseSaveDictionaryFile(defaultPath string) (string, error) {
-	defaultDir := ""
-	defaultName := "dictionary.tsd"
-	if trimmed := strings.TrimSpace(defaultPath); trimmed != "" {
-		dir := filepath.Dir(trimmed)
-		if dir != "" && dir != "." {
-			defaultDir = dir
-		}
-		base := filepath.Base(trimmed)
-		if base != "" && base != "." && base != string(filepath.Separator) {
-			defaultName = base
-		}
-	}
-	chosen, err := ds.state.Bridge().PickSaveDictionaryFile(defaultDir, defaultName)
+func (ts *ToolsService) BrowseSaveDictionaryFile(defaultPath string) (string, error) {
+	defaultDir, defaultName := splitDefaultSaveTarget(defaultPath, "dictionary.tsd")
+	chosen, err := ts.state.Bridge().PickSaveDictionaryFile(defaultDir, defaultName)
 	if err != nil || strings.TrimSpace(chosen) == "" {
 		return chosen, err
 	}
@@ -73,13 +62,13 @@ func (ds *DictionaryService) BrowseSaveDictionaryFile(defaultPath string) (strin
 }
 
 // BrowseAlphabetMapFile opens the native OS file picker for selecting an optional .tsm alphabet map file.
-func (ds *DictionaryService) BrowseAlphabetMapFile() (string, error) {
-	return ds.state.Bridge().PickAlphabetMapFile()
+func (ts *ToolsService) BrowseAlphabetMapFile() (string, error) {
+	return ts.state.Bridge().PickAlphabetMapFile()
 }
 
 // BuildDictionary compiles a word/definition list file into a .tsd dictionary using the
 // shared pkg/tsd builder logic, optionally registering or reloading the output in Tisane.
-func (ds *DictionaryService) BuildDictionary(ctx context.Context, req BuildDictionaryRequest) (*BuildDictionaryResult, error) {
+func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionaryRequest) (*BuildDictionaryResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -109,10 +98,10 @@ func (ds *DictionaryService) BuildDictionary(ctx context.Context, req BuildDicti
 		prevName    string
 		prevEnabled = true
 	)
-	ds.state.mu.Lock()
+	ts.state.mu.Lock()
 	outInfo, outStatErr := os.Stat(absOut)
 	outID := makeDictID(absOut)
-	for i, existing := range ds.state.dicts {
+	for i, existing := range ts.state.dicts {
 		match := existing.info.ID == outID
 		if !match && outStatErr == nil {
 			if exInfo, exErr := os.Stat(existing.info.Path); exErr == nil && os.SameFile(outInfo, exInfo) {
@@ -124,11 +113,11 @@ func (ds *DictionaryService) BuildDictionary(ctx context.Context, req BuildDicti
 			prevName = existing.info.Name
 			prevEnabled = existing.info.Enabled
 			_ = existing.release()
-			ds.state.dicts = append(ds.state.dicts[:i], ds.state.dicts[i+1:]...)
+			ts.state.dicts = append(ts.state.dicts[:i], ts.state.dicts[i+1:]...)
 			break
 		}
 	}
-	ds.state.mu.Unlock()
+	ts.state.mu.Unlock()
 
 	params := tsd.BuildParams{
 		InputPath:               inputPath,
@@ -150,20 +139,20 @@ func (ds *DictionaryService) BuildDictionary(ctx context.Context, req BuildDicti
 	if buildErr != nil {
 		// Restore previously loaded dictionary handle if the file is still intact on disk.
 		if prevIdx >= 0 {
-			ds.state.mu.Lock()
-			if ld, reopenErr := ds.state.openAndAppendLocked(absOut, prevName, prevEnabled); reopenErr == nil {
-				if prevIdx < len(ds.state.dicts)-1 {
+			ts.state.mu.Lock()
+			if ld, reopenErr := ts.state.openAndAppendLocked(absOut, prevName, prevEnabled); reopenErr == nil {
+				if prevIdx < len(ts.state.dicts)-1 {
 					// Move restored entry back to its original priority index.
-					ds.state.dicts = ds.state.dicts[:len(ds.state.dicts)-1]
-					ds.state.dicts = append(ds.state.dicts[:prevIdx], append([]*loadedDict{ld}, ds.state.dicts[prevIdx:]...)...)
+					ts.state.dicts = ts.state.dicts[:len(ts.state.dicts)-1]
+					ts.state.dicts = append(ts.state.dicts[:prevIdx], append([]*loadedDict{ld}, ts.state.dicts[prevIdx:]...)...)
 				}
-				ds.state.mu.Unlock()
+				ts.state.mu.Unlock()
 			} else {
-				ds.state.syncConfigDictionariesLocked()
-				_ = ds.state.saveConfigLocked()
-				infos := ds.state.listInfosLocked()
-				bridge := ds.state.bridge
-				ds.state.mu.Unlock()
+				ts.state.syncConfigDictionariesLocked()
+				_ = ts.state.saveConfigLocked()
+				infos := ts.state.listInfosLocked()
+				bridge := ts.state.bridge
+				ts.state.mu.Unlock()
 				bridge.EmitEvent(EventDictsUpdated, infos)
 			}
 		}
@@ -173,27 +162,27 @@ func (ds *DictionaryService) BuildDictionary(ctx context.Context, req BuildDicti
 	addedToLibrary := false
 	var saveErr error
 	if prevIdx >= 0 || req.AddToLibrary {
-		ds.state.mu.Lock()
+		ts.state.mu.Lock()
 		customName := ""
 		enabled := true
 		if prevIdx >= 0 {
 			customName = prevName
 			enabled = prevEnabled
 		}
-		ld, openErr := ds.state.openAndAppendLocked(writtenPath, customName, enabled)
+		ld, openErr := ts.state.openAndAppendLocked(writtenPath, customName, enabled)
 		if openErr == nil {
-			if prevIdx >= 0 && prevIdx < len(ds.state.dicts)-1 {
+			if prevIdx >= 0 && prevIdx < len(ts.state.dicts)-1 {
 				// Restore original priority position.
-				ds.state.dicts = ds.state.dicts[:len(ds.state.dicts)-1]
-				ds.state.dicts = append(ds.state.dicts[:prevIdx], append([]*loadedDict{ld}, ds.state.dicts[prevIdx:]...)...)
+				ts.state.dicts = ts.state.dicts[:len(ts.state.dicts)-1]
+				ts.state.dicts = append(ts.state.dicts[:prevIdx], append([]*loadedDict{ld}, ts.state.dicts[prevIdx:]...)...)
 			}
-			ds.state.syncConfigDictionariesLocked()
-			saveErr = ds.state.saveConfigLocked()
+			ts.state.syncConfigDictionariesLocked()
+			saveErr = ts.state.saveConfigLocked()
 			addedToLibrary = true
 		}
-		infos := ds.state.listInfosLocked()
-		bridge := ds.state.bridge
-		ds.state.mu.Unlock()
+		infos := ts.state.listInfosLocked()
+		bridge := ts.state.bridge
+		ts.state.mu.Unlock()
 
 		bridge.EmitEvent(EventDictsUpdated, infos)
 	}

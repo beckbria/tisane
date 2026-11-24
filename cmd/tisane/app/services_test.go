@@ -518,6 +518,7 @@ func TestDictionaryServiceBuildDictionary(t *testing.T) {
 	defer state.Close()
 
 	dictSvc := app.NewDictionaryService(state)
+	toolsSvc := app.NewToolsService(state)
 	for _, info := range dictSvc.ListDictionaries() {
 		_, _ = dictSvc.RemoveDictionary(info.ID)
 	}
@@ -536,14 +537,14 @@ func TestDictionaryServiceBuildDictionary(t *testing.T) {
 	}
 
 	bridge.pickedWord = wordListPath
-	gotWord, err := dictSvc.BrowseWordListFile()
+	gotWord, err := toolsSvc.BrowseWordListFile()
 	if err != nil || gotWord != wordListPath {
 		t.Fatalf("BrowseWordListFile: got %q err=%v", gotWord, err)
 	}
 
 	outNoExt := filepath.Join(tmpDir, "animals")
 	bridge.pickedSave = outNoExt
-	gotSave, err := dictSvc.BrowseSaveDictionaryFile(filepath.Join(tmpDir, "custom_words.tsd"))
+	gotSave, err := toolsSvc.BrowseSaveDictionaryFile(filepath.Join(tmpDir, "custom_words.tsd"))
 	if err != nil || gotSave != outNoExt+".tsd" {
 		t.Fatalf("BrowseSaveDictionaryFile: got %q err=%v", gotSave, err)
 	}
@@ -553,7 +554,7 @@ func TestDictionaryServiceBuildDictionary(t *testing.T) {
 
 	// Build with custom min/max length, description, TSV mode, and AddToLibrary=true.
 	outPath := filepath.Join(tmpDir, "animals.tsd")
-	res, err := dictSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
+	res, err := toolsSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
 		InputPath:               wordListPath,
 		OutputPath:              outPath,
 		Description:             "Custom Animals Dictionary",
@@ -613,7 +614,7 @@ func TestDictionaryServiceBuildDictionary(t *testing.T) {
 	}
 
 	// Rebuilding over the already-loaded dictionary reloads its handle cleanly with updated metadata.
-	res2, err := dictSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
+	res2, err := toolsSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
 		InputPath:          wordListPath,
 		OutputPath:         outPath,
 		Description:        "Updated Animals",
@@ -646,11 +647,11 @@ func TestWordListMergeService(t *testing.T) {
 	}
 	defer state.Close()
 
-	dictSvc := app.NewDictionaryService(state)
+	toolsSvc := app.NewToolsService(state)
 
 	// BrowseSaveWordListFile suggests merged.txt by default and appends .txt when missing extension.
 	bridge.pickedSaveWord = filepath.Join(tmp, "combined")
-	gotSave, err := dictSvc.BrowseSaveWordListFile("")
+	gotSave, err := toolsSvc.BrowseSaveWordListFile("")
 	if err != nil {
 		t.Fatalf("BrowseSaveWordListFile: %v", err)
 	}
@@ -671,7 +672,7 @@ func TestWordListMergeService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := dictSvc.MergeWordLists(context.Background(), app.MergeWordListsRequest{
+	res, err := toolsSvc.MergeWordLists(context.Background(), app.MergeWordListsRequest{
 		PrimaryPath:   p1,
 		SecondaryPath: p2,
 		OutputPath:    outPath,
@@ -820,15 +821,16 @@ func TestContextCancellationAndLengthValidation(t *testing.T) {
 	defer state.Close()
 
 	dictSvc := app.NewDictionaryService(state)
+	toolsSvc := app.NewToolsService(state)
 	profileSvc := app.NewProfileService(state)
 
 	canceledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := dictSvc.BuildDictionary(canceledCtx, app.BuildDictionaryRequest{}); err == nil {
+	if _, err := toolsSvc.BuildDictionary(canceledCtx, app.BuildDictionaryRequest{}); err == nil {
 		t.Fatalf("expected BuildDictionary to return context error")
 	}
-	if _, err := dictSvc.MergeWordLists(canceledCtx, app.MergeWordListsRequest{}); err == nil {
+	if _, err := toolsSvc.MergeWordLists(canceledCtx, app.MergeWordListsRequest{}); err == nil {
 		t.Fatalf("expected MergeWordLists to return context error")
 	}
 	if _, err := dictSvc.ScanDirectory(canceledCtx, tmp); err == nil {

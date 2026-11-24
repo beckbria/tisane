@@ -35,20 +35,9 @@ type MergeWordListsResult struct {
 }
 
 // BrowseSaveWordListFile opens the native OS save dialog for choosing the output .txt word list path.
-func (ds *DictionaryService) BrowseSaveWordListFile(defaultPath string) (string, error) {
-	defaultDir := ""
-	defaultName := "merged.txt"
-	if trimmed := strings.TrimSpace(defaultPath); trimmed != "" {
-		dir := filepath.Dir(trimmed)
-		if dir != "" && dir != "." {
-			defaultDir = dir
-		}
-		base := filepath.Base(trimmed)
-		if base != "" && base != "." && base != string(filepath.Separator) {
-			defaultName = base
-		}
-	}
-	chosen, err := ds.state.Bridge().PickSaveWordListFile(defaultDir, defaultName)
+func (ts *ToolsService) BrowseSaveWordListFile(defaultPath string) (string, error) {
+	defaultDir, defaultName := splitDefaultSaveTarget(defaultPath, "merged.txt")
+	chosen, err := ts.state.Bridge().PickSaveWordListFile(defaultDir, defaultName)
 	if err != nil || strings.TrimSpace(chosen) == "" {
 		return chosen, err
 	}
@@ -59,7 +48,7 @@ func (ds *DictionaryService) BrowseSaveWordListFile(defaultPath string) (string,
 }
 
 // MergeWordLists converts and merges two word lists using the shared pkg/wordlist logic.
-func (ds *DictionaryService) MergeWordLists(ctx context.Context, req MergeWordListsRequest) (*MergeWordListsResult, error) {
+func (ts *ToolsService) MergeWordLists(ctx context.Context, req MergeWordListsRequest) (*MergeWordListsResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

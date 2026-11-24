@@ -10,6 +10,7 @@ go_library(
         "profile_service.go",
         "search_service.go",
         "state.go",
+        "tools_service.go",
         "wordlist_merge.go",
     ],
     importpath = "tisane/cmd/tisane/app",
