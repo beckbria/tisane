@@ -99,6 +99,9 @@ func OpenBytes(data []byte, name string) (*Dictionary, error) {
 
 // OpenReaderAt parses a .tsd dictionary backed by an arbitrary io.ReaderAt of the given byte size.
 func OpenReaderAt(r io.ReaderAt, size int64, name string) (*Dictionary, error) {
+	if r == nil {
+		return nil, fmt.Errorf("%w: nil ReaderAt", ErrInvalidHeader)
+	}
 	if size < 6 {
 		return nil, fmt.Errorf("%w: file too small (%d bytes)", ErrInvalidHeader, size)
 	}
@@ -239,6 +242,7 @@ func OpenReaderAt(r io.ReaderAt, size int64, name string) (*Dictionary, error) {
 		}
 	}
 
+	minSectionOff := headerEnd
 	if isTSD1 {
 		if int64(d.defPassOffsets[0]) != headerEnd ||
 			d.defPassOffsets[0] > d.defPassOffsets[1] ||
@@ -247,28 +251,90 @@ func OpenReaderAt(r io.ReaderAt, size int64, name string) (*Dictionary, error) {
 			return nil, fmt.Errorf("%w: invalid def_pass_offsets %v (headerEnd=%d, size=%d)",
 				ErrInvalidHeader, d.defPassOffsets, headerEnd, size)
 		}
+		minSectionOff = int64(d.defPassOffsets[2])
 	}
 
+	if numLengths > 0 {
+		if d.wordCounts[0] != 0 || d.wordStreamOffsets[0] != 0 {
+			return nil, fmt.Errorf("%w: non-zero slot 0 in word tables", ErrInvalidHeader)
+		}
+		if isTSD1 && (d.occIndexOffsets[0] != 0 || d.defLinkOffsets[0] != 0 || d.defLinkCounts[0] != 0) {
+			return nil, fmt.Errorf("%w: non-zero slot 0 in TSD1 index/link tables", ErrInvalidHeader)
+		}
+	}
+
+	prevEnd := minSectionOff
 	for L := 1; L < numLengths; L++ {
 		if d.wordCounts[L] == 0 {
+			if d.wordStreamOffsets[L] != 0 && int64(d.wordStreamOffsets[L]) > size {
+				return nil, fmt.Errorf("%w: invalid word_stream_offsets[%d]=%d", ErrInvalidHeader, L, d.wordStreamOffsets[L])
+			}
+			if isTSD1 && (d.occIndexOffsets[L] != 0 || d.defLinkOffsets[L] != 0 || d.defLinkCounts[L] != 0) {
+				return nil, fmt.Errorf("%w: non-zero TSD1 tables for empty length %d", ErrInvalidHeader, L)
+			}
 			continue
 		}
 		wsOff := d.wordStreamOffsets[L]
-		if wsOff == 0 || int64(wsOff) >= size {
+		if int64(wsOff) < prevEnd || int64(wsOff) >= size {
 			return nil, fmt.Errorf("%w: invalid word_stream_offsets[%d]=%d", ErrInvalidHeader, L, wsOff)
 		}
+
+		var ftsWords uint64
+		streamEndBound := size
 		if isTSD1 {
 			if occOff := d.occIndexOffsets[L]; occOff > 0 {
-				if occOff >= wsOff || (wsOff-occOff)%4 != 0 {
+				if int64(occOff) < prevEnd || occOff >= wsOff || (wsOff-occOff)%4 != 0 {
 					return nil, fmt.Errorf("%w: invalid occ_index_offsets[%d]=%d (ws=%d)", ErrInvalidHeader, L, occOff, wsOff)
 				}
+				ftsWords = uint64(wsOff-occOff) / 4
 			}
-			if linkCnt := d.defLinkCounts[L]; linkCnt > 0 {
-				linkOff := d.defLinkOffsets[L]
+			linkCnt := d.defLinkCounts[L]
+			linkOff := d.defLinkOffsets[L]
+			if linkCnt > 0 {
 				if linkOff <= wsOff || int64(linkOff)+4*int64(linkCnt) > size {
 					return nil, fmt.Errorf("%w: invalid def_link_offsets[%d]=%d (count=%d)", ErrInvalidHeader, L, linkOff, linkCnt)
 				}
+				streamEndBound = int64(linkOff)
+			} else if linkOff != 0 {
+				return nil, fmt.Errorf("%w: non-zero def_link_offsets[%d]=%d with zero count", ErrInvalidHeader, L, linkOff)
 			}
+		}
+		if streamEndBound == size {
+			for nextL := L + 1; nextL < numLengths; nextL++ {
+				if d.wordCounts[nextL] > 0 {
+					nextBound := int64(d.wordStreamOffsets[nextL])
+					if isTSD1 && d.occIndexOffsets[nextL] > 0 && int64(d.occIndexOffsets[nextL]) < nextBound {
+						nextBound = int64(d.occIndexOffsets[nextL])
+					}
+					if nextBound < int64(wsOff) || nextBound > size {
+						return nil, fmt.Errorf("%w: out-of-order stream offset at length %d", ErrInvalidHeader, nextL)
+					}
+					streamEndBound = nextBound
+					break
+				}
+			}
+		}
+
+		// Every Huffman symbol uses >= 1 bit; each Sub-stream 1 word has L letters + NUL (+ 1 link bit in TSD1).
+		bitsPerWord := uint64(L + 1)
+		if isTSD1 {
+			bitsPerWord = uint64(L + 2)
+		}
+		minBits := uint64(d.wordCounts[L])*bitsPerWord + 1
+		if isTSD1 {
+			minBits += ftsWords*uint64(L+1) + 1
+		}
+		availBits := uint64(streamEndBound-int64(wsOff)) * 8
+		if minBits > availBits {
+			return nil, fmt.Errorf("%w: word_counts[%d]=%d exceeds available bitstream (%d bits > %d bits)",
+				ErrInvalidHeader, L, d.wordCounts[L], minBits, availBits)
+		}
+
+		minStreamBytes := int64((minBits + 7) / 8)
+		if isTSD1 && d.defLinkCounts[L] > 0 {
+			prevEnd = int64(d.defLinkOffsets[L]) + 4*int64(d.defLinkCounts[L])
+		} else {
+			prevEnd = int64(wsOff) + minStreamBytes
 		}
 	}
 
@@ -414,12 +480,13 @@ func (d *Dictionary) WordStreamOffset(length int) uint32 {
 
 // FTSOnlyWordCount returns the number of Sub-stream 2 (FTS-only) words for length L.
 func (d *Dictionary) FTSOnlyWordCount(length int) int {
-	if d.version != VersionTSD1 || length <= 0 || length >= d.numLengths {
+	if d.version != VersionTSD1 || length <= 0 || length >= d.numLengths || d.wordCounts[length] == 0 {
 		return 0
 	}
 	occOff := d.occIndexOffsets[length]
-	if occOff == 0 {
+	wsOff := d.wordStreamOffsets[length]
+	if occOff == 0 || occOff >= wsOff {
 		return 0
 	}
-	return int(d.wordStreamOffsets[length]-occOff) / 4
+	return int((wsOff - occOff) / 4)
 }

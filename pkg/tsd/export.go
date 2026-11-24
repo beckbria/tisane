@@ -288,10 +288,11 @@ func (d *Dictionary) Export(w io.Writer, opts ExportOptions) (*ExportStats, erro
 		for L := minL; L <= maxL; L++ {
 			capHint += int(d.WordCount(L))
 		}
-		words := make([][]byte, 0, capHint)
+		prealloc := min(capHint, 1<<20)
+		words := make([][]byte, 0, prealloc)
 		var seen map[string]struct{}
 		if opts.DedupeSimpleWords {
-			seen = make(map[string]struct{}, capHint)
+			seen = make(map[string]struct{}, prealloc)
 		}
 		for L := minL; L <= maxL; L++ {
 			for entry, err := range d.ScanRawWords(L) {
@@ -335,7 +336,7 @@ func (d *Dictionary) Export(w io.Writer, opts ExportOptions) (*ExportStats, erro
 	for L := minL; L <= maxL; L++ {
 		capHint += int(d.WordCount(L))
 	}
-	allWords := make([]*exportWord, 0, capHint)
+	allWords := make([]*exportWord, 0, min(capHint, 1<<20))
 	defToWords := make(map[uint32][]*exportWord)
 
 	for L := minL; L <= maxL; L++ {

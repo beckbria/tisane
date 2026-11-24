@@ -51,12 +51,27 @@ type streamScanner struct {
 	idxBuf   [MaxWordLengthLimit + 4]byte
 }
 
+const (
+	maxRawWordBytes      = 64 * 1024
+	maxPooledRawBufBytes = 4096
+)
+
 var scannerPool = sync.Pool{
 	New: func() any {
 		return &streamScanner{
 			rawBuf: make([]byte, 0, 256),
 		}
 	},
+}
+
+func putScanner(sc *streamScanner) {
+	sc.br.r = nil
+	if cap(sc.rawBuf) > maxPooledRawBufBytes {
+		sc.rawBuf = make([]byte, 0, 256)
+	} else {
+		sc.rawBuf = sc.rawBuf[:0]
+	}
+	scannerPool.Put(sc)
 }
 
 // wordStreamUpperBound returns a conservative upper byte bound on the word bitstream for length L.
@@ -66,6 +81,9 @@ func (d *Dictionary) wordStreamUpperBound(length int) int64 {
 	}
 	for nextL := length + 1; nextL < d.numLengths; nextL++ {
 		if d.wordCounts[nextL] > 0 {
+			if d.version == VersionTSD1 && d.occIndexOffsets[nextL] > 0 {
+				return int64(d.occIndexOffsets[nextL])
+			}
 			return int64(d.wordStreamOffsets[nextL])
 		}
 	}
@@ -85,11 +103,17 @@ func (d *Dictionary) decodeOneWord(sc *streamScanner) (annotPos int, canonLen in
 		if sym == 0 {
 			return annotPos, canonLen, nil
 		}
+		if len(sc.rawBuf) >= maxRawWordBytes {
+			return -1, 0, fmt.Errorf("%w: raw entry exceeds %d bytes", ErrCorruptBitstream, maxRawWordBytes)
+		}
 		if sym == 0x0A && annotPos < 0 {
 			annotPos = len(sc.rawBuf)
 		} else if annotPos < 0 {
 			ce := d.charTable[sym]
 			if ce.LetterIndex >= 0 {
+				if int(ce.LetterIndex) >= d.numUsedLetters {
+					return -1, 0, fmt.Errorf("%w: unused letter index %d in word stream", ErrCorruptBitstream, ce.LetterIndex)
+				}
 				if canonLen >= len(sc.canonBuf) {
 					return -1, 0, fmt.Errorf("%w: word canonical length exceeds %d", ErrCorruptBitstream, MaxWordLengthLimit)
 				}
@@ -113,7 +137,7 @@ func (d *Dictionary) ScanRawWords(length int) iter.Seq2[RawEntry, error] {
 		endBound := d.wordStreamUpperBound(length)
 
 		sc := scannerPool.Get().(*streamScanner)
-		defer scannerPool.Put(sc)
+		defer putScanner(sc)
 		sc.br.reset(d.r, wsOff, endBound)
 
 		isTSD1 := d.version == VersionTSD1
@@ -153,6 +177,11 @@ func (d *Dictionary) ScanRawWords(length int) iter.Seq2[RawEntry, error] {
 					return
 				}
 				if hasLink != 0 {
+					if uint32(linkIdx) >= d.defLinkCounts[length] {
+						yield(RawEntry{}, fmt.Errorf("%w: length %d link group %d exceeds def_link_counts %d",
+							ErrCorruptBitstream, length, linkIdx, d.defLinkCounts[length]))
+						return
+					}
 					curLink = linkIdx
 					linkIdx++
 				}
@@ -219,7 +248,7 @@ func (d *Dictionary) ScanAllRawWords(length int) iter.Seq2[RawStreamEntry, error
 		endBound := d.wordStreamUpperBound(length)
 
 		sc := scannerPool.Get().(*streamScanner)
-		defer scannerPool.Put(sc)
+		defer putScanner(sc)
 		sc.br.reset(d.r, wsOff, endBound)
 
 		isTSD1 := d.version == VersionTSD1
@@ -255,6 +284,11 @@ func (d *Dictionary) ScanAllRawWords(length int) iter.Seq2[RawStreamEntry, error
 					return
 				}
 				if hasLink != 0 {
+					if uint32(linkIdx) >= d.defLinkCounts[length] {
+						yield(RawStreamEntry{}, fmt.Errorf("%w: length %d link group %d exceeds def_link_counts %d",
+							ErrCorruptBitstream, length, linkIdx, d.defLinkCounts[length]))
+						return
+					}
 					curLink = linkIdx
 					linkIdx++
 				}
@@ -304,6 +338,11 @@ func (d *Dictionary) ScanAllRawWords(length int) iter.Seq2[RawStreamEntry, error
 					yield(RawStreamEntry{}, fmt.Errorf("%w: length %d decoded %d FTS words, expected %d",
 						ErrCorruptBitstream, length, ftsIdx, expectedFTS))
 				}
+				return
+			}
+			if int(ftsIdx) >= expectedFTS {
+				yield(RawStreamEntry{}, fmt.Errorf("%w: length %d exceeded expected FTS word count %d",
+					ErrCorruptBitstream, length, expectedFTS))
 				return
 			}
 			if canonLen != length {

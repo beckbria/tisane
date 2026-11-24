@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"math"
 )
 
 // FTSOverflowSentinel is stored in occurrence pointers and link tables when a word's
 // definition frequency exceeded TSBuild's max_fts_pct indexing threshold.
 const FTSOverflowSentinel uint32 = 0x7FFFFFFF
+
+const maxDefinitionRecordBytes = 64 << 20 // 64 MiB safety cap per single definition record
 
 var (
 	// ErrNoDefinitions indicates an operation requiring TSD1 definitions was called on a dictionary without them.
@@ -92,14 +95,18 @@ func (d *Dictionary) classifyLinkGroupSlice(group []uint32) (LinkResolution, err
 // ReadLinkTable loads and indexes all link groups for word length L.
 // If length L has no link table, an empty LinkTable (NumGroups() == 0) is returned.
 func (d *Dictionary) ReadLinkTable(length int) (*LinkTable, error) {
-	if d.version != VersionTSD1 || length <= 0 || length >= d.numLengths {
+	if d.version != VersionTSD1 || length <= 0 || length >= d.numLengths || d.wordCounts[length] == 0 {
 		return &LinkTable{dict: d}, nil
 	}
-	cnt := int(d.defLinkCounts[length])
-	if cnt == 0 {
+	cnt64 := uint64(d.defLinkCounts[length])
+	if cnt64 == 0 {
 		return &LinkTable{dict: d}, nil
 	}
 	off := int64(d.defLinkOffsets[length])
+	if cnt64 > uint64(math.MaxInt/4) || off <= 0 || off+int64(cnt64*4) > d.size {
+		return nil, fmt.Errorf("%w: invalid link table bounds for length %d", ErrInvalidOffset, length)
+	}
+	cnt := int(cnt64)
 	byteLen := cnt * 4
 	rawBytes := make([]byte, byteLen)
 	if _, err := io.ReadFull(io.NewSectionReader(d.r, off, int64(byteLen)), rawBytes); err != nil {
@@ -131,16 +138,19 @@ func (d *Dictionary) ResolveLinkGroup(length int, linkGroupIndex int) (LinkResol
 	if d.version != VersionTSD1 {
 		return LinkResolution{}, ErrNoDefinitions
 	}
-	if length <= 0 || length >= d.numLengths || linkGroupIndex < 0 {
+	if length <= 0 || length >= d.numLengths || linkGroupIndex < 0 || d.wordCounts[length] == 0 {
 		return LinkResolution{}, ErrInvalidOffset
 	}
-	totalEntries := int(d.defLinkCounts[length])
+	totalEntries := uint64(d.defLinkCounts[length])
 	if totalEntries == 0 {
 		return LinkResolution{}, ErrInvalidOffset
 	}
 
 	off := int64(d.defLinkOffsets[length])
 	endOff := off + int64(totalEntries)*4
+	if off <= 0 || endOff > d.size {
+		return LinkResolution{}, ErrInvalidOffset
+	}
 	const chunkBytes = 4096
 	var chunk [chunkBytes]byte
 
@@ -148,8 +158,8 @@ func (d *Dictionary) ResolveLinkGroup(length int, linkGroupIndex int) (LinkResol
 	var groupBuf []uint32
 	for off < endOff {
 		toRead := chunkBytes
-		if rem := int(endOff - off); rem < toRead {
-			toRead = rem
+		if rem := endOff - off; rem < int64(toRead) {
+			toRead = int(rem)
 		}
 		if _, err := io.ReadFull(io.NewSectionReader(d.r, off, int64(toRead)), chunk[:toRead]); err != nil {
 			return LinkResolution{}, err
@@ -194,10 +204,16 @@ func (d *Dictionary) ResolveAllDefinitionOffsets(length int, linkGroupIndex int)
 // Each entry is either a file offset >= def_pass_offsets[2] or FTSOverflowSentinel (0x7FFFFFFF).
 func (d *Dictionary) ReadFTSIndexPointers(length int) ([]uint32, error) {
 	count := d.FTSOnlyWordCount(length)
-	if count == 0 {
+	if count <= 0 {
 		return nil, nil
 	}
+	if uint64(count) > uint64(math.MaxInt/4) {
+		return nil, fmt.Errorf("%w: FTS pointer count %d too large", ErrInvalidOffset, count)
+	}
 	off := int64(d.occIndexOffsets[length])
+	if off <= 0 || off+int64(count)*4 > d.size {
+		return nil, fmt.Errorf("%w: FTS pointer table out of bounds", ErrInvalidOffset)
+	}
 	rawBytes := make([]byte, count*4)
 	if _, err := io.ReadFull(io.NewSectionReader(d.r, off, int64(len(rawBytes))), rawBytes); err != nil {
 		return nil, err
@@ -230,8 +246,9 @@ func (d *Dictionary) ReadFTSOccurrences(offset uint32) ([]uint32, error) {
 	out := make([]uint32, 0, 8)
 	for pos < d.size {
 		toRead := len(chunk)
-		if rem := int(d.size - pos); rem < toRead {
-			toRead = rem - (rem % 4)
+		if rem := d.size - pos; rem < int64(toRead) {
+			r := int(rem)
+			toRead = r - (r % 4)
 			if toRead == 0 {
 				break
 			}
@@ -348,7 +365,11 @@ func (d *Dictionary) ReadDefinition(offset uint32) (*DefinitionRecord, error) {
 		return nil, fmt.Errorf("%w: definition offset %d outside [%d, %d)", ErrInvalidOffset, offset, defStart, defEnd)
 	}
 
-	maxRem := int(defEnd - offset)
+	maxRem64 := int64(defEnd - offset)
+	if maxRem64 > maxDefinitionRecordBytes {
+		maxRem64 = maxDefinitionRecordBytes
+	}
+	maxRem := int(maxRem64)
 	bufSize := 4096
 	if bufSize > maxRem {
 		bufSize = maxRem
@@ -366,7 +387,8 @@ func (d *Dictionary) ReadDefinition(offset uint32) (*DefinitionRecord, error) {
 		if rec, _, ok := parseDefinitionFromSlice(buf[:filled], offset, d.defPassOffsets[1]); ok {
 			return rec, nil
 		}
-		if filled >= maxRem {
+		// If ReadFull stopped short of len(buf), the underlying ReaderAt reached EOF early.
+		if filled >= maxRem || filled < len(buf) {
 			return nil, fmt.Errorf("%w: truncated XOR-0xBD definition record at %d", ErrInvalidOffset, offset)
 		}
 		nextSize := len(buf) * 2
@@ -417,6 +439,10 @@ func (d *Dictionary) ScanDefinitions(pass int) iter.Seq2[DefinitionRecord, error
 				yield(DefinitionRecord{}, err)
 				return
 			}
+			if n == 0 && err == nil {
+				yield(DefinitionRecord{}, fmt.Errorf("%w: zero-progress definition read at %d", ErrInvalidOffset, curFileOff))
+				return
+			}
 
 			consumed := 0
 			for consumed < valid {
@@ -439,10 +465,20 @@ func (d *Dictionary) ScanDefinitions(pass int) iter.Seq2[DefinitionRecord, error
 					yield(DefinitionRecord{}, fmt.Errorf("%w: truncated definition at %d", ErrInvalidOffset, curFileOff))
 					return
 				}
-				// Single definition record exceeds current buffer capacity; double buffer size.
-				grown := make([]byte, len(buf)*2)
-				copy(grown, buf[:valid])
-				buf = grown
+				// Only grow when the buffer is actually full; short reads simply continue filling buf[valid:].
+				if valid == len(buf) {
+					if len(buf) >= maxDefinitionRecordBytes {
+						yield(DefinitionRecord{}, fmt.Errorf("%w: definition record at %d exceeds %d bytes", ErrInvalidOffset, curFileOff, maxDefinitionRecordBytes))
+						return
+					}
+					nextLen := len(buf) * 2
+					if nextLen > maxDefinitionRecordBytes {
+						nextLen = maxDefinitionRecordBytes
+					}
+					grown := make([]byte, nextLen)
+					copy(grown, buf[:valid])
+					buf = grown
+				}
 			}
 		}
 	}

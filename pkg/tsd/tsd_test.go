@@ -2,6 +2,9 @@ package tsd_test
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -442,4 +445,103 @@ func TestBuildAndExportFileAtomicNoTmpLeak(t *testing.T) {
 			t.Fatalf("unexpected leftover temp file: %s", e.Name())
 		}
 	}
+}
+
+type chunkedReaderAt struct {
+	data    []byte
+	maxRead int
+}
+
+func (c chunkedReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if off < 0 || off >= int64(len(c.data)) {
+		return 0, io.EOF
+	}
+	rem := c.data[off:]
+	n := len(p)
+	if n > c.maxRead {
+		n = c.maxRead
+	}
+	if n > len(rem) {
+		n = len(rem)
+	}
+	copy(p[:n], rem[:n])
+	if int(off)+n >= len(c.data) && n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func TestReaderHardeningAgainstCorruptHeadersAndShortReads(t *testing.T) {
+	if _, err := tsd.OpenReaderAt(nil, 100, "nil"); !errors.Is(err, tsd.ErrInvalidHeader) {
+		t.Fatalf("expected ErrInvalidHeader for nil ReaderAt, got %v", err)
+	}
+
+	validBytes, _, err := tsd.BuildBytes(
+		[]byte("a|letter a\ncat|feline animal\ndog|canine animal\n"),
+		tsd.DefaultBuildOptions(),
+	)
+	if err != nil {
+		t.Fatalf("BuildBytes: %v", err)
+	}
+
+	// num_lengths for maxLen=3 is 4; in TSD1 header:
+	// [0..6): magic + numLengths
+	// [6..18): defPassOffsets[3]
+	// [18..18+16): occIndexOffsets[0..3]
+	// [34..50): defLinkOffsets[0..3]
+	// [50..66): defLinkCounts[0..3]
+	// [66..82): wordStreamOffsets[0..3]
+	// [82..98): wordCounts[0..3]
+	t.Run("zero_wordcount_with_nonzero_link_count_rejected", func(t *testing.T) {
+		corrupt := append([]byte(nil), validBytes...)
+		// Length 2 is empty (wordCounts[2] == 0); inject defLinkCounts[2] = 0xFFFFFFFF.
+		binary.LittleEndian.PutUint32(corrupt[50+2*4:], 0xFFFFFFFF)
+		if _, err := tsd.OpenBytes(corrupt, "corrupt"); !errors.Is(err, tsd.ErrInvalidHeader) {
+			t.Fatalf("expected ErrInvalidHeader, got %v", err)
+		}
+	})
+
+	t.Run("inflated_wordcount_exceeding_bitstream_rejected", func(t *testing.T) {
+		corrupt := append([]byte(nil), validBytes...)
+		binary.LittleEndian.PutUint32(corrupt[82+1*4:], 0x7FFFFFFF)
+		if _, err := tsd.OpenBytes(corrupt, "inflated"); !errors.Is(err, tsd.ErrInvalidHeader) {
+			t.Fatalf("expected ErrInvalidHeader for inflated word_counts, got %v", err)
+		}
+	})
+
+	t.Run("truncated_underlying_reader_terminates_read_definition", func(t *testing.T) {
+		dFull, err := tsd.OpenBytes(validBytes, "full")
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+		defStart := dFull.DefPassOffsets()[0]
+		// Claim full size in OpenReaderAt, then truncate backing slice inside definitions after open.
+		truncBuf := append([]byte(nil), validBytes...)
+		r := &chunkedReaderAt{data: truncBuf, maxRead: 4096}
+		d, err := tsd.OpenReaderAt(r, int64(len(validBytes)), "trunc")
+		if err != nil {
+			t.Fatalf("OpenReaderAt: %v", err)
+		}
+		r.data = truncBuf[:int(defStart)+3]
+		if _, err := d.ReadDefinition(defStart); !errors.Is(err, tsd.ErrInvalidOffset) {
+			t.Fatalf("expected ErrInvalidOffset on truncated definition read, got %v", err)
+		}
+	})
+
+	t.Run("chunked_short_reads_in_scan_definitions", func(t *testing.T) {
+		d, err := tsd.OpenReaderAt(chunkedReaderAt{data: validBytes, maxRead: 5}, int64(len(validBytes)), "chunked")
+		if err != nil {
+			t.Fatalf("OpenReaderAt: %v", err)
+		}
+		count := 0
+		for _, sErr := range d.ScanDefinitions(0) {
+			if sErr != nil {
+				t.Fatalf("ScanDefinitions short read error: %v", sErr)
+			}
+			count++
+		}
+		if count != 3 {
+			t.Fatalf("ScanDefinitions count = %d, want 3", count)
+		}
+	})
 }

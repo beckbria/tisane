@@ -38,7 +38,7 @@ func newHuffmanDecoder(charTable *[256]CharEntry) (*huffmanDecoder, error) {
 			continue
 		}
 		if hlen > 32 {
-			return nil, fmt.Errorf("tsd: symbol 0x%02X has Huffman code length %d > 32", b, hlen)
+			return nil, fmt.Errorf("%w: symbol 0x%02X has Huffman code length %d > 32", ErrInvalidHeader, b, hlen)
 		}
 		dec.hasCodes = true
 		hcode := charTable[b].HuffCode
@@ -49,12 +49,12 @@ func newHuffmanDecoder(charTable *[256]CharEntry) (*huffmanDecoder, error) {
 			next := dec.nodes[cur][bit]
 			if bitIdx == 0 {
 				if next != 0 {
-					return nil, fmt.Errorf("tsd: prefix collision at symbol 0x%02X (len %d)", b, hlen)
+					return nil, fmt.Errorf("%w: prefix collision at symbol 0x%02X (len %d)", ErrInvalidHeader, b, hlen)
 				}
 				dec.nodes[cur][bit] = -1 - int32(b)
 			} else {
 				if next < 0 {
-					return nil, fmt.Errorf("tsd: leaf collision along prefix of symbol 0x%02X", b)
+					return nil, fmt.Errorf("%w: leaf collision along prefix of symbol 0x%02X", ErrInvalidHeader, b)
 				}
 				if next == 0 {
 					next = int32(len(dec.nodes))
@@ -194,11 +194,6 @@ func (br *bitStreamReader) readBit() (uint8, error) {
 	br.bitsAvail--
 	br.bitsRead++
 	return b, nil
-}
-
-// alignedBytesConsumed returns the number of 16-bit aligned bytes consumed from startOffset.
-func (br *bitStreamReader) alignedBytesConsumed() int64 {
-	return int64(((br.bitsRead + 15) / 16) * 2)
 }
 
 // bitStreamWriter packs bits LSB-first into 16-bit little-endian words, matching TSBuild.exe.
