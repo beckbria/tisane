@@ -8,6 +8,7 @@
     title: string;
     subtitle?: string;
     items: Match[];
+    count?: number;
     searchKey?: number;
     selectedWord: string | null;
     showDictBadge: boolean;
@@ -24,6 +25,7 @@
     title,
     subtitle = '',
     items,
+    count,
     searchKey = 0,
     selectedWord,
     showDictBadge,
@@ -36,6 +38,7 @@
     onDoubleClick
   }: Props = $props();
 
+  const itemCount = $derived(count ?? items.length);
   const rowHeight = $derived(Math.max(24, Math.round(fontSize * 2.15)));
   let scrollEl: HTMLDivElement | null = $state(null);
   let selectedIndex = $state(-1);
@@ -58,22 +61,27 @@
   });
 
   async function handleCopyAll() {
-    if (items.length === 0) return;
-    const text = items.map((m) => m.word).join('\n');
+    if (itemCount === 0) return;
+    const text = items
+      .slice(0, itemCount)
+      .map((m) => m.word)
+      .join('\n');
     const ok = await copyTextToClipboard(text);
     if (ok) {
       showCopiedFeedback(
-        `Copied ${items.length.toLocaleString()} ${items.length === 1 ? 'word' : 'words'} from ${title}`
+        `Copied ${itemCount.toLocaleString()} ${itemCount === 1 ? 'word' : 'words'} from ${title}`
       );
     }
   }
 
   function getActiveMatch(): Match | null {
-    if (resolvedActiveIndex >= 0 && items[resolvedActiveIndex]) {
+    if (resolvedActiveIndex >= 0 && resolvedActiveIndex < itemCount && items[resolvedActiveIndex]) {
       return items[resolvedActiveIndex];
     }
     if (selectedWord) {
-      return items.find((m) => m.word === selectedWord) ?? null;
+      for (let i = 0; i < itemCount; i++) {
+        if (items[i]?.word === selectedWord) return items[i];
+      }
     }
     return null;
   }
@@ -106,7 +114,7 @@
       }
     }
     // Reset local keyboard cursor when the result list is cleared or shrinks past it.
-    if (items.length === 0 || selectedIndex >= items.length) {
+    if (itemCount === 0 || selectedIndex >= itemCount) {
       selectedIndex = -1;
     }
   });
@@ -120,12 +128,12 @@
   });
 
   $effect(() => {
-    const count = items.length;
+    const total = itemCount;
     const el = scrollEl;
     const rh = rowHeight;
     untrack(() => {
       $virtualizer.setOptions({
-        count,
+        count: total,
         getScrollElement: () => el,
         estimateSize: () => rh
       });
@@ -136,13 +144,15 @@
   const resolvedActiveIndex = $derived.by(() => {
     if (
       selectedIndex >= 0 &&
-      selectedIndex < items.length &&
+      selectedIndex < itemCount &&
       (!selectedWord || items[selectedIndex]?.word === selectedWord)
     ) {
       return selectedIndex;
     }
     if (selectedWord) {
-      return items.findIndex((m) => m.word === selectedWord);
+      for (let i = 0; i < itemCount; i++) {
+        if (items[i]?.word === selectedWord) return i;
+      }
     }
     return -1;
   });
@@ -194,7 +204,7 @@
   }
 
   function selectIndex(nextIdx: number) {
-    const clamped = Math.max(0, Math.min(items.length - 1, nextIdx));
+    const clamped = Math.max(0, Math.min(itemCount - 1, nextIdx));
     const chosen = items[clamped];
     if (!chosen) return;
     selectedIndex = clamped;
@@ -203,7 +213,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (items.length === 0) return;
+    if (itemCount === 0) return;
     const curIdx = resolvedActiveIndex;
     const pageStep = Math.max(1, Math.floor((scrollEl?.clientHeight || 280) / rowHeight) - 1);
 
@@ -218,7 +228,7 @@
       selectIndex(0);
     } else if (e.key === 'End') {
       e.preventDefault();
-      selectIndex(items.length - 1);
+      selectIndex(itemCount - 1);
     } else if (e.key === 'PageDown') {
       e.preventDefault();
       selectIndex((curIdx < 0 ? 0 : curIdx) + pageStep);
@@ -263,13 +273,13 @@
       {/if}
     </div>
     <div class="flex shrink-0 items-center gap-1.5">
-      {#if items.length > 0}
+      {#if itemCount > 0}
         <button
           type="button"
           data-testid={`${testId}-copy-btn`}
           onclick={handleCopyAll}
-          aria-label={`Copy all ${items.length.toLocaleString()} matches from ${title}`}
-          title={`Copy all ${items.length.toLocaleString()} words to clipboard`}
+          aria-label={`Copy all ${itemCount.toLocaleString()} matches from ${title}`}
+          title={`Copy all ${itemCount.toLocaleString()} words to clipboard`}
           class="inline-flex min-h-6 items-center gap-1 rounded border border-slate-600 bg-slate-800/80 px-2 py-0.5 text-[0.88em] font-medium text-slate-300 transition hover:bg-slate-800 hover:text-slate-100"
         >
           {#if copiedBadge}
@@ -283,7 +293,7 @@
         data-testid={`${testId}-count`}
         class="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[0.92em] font-medium text-amber-300"
       >
-        {items.length.toLocaleString()}
+        {itemCount.toLocaleString()}
       </span>
     </div>
     <span role="status" aria-live="polite" aria-atomic="true" class="sr-only">
@@ -304,7 +314,7 @@
     oncopy={handleListboxCopy}
     class="relative flex-1 overflow-y-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
   >
-    {#if items.length === 0}
+    {#if itemCount === 0}
       <div class="flex h-full items-center justify-center p-4 text-center text-xs text-slate-400">
         {emptyMessage}
       </div>
@@ -324,7 +334,7 @@
               role="option"
               aria-selected={isSelected}
               aria-posinset={vRow.index + 1}
-              aria-setsize={items.length}
+              aria-setsize={itemCount}
               aria-label={buildOptionAriaLabel(match, bal)}
               data-testid="result-row"
               onclick={() => {

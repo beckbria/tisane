@@ -11,6 +11,8 @@ import {
   type WailsEventMap
 } from './lib/bindings';
 import { buildFontCssVars, DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
+import { DEFAULT_CONFIG } from './lib/stores/config.svelte';
+import { createSearchStore } from './lib/stores/search.svelte';
 import { APP_VERSION } from './lib/version';
 import type {
   BuildDictionaryRequest,
@@ -1969,6 +1971,90 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       expect(screen.getByTestId('definition-pane')).not.toHaveTextContent('Stale mention entry');
     } finally {
       w._wails = prevWails;
+    }
+  });
+
+  it('accumulates multi-batch streaming matches in O(N) without array reallocations and coalesces reactive frame flushes', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    const activeDicts = await h.backend.listDictionaries();
+    const firstWords: string[] = [];
+    const store = createSearchStore({
+      getConfig: () => DEFAULT_CONFIG,
+      getActiveDictionaries: () => activeDicts,
+      onRecordRecentQuery: () => {},
+      onFirstMatch: (w) => firstWords.push(w)
+    });
+    store.initActiveDicts(activeDicts);
+    const unsub = store.subscribe();
+
+    try {
+      store.query = '*';
+      await store.execute();
+      const sid = store.currentSearchId;
+
+      // Capture initial backing array references before any batches arrive.
+      const initialAllRef = store.allMatches;
+      const initialBucket0Ref = store.matchesByDict[0];
+      const initialBucket1Ref = store.matchesByDict[1];
+
+      // Stream 40 batches of 1,250 matches (50,000 total across 2 dictionaries).
+      for (let b = 0; b < 40; b++) {
+        const batch: Match[] = new Array(1250);
+        for (let i = 0; i < 1250; i++) {
+          const idx = b * 1250 + i;
+          const dIdx = idx % 2;
+          batch[i] = {
+            word: `word_${idx}`,
+            length: 6,
+            dictIndex: dIdx,
+            dict: activeDicts[dIdx].name,
+            hasDefinition: false
+          };
+        }
+        h.emit('search:batch', {
+          searchId: sid,
+          matches: batch,
+          progress: {
+            dictIndex: b % 2,
+            dictName: activeDicts[b % 2].name,
+            wordsScanned: (b + 1) * 1250,
+            totalCandidateWords: 50_000,
+            matchesFound: (b + 1) * 1250
+          }
+        });
+        if (b === 0) {
+          // First batch flushes synchronously for immediate first-paint responsiveness.
+          expect(store.totalMatches).toBe(1250);
+          expect(firstWords).toEqual(['word_0']);
+        }
+      }
+
+      // Backing array references must be strictly identical (zero .concat() copies across 40 batches).
+      expect(store.allMatches).toBe(initialAllRef);
+      expect(store.matchesByDict[0]).toBe(initialBucket0Ref);
+      expect(store.matchesByDict[1]).toBe(initialBucket1Ref);
+      expect(store.allMatches.length).toBe(50_000);
+      // Intermediate bursts after batch 0 are frame-coalesced until rAF or search:complete.
+      expect(store.totalMatches).toBe(1250);
+
+      h.emit('search:complete', {
+        searchId: sid,
+        totalMatches: 50_000,
+        wordsScanned: 50_000,
+        totalCandidateWords: 50_000,
+        elapsedMs: 9.2,
+        usedIndexedFTS: false,
+        activeDicts
+      });
+
+      // Terminal completion flushes counts synchronously.
+      expect(store.totalMatches).toBe(50_000);
+      expect(store.dictMatchCounts).toEqual([25_000, 25_000]);
+    } finally {
+      unsub();
+      store.dispose();
     }
   });
 });

@@ -1,5 +1,12 @@
 import { getBackend, type UnsubscribeFn } from '../bindings';
-import type { Config, DictionaryInfo, Match, SearchMode, ValidationResult } from '../types';
+import type {
+  Config,
+  DictionaryInfo,
+  Match,
+  SearchMode,
+  SearchProgress,
+  ValidationResult
+} from '../types';
 import { DEFAULT_CONFIG } from './config.svelte';
 
 export interface SearchStoreDeps {
@@ -20,8 +27,12 @@ export class SearchStore {
   hasCompletedSearch = $state(false);
   errorMessage = $state('');
 
+  // Backing arrays are populated via amortized O(1) in-place .push() without per-batch .concat() copies;
+  // totalMatches and dictMatchCounts drive reactive Svelte / virtualizer updates at <= 1 flush per frame.
   allMatches: Match[] = $state.raw([]);
   matchesByDict: Match[][] = $state.raw([]);
+  totalMatches = $state(0);
+  dictMatchCounts: number[] = $state.raw([]);
   searchActiveDicts: DictionaryInfo[] = $state([]);
 
   wordsScanned = $state(0);
@@ -31,15 +42,58 @@ export class SearchStore {
 
   private nextClientSearchId = 1;
   private validateTimer: ReturnType<typeof setTimeout> | null = null;
+  private rafFlushId: number | null = null;
+  private pendingProgress: SearchProgress | null = null;
   private deps: SearchStoreDeps;
 
   constructor(deps: SearchStoreDeps) {
     this.deps = deps;
   }
 
+  private cancelFrameFlush(): void {
+    if (this.rafFlushId !== null) {
+      if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(this.rafFlushId);
+      }
+      this.rafFlushId = null;
+    }
+  }
+
+  private resetMatchBuffers(dictCount: number): void {
+    this.cancelFrameFlush();
+    this.pendingProgress = null;
+    this.allMatches = [];
+    this.matchesByDict = Array.from({ length: dictCount }, () => []);
+    this.totalMatches = 0;
+    this.dictMatchCounts = new Array<number>(dictCount).fill(0);
+  }
+
+  private flushPendingCounts(): void {
+    this.cancelFrameFlush();
+    this.totalMatches = this.allMatches.length;
+    this.dictMatchCounts = this.matchesByDict.map((b) => b.length);
+    if (this.pendingProgress) {
+      this.wordsScanned = this.pendingProgress.wordsScanned;
+      this.totalCandidateWords = this.pendingProgress.totalCandidateWords;
+      this.pendingProgress = null;
+    }
+  }
+
+  private scheduleFrameFlush(): void {
+    if (this.rafFlushId !== null) return;
+    if (typeof requestAnimationFrame === 'function') {
+      this.rafFlushId = requestAnimationFrame(() => {
+        this.rafFlushId = null;
+        this.flushPendingCounts();
+      });
+    } else {
+      this.flushPendingCounts();
+    }
+  }
+
   initActiveDicts(active: DictionaryInfo[]): void {
     this.searchActiveDicts = active;
-    this.matchesByDict = active.map(() => []);
+    this.resetMatchBuffers(active.length);
   }
 
   onDictionariesChanged(active: DictionaryInfo[]): void {
@@ -48,8 +102,7 @@ export class SearchStore {
     if (this.query.trim() !== '' && (this.hasCompletedSearch || this.isSearching)) {
       void this.execute();
     } else {
-      this.allMatches = [];
-      this.matchesByDict = active.map(() => []);
+      this.resetMatchBuffers(active.length);
       this.hasCompletedSearch = false;
     }
   }
@@ -100,8 +153,7 @@ export class SearchStore {
     const activeSnapshot = this.deps.getActiveDictionaries();
     this.errorMessage = '';
     this.searchActiveDicts = activeSnapshot;
-    this.allMatches = [];
-    this.matchesByDict = activeSnapshot.map(() => []);
+    this.resetMatchBuffers(activeSnapshot.length);
     this.wordsScanned = 0;
     this.totalCandidateWords = 0;
     this.elapsedMs = 0;
@@ -159,38 +211,33 @@ export class SearchStore {
         if (!ev || (this.currentSearchId !== 0 && ev.searchId !== this.currentSearchId)) return;
         this.currentSearchId = ev.searchId;
         if (ev.progress) {
-          this.wordsScanned = ev.progress.wordsScanned;
-          this.totalCandidateWords = ev.progress.totalCandidateWords;
+          this.pendingProgress = ev.progress;
         }
         if (ev.matches && ev.matches.length > 0) {
           const prevEmpty = this.allMatches.length === 0;
-          this.allMatches = this.allMatches.concat(ev.matches);
-
-          const grouped = new Map<number, Match[]>();
-          let maxIdx = this.matchesByDict.length - 1;
+          let grewBuckets = false;
           for (let i = 0; i < ev.matches.length; i++) {
             const m = ev.matches[i];
+            this.allMatches.push(m);
             const dIdx = m.dictIndex ?? 0;
-            if (dIdx > maxIdx) maxIdx = dIdx;
-            let arr = grouped.get(dIdx);
-            if (!arr) {
-              arr = [];
-              grouped.set(dIdx, arr);
+            while (this.matchesByDict.length <= dIdx) {
+              this.matchesByDict.push([]);
+              grewBuckets = true;
             }
-            arr.push(m);
+            this.matchesByDict[dIdx].push(m);
           }
-
-          const nextBuckets: Match[][] = new Array(maxIdx + 1);
-          for (let i = 0; i <= maxIdx; i++) {
-            const existing = this.matchesByDict[i] ?? [];
-            const added = grouped.get(i);
-            nextBuckets[i] = added ? existing.concat(added) : existing;
+          if (grewBuckets) {
+            this.matchesByDict = this.matchesByDict.slice();
           }
-          this.matchesByDict = nextBuckets;
 
           if (prevEmpty) {
+            this.flushPendingCounts();
             this.deps.onFirstMatch(ev.matches[0].word);
+          } else {
+            this.scheduleFrameFlush();
           }
+        } else if (ev.progress) {
+          this.scheduleFrameFlush();
         }
       })
     );
@@ -198,14 +245,15 @@ export class SearchStore {
     unsubs.push(
       backend.onEvent('search:progress', (ev) => {
         if (!ev || (this.currentSearchId !== 0 && ev.searchId !== this.currentSearchId)) return;
-        this.wordsScanned = ev.progress.wordsScanned;
-        this.totalCandidateWords = ev.progress.totalCandidateWords;
+        this.pendingProgress = ev.progress;
+        this.scheduleFrameFlush();
       })
     );
 
     unsubs.push(
       backend.onEvent('search:complete', (ev) => {
         if (!ev || (this.currentSearchId !== 0 && ev.searchId !== this.currentSearchId)) return;
+        this.flushPendingCounts();
         this.isSearching = false;
         this.hasCompletedSearch = true;
         this.wordsScanned = ev.wordsScanned;
@@ -221,6 +269,7 @@ export class SearchStore {
     unsubs.push(
       backend.onEvent('search:error', (ev) => {
         if (!ev || (this.currentSearchId !== 0 && ev.searchId !== this.currentSearchId)) return;
+        this.flushPendingCounts();
         this.isSearching = false;
         this.errorMessage = ev.message;
       })
@@ -229,6 +278,7 @@ export class SearchStore {
     unsubs.push(
       backend.onEvent('search:cancelled', (ev) => {
         if (!ev || (this.currentSearchId !== 0 && ev.searchId !== this.currentSearchId)) return;
+        this.flushPendingCounts();
         this.isSearching = false;
       })
     );
@@ -239,6 +289,7 @@ export class SearchStore {
   }
 
   dispose(): void {
+    this.cancelFrameFlush();
     if (this.validateTimer) {
       clearTimeout(this.validateTimer);
       this.validateTimer = null;

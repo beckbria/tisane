@@ -481,7 +481,7 @@ func (ss *SearchService) runSearchWorker(
 		allMatches = slices.Clone(allMatches[:sReq.Limit])
 	}
 
-	const emitChunk = 5000
+	const emitChunk = 20000
 	for off := 0; off < len(allMatches); off += emitChunk {
 		if ctx.Err() != nil || !ss.isCurrentActive(searchID) {
 			return

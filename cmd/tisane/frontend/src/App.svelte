@@ -725,6 +725,7 @@
                   title={dict.name}
                   subtitle={`${dict.wordCount.toLocaleString()} words`}
                   items={searchStore.matchesByDict[paneIdx] ?? []}
+                  count={searchStore.dictMatchCounts[paneIdx] ?? 0}
                   searchKey={searchStore.currentSearchId}
                   selectedWord={defStore.selectedWord}
                   showDictBadge={false}
@@ -746,6 +747,7 @@
             title="Unified Results"
             subtitle={`${displayedTiledDicts.length} active ${displayedTiledDicts.length === 1 ? 'dictionary' : 'dictionaries'}`}
             items={searchStore.allMatches}
+            count={searchStore.totalMatches}
             searchKey={searchStore.currentSearchId}
             selectedWord={defStore.selectedWord}
             showDictBadge={true}
@@ -837,13 +839,13 @@
       {:else if searchStore.isSearching}
         <span class="flex items-center gap-1.5 text-amber-300">
           <span aria-hidden="true" class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-amber-400"></span>
-          Scanning… {searchStore.allMatches.length.toLocaleString()} matches ({searchStore.wordsScanned.toLocaleString()}
+          Scanning… {searchStore.totalMatches.toLocaleString()} matches ({searchStore.wordsScanned.toLocaleString()}
           {#if searchStore.totalCandidateWords > 0}/ {searchStore.totalCandidateWords.toLocaleString()}{/if} words)
         </span>
       {:else if searchStore.hasCompletedSearch}
         <span class="text-slate-300">
-          <strong class="font-mono text-amber-300">{searchStore.allMatches.length.toLocaleString()}</strong>
-          {searchStore.allMatches.length === 1 ? 'match' : 'matches'}
+          <strong class="font-mono text-amber-300">{searchStore.totalMatches.toLocaleString()}</strong>
+          {searchStore.totalMatches === 1 ? 'match' : 'matches'}
         </span>
         <span aria-hidden="true">·</span>
         <span>
@@ -863,7 +865,7 @@
     <!-- Screen-reader live announcement on search completion (avoids 25ms streaming progress chatter) -->
     <div role="status" aria-live="polite" aria-atomic="true" class="sr-only" data-testid="sr-search-status">
       {#if searchStore.hasCompletedSearch && !searchStore.isSearching && !searchStore.errorMessage}
-        Search complete: {searchStore.allMatches.length.toLocaleString()} {searchStore.allMatches.length === 1 ? 'match' : 'matches'} found across {displayedTiledDicts.length} {displayedTiledDicts.length === 1 ? 'dictionary' : 'dictionaries'}.
+        Search complete: {searchStore.totalMatches.toLocaleString()} {searchStore.totalMatches === 1 ? 'match' : 'matches'} found across {displayedTiledDicts.length} {displayedTiledDicts.length === 1 ? 'dictionary' : 'dictionaries'}.
       {/if}
     </div>
 
