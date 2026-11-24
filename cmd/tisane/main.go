@@ -176,18 +176,18 @@ func buildAppMenu(
 	fileMenu.Add("Build Dictionary from Word List...").
 		SetAccelerator("CmdOrCtrl+Shift+B").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:open-dict-builder", nil)
+			wailsApp.Event.Emit(app.EventUIOpenDictBuilder, nil)
 		})
 	fileMenu.Add("Merge Word Lists...").
 		SetAccelerator("CmdOrCtrl+Shift+M").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:open-wordlist-merge", nil)
+			wailsApp.Event.Emit(app.EventUIOpenWordListMerge, nil)
 		})
 	fileMenu.AddSeparator()
 	fileMenu.Add("Settings...").
 		SetAccelerator("CmdOrCtrl+,").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:open-settings", nil)
+			wailsApp.Event.Emit(app.EventUIOpenSettings, nil)
 		})
 	fileMenu.AddSeparator()
 	fileMenu.Add("Quit").
@@ -202,12 +202,12 @@ func buildAppMenu(
 	searchMenu.Add("Word Search Mode").
 		SetAccelerator("CmdOrCtrl+W").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:set-mode", "word")
+			wailsApp.Event.Emit(app.EventUISetMode, "word")
 		})
 	searchMenu.Add("Full Text Search Mode").
 		SetAccelerator("CmdOrCtrl+F").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:set-mode", "fts")
+			wailsApp.Event.Emit(app.EventUISetMode, "fts")
 		})
 	searchMenu.AddSeparator()
 	searchMenu.Add("Cancel Active Search").
@@ -220,33 +220,33 @@ func buildAppMenu(
 	viewMenu.Add("Separate Tiled Panes (Default)").
 		SetAccelerator("CmdOrCtrl+1").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:set-layout", "tiled")
+			wailsApp.Event.Emit(app.EventUISetLayout, "tiled")
 		})
 	viewMenu.Add("Unified Merged List").
 		SetAccelerator("CmdOrCtrl+2").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:set-layout", "unified")
+			wailsApp.Event.Emit(app.EventUISetLayout, "unified")
 		})
 	viewMenu.Add("Toggle Dictionaries Panel").
 		SetAccelerator("CmdOrCtrl+B").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:toggle-sidebar", nil)
+			wailsApp.Event.Emit(app.EventUIToggleSidebar, nil)
 		})
 	viewMenu.AddSeparator()
 	viewMenu.Add("Pattern Syntax Reference").
 		SetAccelerator("F1").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:toggle-cheatsheet", nil)
+			wailsApp.Event.Emit(app.EventUIToggleCheatsheet, nil)
 		})
 	viewMenu.Add("Customize Fonts...").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:open-font-settings", nil)
+			wailsApp.Event.Emit(app.EventUIOpenFontSettings, nil)
 		})
 
 	helpMenu := menu.AddSubmenu("Help")
 	helpMenu.Add("About Tisane").
 		OnClick(func(*application.Context) {
-			wailsApp.Event.Emit("ui:open-about", nil)
+			wailsApp.Event.Emit(app.EventUIOpenAbout, nil)
 		})
 
 	return menu

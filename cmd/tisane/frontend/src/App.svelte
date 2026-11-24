@@ -10,11 +10,7 @@
     LayoutMode,
     LookupResult,
     Match,
-    SearchBatchEvent,
-    SearchCompleteEvent,
-    SearchErrorEvent,
     SearchMode,
-    SearchProgressEvent,
     SortMode,
     ValidationResult
   } from './lib/types';
@@ -299,7 +295,7 @@
   async function handleDoubleClickMatch(m: Match) {
     await loadDefinition(m.word, true);
     if (config.autoWebFallback && !m.hasDefinition && (!lookupResult || (lookupResult.entries ?? []).length === 0)) {
-      await getBackend().openWebLookup(m.word, config.defaultWebProvider);
+      await handleOpenWebLookup(m.word, config.defaultWebProvider);
     }
   }
 
@@ -386,38 +382,83 @@
     }
   }
 
+  function formatError(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+  }
+
   async function handleToggleDict(id: string, enabled: boolean) {
-    const next = await getBackend().setEnabled(id, enabled);
-    if (Array.isArray(next)) {
-      syncUpdatedDictionaries(next);
+    try {
+      const next = await getBackend().setEnabled(id, enabled);
+      if (Array.isArray(next)) {
+        syncUpdatedDictionaries(next);
+      }
+      errorMessage = '';
+    } catch (err) {
+      errorMessage = formatError(err);
     }
   }
 
   async function handleReorderDicts(orderedIds: string[]) {
-    const next = await getBackend().reorderDictionaries(orderedIds);
-    if (Array.isArray(next)) {
-      syncUpdatedDictionaries(next);
+    try {
+      const next = await getBackend().reorderDictionaries(orderedIds);
+      if (Array.isArray(next)) {
+        syncUpdatedDictionaries(next);
+      }
+      errorMessage = '';
+    } catch (err) {
+      errorMessage = formatError(err);
     }
   }
 
   async function handleBrowseAddDicts() {
-    const next = await getBackend().browseAndAddDictionaries();
-    if (Array.isArray(next)) {
-      syncUpdatedDictionaries(next);
+    try {
+      const next = await getBackend().browseAndAddDictionaries();
+      if (Array.isArray(next)) {
+        syncUpdatedDictionaries(next);
+      }
+      errorMessage = '';
+    } catch (err) {
+      errorMessage = formatError(err);
     }
   }
 
   async function handleBrowseAddDirectory() {
-    const next = await getBackend().browseAndAddDirectory();
-    if (Array.isArray(next)) {
-      syncUpdatedDictionaries(next);
+    try {
+      const next = await getBackend().browseAndAddDirectory();
+      if (Array.isArray(next)) {
+        syncUpdatedDictionaries(next);
+      }
+      errorMessage = '';
+    } catch (err) {
+      errorMessage = formatError(err);
     }
   }
 
   async function handleRemoveDict(id: string) {
-    const next = await getBackend().removeDictionary(id);
-    if (Array.isArray(next)) {
-      syncUpdatedDictionaries(next);
+    try {
+      const next = await getBackend().removeDictionary(id);
+      if (Array.isArray(next)) {
+        syncUpdatedDictionaries(next);
+      }
+      errorMessage = '';
+    } catch (err) {
+      errorMessage = formatError(err);
+    }
+  }
+
+  async function handleOpenWebLookup(word: string, providerId: string) {
+    try {
+      await getBackend().openWebLookup(word, providerId);
+    } catch (err) {
+      errorMessage = formatError(err);
+    }
+  }
+
+  async function handleOpenExternalURL(rawUrl: string) {
+    try {
+      await getBackend().openExternalURL(rawUrl);
+    } catch (err) {
+      errorMessage = formatError(err);
     }
   }
 
@@ -591,7 +632,7 @@
     const unsubs: (() => void)[] = [];
 
     unsubs.push(
-      backend.onEvent<SearchBatchEvent>('search:batch', (ev) => {
+      backend.onEvent('search:batch', (ev) => {
         if (!ev || (currentSearchId !== 0 && ev.searchId !== currentSearchId)) return;
         currentSearchId = ev.searchId;
         if (ev.progress) {
@@ -633,7 +674,7 @@
     );
 
     unsubs.push(
-      backend.onEvent<SearchProgressEvent>('search:progress', (ev) => {
+      backend.onEvent('search:progress', (ev) => {
         if (!ev || (currentSearchId !== 0 && ev.searchId !== currentSearchId)) return;
         wordsScanned = ev.progress.wordsScanned;
         totalCandidateWords = ev.progress.totalCandidateWords;
@@ -641,7 +682,7 @@
     );
 
     unsubs.push(
-      backend.onEvent<SearchCompleteEvent>('search:complete', (ev) => {
+      backend.onEvent('search:complete', (ev) => {
         if (!ev || (currentSearchId !== 0 && ev.searchId !== currentSearchId)) return;
         isSearching = false;
         hasCompletedSearch = true;
@@ -656,7 +697,7 @@
     );
 
     unsubs.push(
-      backend.onEvent<SearchErrorEvent>('search:error', (ev) => {
+      backend.onEvent('search:error', (ev) => {
         if (!ev || (currentSearchId !== 0 && ev.searchId !== currentSearchId)) return;
         isSearching = false;
         errorMessage = ev.message;
@@ -664,7 +705,7 @@
     );
 
     unsubs.push(
-      backend.onEvent<DictionaryInfo[]>('dicts:updated', (infos) => {
+      backend.onEvent('dicts:updated', (infos) => {
         if (Array.isArray(infos)) {
           syncUpdatedDictionaries(infos);
         }
@@ -697,7 +738,7 @@
       })
     );
     unsubs.push(
-      backend.onEvent<SearchMode>('ui:set-mode', (nextMode) => {
+      backend.onEvent('ui:set-mode', (nextMode) => {
         if (nextMode === 'word' || nextMode === 'fts') {
           mode = nextMode;
           patternBarRef?.focusInput();
@@ -706,7 +747,7 @@
       })
     );
     unsubs.push(
-      backend.onEvent<LayoutMode>('ui:set-layout', (nextLayout) => {
+      backend.onEvent('ui:set-layout', (nextLayout) => {
         if (nextLayout === 'tiled' || nextLayout === 'unified') {
           void applyConfigPatch({ layoutMode: nextLayout }, false);
         }
@@ -936,10 +977,10 @@
         }}
         onCrossLookupWord={(w) => loadDefinition(w, true)}
         onOpenWebLookup={(w, pid) => {
-          void getBackend().openWebLookup(w, pid);
+          void handleOpenWebLookup(w, pid);
         }}
         onOpenExternalURL={(u) => {
-          void getBackend().openExternalURL(u);
+          void handleOpenExternalURL(u);
         }}
       />
     </main>
@@ -954,6 +995,15 @@
     <div class="flex items-center gap-3 truncate">
       {#if errorMessage}
         <span class="font-medium text-rose-400">Error: {errorMessage}</span>
+        <button
+          type="button"
+          data-testid="dismiss-error-btn"
+          onclick={() => (errorMessage = '')}
+          class="rounded px-1 text-[10px] text-rose-300/80 hover:bg-rose-500/20 hover:text-rose-200"
+          aria-label="Dismiss error"
+        >
+          ✕
+        </button>
       {:else if isSearching}
         <span class="flex items-center gap-1.5 text-amber-300">
           <span class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-amber-400"></span>
@@ -1013,7 +1063,7 @@
     open={showAbout}
     onClose={() => (showAbout = false)}
     onOpenExternalURL={(u) => {
-      void getBackend().openExternalURL(u);
+      void handleOpenExternalURL(u);
     }}
   />
 

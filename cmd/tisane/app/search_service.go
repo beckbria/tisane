@@ -295,7 +295,7 @@ func (ss *SearchService) runSearchWorker(
 	}()
 
 	if len(sReq.Dictionaries) == 0 {
-		bridge.EmitEvent("search:complete", SearchCompleteEvent{
+		bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
 			SearchID:    searchID,
 			ElapsedMs:   0,
 			ActiveDicts: activeInfos,
@@ -315,7 +315,7 @@ func (ss *SearchService) runSearchWorker(
 				if ctx.Err() != nil {
 					return
 				}
-				bridge.EmitEvent("search:error", SearchErrorEvent{
+				bridge.EmitEvent(EventSearchError, SearchErrorEvent{
 					SearchID: searchID,
 					Message:  err.Error(),
 				})
@@ -329,14 +329,14 @@ func (ss *SearchService) runSearchWorker(
 
 			if len(accMatches) >= 2500 || time.Since(lastFlush) >= 25*time.Millisecond {
 				if len(accMatches) > 0 {
-					bridge.EmitEvent("search:batch", SearchBatchEvent{
+					bridge.EmitEvent(EventSearchBatch, SearchBatchEvent{
 						SearchID: searchID,
 						Matches:  accMatches,
 						Progress: lastProg,
 					})
 					accMatches = nil
 				} else {
-					bridge.EmitEvent("search:progress", SearchProgressEvent{
+					bridge.EmitEvent(EventSearchProgress, SearchProgressEvent{
 						SearchID: searchID,
 						Progress: lastProg,
 					})
@@ -349,13 +349,13 @@ func (ss *SearchService) runSearchWorker(
 			return
 		}
 		if len(accMatches) > 0 {
-			bridge.EmitEvent("search:batch", SearchBatchEvent{
+			bridge.EmitEvent(EventSearchBatch, SearchBatchEvent{
 				SearchID: searchID,
 				Matches:  accMatches,
 				Progress: lastProg,
 			})
 		}
-		bridge.EmitEvent("search:complete", SearchCompleteEvent{
+		bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
 			SearchID:            searchID,
 			TotalMatches:        totalMatches,
 			WordsScanned:        lastProg.WordsScanned,
@@ -373,7 +373,7 @@ func (ss *SearchService) runSearchWorker(
 		if ctx.Err() != nil {
 			return
 		}
-		bridge.EmitEvent("search:error", SearchErrorEvent{
+		bridge.EmitEvent(EventSearchError, SearchErrorEvent{
 			SearchID: searchID,
 			Message:  err.Error(),
 		})
@@ -396,14 +396,14 @@ func (ss *SearchService) runSearchWorker(
 		if end > len(sum.Matches) {
 			end = len(sum.Matches)
 		}
-		bridge.EmitEvent("search:batch", SearchBatchEvent{
+		bridge.EmitEvent(EventSearchBatch, SearchBatchEvent{
 			SearchID: searchID,
 			Matches:  sum.Matches[off:end],
 			Progress: prog,
 		})
 	}
 
-	bridge.EmitEvent("search:complete", SearchCompleteEvent{
+	bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
 		SearchID:            searchID,
 		TotalMatches:        len(sum.Matches),
 		WordsScanned:        sum.WordsScanned,

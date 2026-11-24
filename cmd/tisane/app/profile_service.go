@@ -144,6 +144,6 @@ func (ps *ProfileService) ResetConfig(resetDictionaries bool) (profile.Config, e
 	bridge := ps.state.bridge
 	ps.state.mu.Unlock()
 
-	bridge.EmitEvent("dicts:updated", infos)
+	bridge.EmitEvent(EventDictsUpdated, infos)
 	return ps.GetConfig(), err
 }

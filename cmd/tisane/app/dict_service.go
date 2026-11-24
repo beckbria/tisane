@@ -39,7 +39,7 @@ func (ds *DictionaryService) SetEnabled(id string, enabled bool) ([]DictionaryIn
 	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
-	bridge.EmitEvent("dicts:updated", infos)
+	bridge.EmitEvent(EventDictsUpdated, infos)
 	if saveErr != nil {
 		return infos, fmt.Errorf("save config: %w", saveErr)
 	}
@@ -57,7 +57,7 @@ func (ds *DictionaryService) ReorderDictionaries(orderedIDs []string) ([]Diction
 	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
-	bridge.EmitEvent("dicts:updated", infos)
+	bridge.EmitEvent(EventDictsUpdated, infos)
 	return infos, nil
 }
 
@@ -86,7 +86,7 @@ func (ds *DictionaryService) AddDictionaryPaths(paths []string) ([]DictionaryInf
 	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
-	bridge.EmitEvent("dicts:updated", infos)
+	bridge.EmitEvent(EventDictsUpdated, infos)
 	if saveErr != nil {
 		return infos, fmt.Errorf("save config: %w", saveErr)
 	}
@@ -152,7 +152,7 @@ func (ds *DictionaryService) RemoveDictionary(id string) ([]DictionaryInfo, erro
 	ds.state.mu.Unlock()
 
 	_ = removed.release()
-	bridge.EmitEvent("dicts:updated", infos)
+	bridge.EmitEvent(EventDictsUpdated, infos)
 	if saveErr != nil {
 		return infos, fmt.Errorf("save config: %w", saveErr)
 	}

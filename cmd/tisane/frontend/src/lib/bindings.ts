@@ -5,15 +5,38 @@ import type {
   Config,
   ConfigPatch,
   DictionaryInfo,
+  LayoutMode,
   LookupResult,
   MergeWordListsRequest,
   MergeWordListsResult,
+  SearchBatchEvent,
+  SearchCompleteEvent,
+  SearchErrorEvent,
+  SearchMode,
+  SearchProgressEvent,
   SearchRequest,
   ValidateRequest,
   ValidationResult
 } from './types';
 
 export type UnsubscribeFn = () => void;
+
+export interface WailsEventMap {
+  'search:batch': SearchBatchEvent;
+  'search:progress': SearchProgressEvent;
+  'search:complete': SearchCompleteEvent;
+  'search:error': SearchErrorEvent;
+  'dicts:updated': DictionaryInfo[];
+  'ui:open-settings': null;
+  'ui:open-font-settings': null;
+  'ui:open-about': null;
+  'ui:open-dict-builder': null;
+  'ui:open-wordlist-merge': null;
+  'ui:set-mode': SearchMode;
+  'ui:set-layout': LayoutMode;
+  'ui:toggle-cheatsheet': null;
+  'ui:toggle-sidebar': null;
+}
 
 export interface TisaneBackend {
   listDictionaries(): Promise<DictionaryInfo[]>;
@@ -43,7 +66,10 @@ export interface TisaneBackend {
   updateConfig(patch: ConfigPatch): Promise<Config>;
   resetConfig(resetDictionaries: boolean): Promise<Config>;
 
-  onEvent<T = unknown>(eventName: string, handler: (data: T) => void): UnsubscribeFn;
+  onEvent<K extends keyof WailsEventMap>(
+    eventName: K,
+    handler: (data: WailsEventMap[K]) => void
+  ): UnsubscribeFn;
 }
 
 const FQN = {
@@ -103,8 +129,11 @@ const wailsBackend: TisaneBackend = {
   updateConfig: (patch) => Call.ByName(FQN.updateConfig, patch),
   resetConfig: (resetDictionaries) => Call.ByName(FQN.resetConfig, resetDictionaries),
 
-  onEvent: <T = unknown>(eventName: string, handler: (data: T) => void): UnsubscribeFn => {
-    return Events.On(eventName, (ev: { data: T }) => {
+  onEvent: <K extends keyof WailsEventMap>(
+    eventName: K,
+    handler: (data: WailsEventMap[K]) => void
+  ): UnsubscribeFn => {
+    return Events.On(eventName, (ev: { data: WailsEventMap[K] }) => {
       handler(ev.data);
     });
   }

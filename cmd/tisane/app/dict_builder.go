@@ -164,7 +164,7 @@ func (ds *DictionaryService) BuildDictionary(ctx context.Context, req BuildDicti
 				infos := ds.state.listInfosLocked()
 				bridge := ds.state.bridge
 				ds.state.mu.Unlock()
-				bridge.EmitEvent("dicts:updated", infos)
+				bridge.EmitEvent(EventDictsUpdated, infos)
 			}
 		}
 		return nil, buildErr
@@ -195,7 +195,7 @@ func (ds *DictionaryService) BuildDictionary(ctx context.Context, req BuildDicti
 		bridge := ds.state.bridge
 		ds.state.mu.Unlock()
 
-		bridge.EmitEvent("dicts:updated", infos)
+		bridge.EmitEvent(EventDictsUpdated, infos)
 	}
 
 	res := &BuildDictionaryResult{

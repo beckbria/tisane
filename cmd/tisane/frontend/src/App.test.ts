@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import App from './App.svelte';
-import { setBackendForTesting, type TisaneBackend } from './lib/bindings';
+import { setBackendForTesting, type TisaneBackend, type WailsEventMap } from './lib/bindings';
 import { buildFontCssVars, DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
 import { APP_VERSION } from './lib/version';
 import type {
@@ -302,7 +302,10 @@ function createMockHarness() {
       return { ...config };
     }),
 
-    onEvent: <T = unknown>(eventName: string, handler: (data: T) => void) => {
+    onEvent: <K extends keyof WailsEventMap>(
+      eventName: K,
+      handler: (data: WailsEventMap[K]) => void
+    ) => {
       if (!listeners.has(eventName)) {
         listeners.set(eventName, new Set());
       }
@@ -1144,5 +1147,20 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     await waitFor(() =>
       expect((h.backend.startSearch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBefore + 1)
     );
+  });
+
+  it('surfaces backend errors from dictionary actions in the status bar and allows dismissing them', async () => {
+    const h = createMockHarness();
+    (h.backend.setEnabled as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('disk full'));
+    setBackendForTesting(h.backend);
+    render(App);
+    await waitFor(() => expect(h.backend.listDictionaries).toHaveBeenCalled());
+
+    const checkbox = screen.getByTestId('dict-toggle-0');
+    await fireEvent.click(checkbox);
+    await waitFor(() => expect(screen.getByTestId('status-bar')).toHaveTextContent('Error: disk full'));
+
+    await fireEvent.click(screen.getByTestId('dismiss-error-btn'));
+    await waitFor(() => expect(screen.getByTestId('status-bar')).not.toHaveTextContent('Error: disk full'));
   });
 });

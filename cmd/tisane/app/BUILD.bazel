@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "dict_builder.go",
         "dict_service.go",
+        "events.go",
         "lookup_service.go",
         "profile_service.go",
         "search_service.go",
