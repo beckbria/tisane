@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//:version",
         "//internal/buildutil",
+        "//internal/fsutil",
         "@com_github_tc_hib_winres//:winres",
         "@com_github_tc_hib_winres//version",
     ],

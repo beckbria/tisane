@@ -8,12 +8,18 @@ go_library(
     ],
     importpath = "tisane/pkg/wordlist",
     visibility = ["//visibility:public"],
-    deps = ["//pkg/tsd"],
+    deps = [
+        "//internal/fsutil",
+        "//pkg/tsd",
+    ],
 )
 
 go_test(
     name = "wordlist_test",
     srcs = ["merge_test.go"],
     embed = [":wordlist"],
-    deps = ["//pkg/tsd"],
+    deps = [
+        "//internal/fsutil",
+        "//pkg/tsd",
+    ],
 )

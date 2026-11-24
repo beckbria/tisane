@@ -10,7 +10,6 @@ import (
 	"image/png"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,6 +19,7 @@ import (
 
 	"tisane"
 	"tisane/internal/buildutil"
+	"tisane/internal/fsutil"
 )
 
 // iconSizes are the standard Windows 10/11 icon resolutions embedded in the
@@ -239,45 +239,16 @@ func run(cfg config) error {
 		return err
 	}
 
-	dir := filepath.Dir(cfg.outPath)
-	if dir == "" {
-		dir = "."
-	}
-	if dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("create output directory %q: %w", dir, err)
+	return fsutil.WriteFileAtomic(cfg.outPath, fsutil.AtomicOptions{
+		DirPerm:     0o755,
+		FilePerm:    0o644,
+		TempPattern: ".winrsrc-*.syso.tmp",
+	}, func(tmp *os.File) error {
+		if err := rs.WriteObject(tmp, targetArch); err != nil {
+			return fmt.Errorf("write COFF object %q: %w", cfg.outPath, err)
 		}
-	}
-
-	tmp, err := os.CreateTemp(dir, ".winrsrc-*.syso.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp output in %q: %w", dir, err)
-	}
-	tmpPath := tmp.Name()
-	keepTmp := false
-	defer func() {
-		if !keepTmp {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if err := rs.WriteObject(tmp, targetArch); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write COFF object %q: %w", cfg.outPath, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("sync output %q: %w", cfg.outPath, err)
-	}
-	_ = tmp.Chmod(0o644)
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close output %q: %w", cfg.outPath, err)
-	}
-	if err := os.Rename(tmpPath, cfg.outPath); err != nil {
-		return fmt.Errorf("rename output %q: %w", cfg.outPath, err)
-	}
-	keepTmp = true
-	return nil
+		return nil
+	})
 }
 
 func main() {

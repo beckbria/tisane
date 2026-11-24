@@ -12,11 +12,11 @@ import (
 	"io"
 	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"time"
 
 	"tisane/internal/buildutil"
+	"tisane/internal/fsutil"
 )
 
 // deterministicModTime ensures reproducible archive outputs across builds.
@@ -74,42 +74,11 @@ func run(args []string) error {
 }
 
 func writeAtomically(outPath string, writeFn func(f *os.File) error) error {
-	dir := filepath.Dir(outPath)
-	if dir == "" {
-		dir = "."
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create output directory: %w", err)
-	}
-	tmp, err := os.CreateTemp(dir, ".releasepkg-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp archive: %w", err)
-	}
-	tmpPath := tmp.Name()
-	keepTmp := false
-	defer func() {
-		if !keepTmp {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if err := writeFn(tmp); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("sync archive: %w", err)
-	}
-	_ = tmp.Chmod(0o644)
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close archive: %w", err)
-	}
-	if err := os.Rename(tmpPath, outPath); err != nil {
-		return fmt.Errorf("rename archive: %w", err)
-	}
-	keepTmp = true
-	return nil
+	return fsutil.WriteFileAtomic(outPath, fsutil.AtomicOptions{
+		DirPerm:     0o755,
+		FilePerm:    0o644,
+		TempPattern: ".releasepkg-*.tmp",
+	}, writeFn)
 }
 
 func collectParentDirs(entries []buildutil.PackagedEntry) []string {

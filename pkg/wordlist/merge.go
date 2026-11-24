@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"tisane/internal/fsutil"
 	"tisane/pkg/tsd"
 )
 
@@ -557,57 +558,13 @@ func writeLinesBuffered(w io.Writer, lines []string) (int, error) {
 }
 
 func writeLinesAtomic(outputPath string, lines []string) (int, error) {
-	if info, err := os.Lstat(outputPath); err == nil && (info.Mode()&os.ModeCharDevice) != 0 {
-		f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_TRUNC, 0o644)
-		if err != nil {
-			return 0, err
-		}
-		n, wErr := writeLinesBuffered(f, lines)
-		cErr := f.Close()
-		if wErr != nil {
-			return n, wErr
-		}
-		return n, cErr
-	}
-	dir := filepath.Dir(outputPath)
-	if dir == "" {
-		dir = "."
-	}
-	if dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return 0, err
-		}
-	}
-	f, err := os.CreateTemp(dir, ".tisane-*.tmp")
-	if err != nil {
-		return 0, err
-	}
-	tmpPath := f.Name()
-	keepTmp := false
-	defer func() {
-		if !keepTmp {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	written, err := writeLinesBuffered(f, lines)
-	if err != nil {
-		_ = f.Close()
-		return 0, err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return 0, err
-	}
-	_ = f.Chmod(0o644)
-	if err := f.Close(); err != nil {
-		return 0, err
-	}
-	if err := os.Rename(tmpPath, outputPath); err != nil {
-		return 0, err
-	}
-	keepTmp = true
-	return written, nil
+	var written int
+	err := fsutil.WritePublicFile(outputPath, func(f *os.File) error {
+		var wErr error
+		written, wErr = writeLinesBuffered(f, lines)
+		return wErr
+	})
+	return written, err
 }
 
 // MergeFiles streams primaryPath and secondaryPath, merges them with opts, and writes the result atomically to outputPath.

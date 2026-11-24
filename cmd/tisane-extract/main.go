@@ -10,12 +10,12 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"tisane"
+	"tisane/internal/fsutil"
 	"tisane/pkg/tsd"
 )
 
@@ -108,7 +108,7 @@ func runContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 
 	pos := fs.Args()
-	if badFlag := findMisplacedFlag(args, pos); badFlag != "" {
+	if badFlag := fsutil.FindMisplacedFlag(args, pos); badFlag != "" {
 		fmt.Fprintf(stderr, "tisane-extract: unexpected flag %q after positional argument (place flags first, or use '--' before filenames starting with '-')\n", badFlag)
 		return 2
 	}
@@ -218,86 +218,19 @@ func runContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	return 0
 }
 
-func findMisplacedFlag(args, pos []string) string {
-	if len(pos) == 0 {
-		return ""
-	}
-	parsed := len(args) - len(pos)
-	if parsed > 0 && args[parsed-1] == "--" {
-		return ""
-	}
-	for _, p := range pos {
-		if len(p) > 1 && strings.HasPrefix(p, "-") {
-			return p
-		}
-	}
-	return ""
-}
-
-func sameOrCleanEqual(a, b string) bool {
-	if a == "" || b == "" || a == "-" || b == "-" {
-		return false
-	}
-	if filepath.Clean(a) == filepath.Clean(b) {
-		return true
-	}
-	ia, errA := os.Stat(a)
-	ib, errB := os.Stat(b)
-	return errA == nil && errB == nil && os.SameFile(ia, ib)
-}
-
 func checkExtractCollisions(inputPath, outputPath, saveMap string) error {
-	if sameOrCleanEqual(outputPath, inputPath) {
+	if fsutil.SameFileOrClean(outputPath, inputPath) {
 		return fmt.Errorf("output path %q cannot overwrite input dictionary %q", outputPath, inputPath)
 	}
-	if sameOrCleanEqual(saveMap, inputPath) {
+	if fsutil.SameFileOrClean(saveMap, inputPath) {
 		return fmt.Errorf("--save-map path %q cannot overwrite input dictionary %q", saveMap, inputPath)
 	}
-	if sameOrCleanEqual(outputPath, saveMap) {
+	if fsutil.SameFileOrClean(outputPath, saveMap) {
 		return fmt.Errorf("output path %q and --save-map %q cannot be the same file", outputPath, saveMap)
 	}
 	return nil
 }
 
 func writeMapAtomic(path string, data []byte) error {
-	if info, err := os.Lstat(path); err == nil && (info.Mode()&os.ModeCharDevice) != 0 {
-		return os.WriteFile(path, data, 0o644)
-	}
-	dir := filepath.Dir(path)
-	if dir == "" {
-		dir = "."
-	}
-	if dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
-	f, err := os.CreateTemp(dir, ".tisane-map-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := f.Name()
-	keepTmp := false
-	defer func() {
-		if !keepTmp {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	_ = f.Chmod(0o644)
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	keepTmp = true
-	return nil
+	return fsutil.WritePublicBytes(path, data)
 }

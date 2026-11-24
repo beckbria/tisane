@@ -14,6 +14,7 @@ go_library(
     ],
     importpath = "tisane/pkg/tsd",
     visibility = ["//visibility:public"],
+    deps = ["//internal/fsutil"],
 )
 
 go_test(

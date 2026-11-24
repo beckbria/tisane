@@ -10,11 +10,11 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"tisane"
+	"tisane/internal/fsutil"
 	"tisane/pkg/wordlist"
 )
 
@@ -94,7 +94,7 @@ func runContext(ctx context.Context, args []string, _ io.Reader, stdout, stderr 
 	}
 
 	pos := fs.Args()
-	if badFlag := findMisplacedFlag(args, pos); badFlag != "" {
+	if badFlag := fsutil.FindMisplacedFlag(args, pos); badFlag != "" {
 		fmt.Fprintf(stderr, "tisane-merge: unexpected flag %q after positional argument (place flags first, or use '--' before filenames starting with '-')\n", badFlag)
 		return 2
 	}
@@ -183,22 +183,6 @@ func runContext(ctx context.Context, args []string, _ io.Reader, stdout, stderr 
 		fmt.Fprintf(summaryOut, "  Output:      %d entries\n", stats.OutputEntries)
 	}
 	return 0
-}
-
-func findMisplacedFlag(args, pos []string) string {
-	if len(pos) == 0 {
-		return ""
-	}
-	parsed := len(args) - len(pos)
-	if parsed > 0 && args[parsed-1] == "--" {
-		return ""
-	}
-	for _, p := range pos {
-		if len(p) > 1 && strings.HasPrefix(p, "-") {
-			return p
-		}
-	}
-	return ""
 }
 
 func readBoundedRegularFile(path, label string) ([]byte, error) {

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"tisane/internal/fsutil"
 )
 
 // BuildOptions configures compilation of a word/definition source file into a TSD1 dictionary.
@@ -374,58 +376,7 @@ func containsLineCanon(haystack, tok []byte) bool {
 // syncs, sets 0o644 permissions, and renames into place so existing files are never
 // partially truncated on failure or corrupted underneath concurrent ReadAt readers.
 func writeFileAtomic(outputPath string, writeFn func(*os.File) error) error {
-	if info, err := os.Lstat(outputPath); err == nil && (info.Mode()&os.ModeCharDevice) != 0 {
-		f, openErr := os.OpenFile(outputPath, os.O_WRONLY, 0o644)
-		if openErr != nil {
-			return openErr
-		}
-		wErr := writeFn(f)
-		cErr := f.Close()
-		if wErr != nil {
-			return wErr
-		}
-		return cErr
-	}
-
-	dir := filepath.Dir(outputPath)
-	if dir == "" {
-		dir = "."
-	}
-	if dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
-
-	f, err := os.CreateTemp(dir, ".tisane-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := f.Name()
-	keepTmp := false
-	defer func() {
-		if !keepTmp {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if err := writeFn(f); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	_ = f.Chmod(0o644)
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, outputPath); err != nil {
-		return err
-	}
-	keepTmp = true
-	return nil
+	return fsutil.WritePublicFile(outputPath, writeFn)
 }
 
 // BuildFile reads a .txt source file from inputPath, compiles a TSD1 dictionary with opts,

@@ -10,12 +10,12 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"tisane"
+	"tisane/internal/fsutil"
 	"tisane/pkg/tsd"
 )
 
@@ -95,7 +95,7 @@ func runContext(ctx context.Context, args []string, stdin io.Reader, stdout, std
 	}
 
 	pos := fs.Args()
-	if badFlag := findMisplacedFlag(args, pos); badFlag != "" {
+	if badFlag := fsutil.FindMisplacedFlag(args, pos); badFlag != "" {
 		fmt.Fprintf(stderr, "tisane-build: unexpected flag %q after positional argument (place flags first, or use '--' before filenames starting with '-')\n", badFlag)
 		return 2
 	}
@@ -254,45 +254,14 @@ func printDictInfo(path string, w io.Writer) error {
 	return nil
 }
 
-func findMisplacedFlag(args, pos []string) string {
-	if len(pos) == 0 {
-		return ""
-	}
-	parsed := len(args) - len(pos)
-	if parsed > 0 && args[parsed-1] == "--" {
-		return ""
-	}
-	for _, p := range pos {
-		if len(p) > 1 && strings.HasPrefix(p, "-") {
-			return p
-		}
-	}
-	return ""
-}
-
 func checkBuildPathCollisions(inputPath, outputPath, mapPath string) error {
-	cleanOut := filepath.Clean(outputPath)
-	outInfo, outErr := os.Stat(outputPath)
-
-	checkAgainst := func(srcPath, label string) error {
-		if srcPath == "" || srcPath == "-" {
-			return nil
-		}
-		if cleanOut == filepath.Clean(srcPath) {
-			return fmt.Errorf("output path %q cannot overwrite %s %q", outputPath, label, srcPath)
-		}
-		if outErr == nil {
-			if srcInfo, err := os.Stat(srcPath); err == nil && os.SameFile(outInfo, srcInfo) {
-				return fmt.Errorf("output path %q refers to the same file as %s %q", outputPath, label, srcPath)
-			}
-		}
-		return nil
+	if fsutil.SameFileOrClean(outputPath, inputPath) {
+		return fmt.Errorf("output path %q cannot overwrite input file %q", outputPath, inputPath)
 	}
-
-	if err := checkAgainst(inputPath, "input file"); err != nil {
-		return err
+	if fsutil.SameFileOrClean(outputPath, mapPath) {
+		return fmt.Errorf("output path %q cannot overwrite alphabet map %q", outputPath, mapPath)
 	}
-	return checkAgainst(mapPath, "alphabet map")
+	return nil
 }
 
 func sanitizeControlChars(s string) string {
@@ -311,44 +280,5 @@ func sanitizeControlChars(s string) string {
 }
 
 func writeOutputAtomic(outputPath string, data []byte) error {
-	if info, err := os.Lstat(outputPath); err == nil && (info.Mode()&os.ModeCharDevice) != 0 {
-		return os.WriteFile(outputPath, data, 0o644)
-	}
-	dir := filepath.Dir(outputPath)
-	if dir == "" {
-		dir = "."
-	}
-	if dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
-	f, err := os.CreateTemp(dir, ".tisane-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := f.Name()
-	keepTmp := false
-	defer func() {
-		if !keepTmp {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	_ = f.Chmod(0o644)
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, outputPath); err != nil {
-		return err
-	}
-	keepTmp = true
-	return nil
+	return fsutil.WritePublicBytes(outputPath, data)
 }

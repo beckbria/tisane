@@ -5,7 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "tisane/internal/releasepkg",
     visibility = ["//visibility:private"],
-    deps = ["//internal/buildutil"],
+    deps = [
+        "//internal/buildutil",
+        "//internal/fsutil",
+    ],
 )
 
 go_binary(

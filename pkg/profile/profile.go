@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"tisane"
+	"tisane/internal/fsutil"
 	"tisane/pkg/lookup"
 	"tisane/pkg/pattern"
 	"tisane/pkg/tsd"
@@ -406,38 +407,9 @@ func LoadOrDefault() (*Config, string, error) {
 
 // Save writes cfg as clean TOML to path atomically via a private temporary sibling file.
 func Save(path string, cfg *Config) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create config directory %q: %w", dir, err)
+	if err := fsutil.WritePrivateBytes(path, MarshalTOML(cfg)); err != nil {
+		return fmt.Errorf("save config %q: %w", path, err)
 	}
-	data := MarshalTOML(cfg)
-	f, err := os.CreateTemp(dir, ".config-*.toml.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp config in %q: %w", dir, err)
-	}
-	tmpPath := f.Name()
-	keepTmp := false
-	defer func() {
-		if !keepTmp {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return fmt.Errorf("write config %q: %w", path, err)
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return fmt.Errorf("sync config %q: %w", path, err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close temp config %q: %w", path, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace config %q: %w", path, err)
-	}
-	keepTmp = true
 	return nil
 }
 
