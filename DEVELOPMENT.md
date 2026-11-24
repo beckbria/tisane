@@ -39,7 +39,7 @@ To build the Windows installer (`bazel build //:windows-release`), **NSIS** (`ma
 | `cmd/tisane-build` | **Dictionary compiler & inspector** (replaces `TSBuild.exe`; compiles plain-text/RTF word lists into `.tsd` files) |
 | `cmd/tisane-extract` | **Word list & metadata extractor** (exports `.tsd` dictionaries to plain one-word-per-line lists or `tisane-build` source files) |
 | `cmd/tisane-merge` | **Word list merger** (replaces `TSMerge.exe`; ASCII conversion and `or`/`and`/`exclude` set operations) |
-| `internal/` | Release archive packager (`releasepkg`), NSIS installer builder (`wininstaller`), and shared build helpers (`buildutil`) |
+| `internal/` | Release archive packager (`releasepkg`), NSIS installer builder (`wininstaller`), atomic file/CLI helpers (`fsutil`), and shared build helpers (`buildutil`) |
 | `pkg/tsd` | Pure-Go reader, streaming bit-unpacker, RTF/zlib definition decoder, and byte-accurate `TSD1` writer |
 | `pkg/pattern` | Macro expander, boolean expression parser, live span validator, calibration-sorted compiler, and backtracking VM |
 | `pkg/search` | Concurrent multi-dictionary word & indexed/sequential Full-Text Search (FTS) engine with 6 sort modes |
@@ -90,12 +90,13 @@ go build -o tisane ./cmd/tisane
 ```
 
 #### Headless / Browser Server Mode (Any OS, no GUI libraries needed)
-Wails v3 can also serve the exact same backend and UI over HTTP for browser or container use:
+Wails v3 can also serve the exact same backend and UI over HTTP for trusted local browser use:
 ```bash
 CGO_ENABLED=0 go build -tags server -o tisane-server ./cmd/tisane
 ./tisane-server
 # Open http://localhost:8080 in any browser
 ```
+> **Security note**: Server mode shares a single `app.State` across connected clients and has no built-in HTTP authentication. By default, `-tags server` disables host filesystem-mutation tools (Dictionary Builder, Word List Merger, adding/removing dictionaries, config reset) and server-side `OpenURL` launches; set `TISANE_SERVER_ALLOW_HOST_IO=1` only in trusted single-user environments, and place an authenticating reverse proxy in front if exposing beyond `localhost`.
 
 ### Step 3: Run `tisane`
 

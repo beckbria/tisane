@@ -56,6 +56,7 @@ Tisane is a high-speed crossword, cryptic, anagram, and dictionary pattern-match
 | `cmd/tisane-merge/` | Word list conversion and set-operation merge tool (replaces `TSMerge.exe`) |
 | `dictionaries/` | Bundled open-source `.tsd` dictionaries included in release archives |
 | `internal/buildutil/` | Shared destination path validation, regular-file staging, and version quad parsing |
+| `internal/fsutil/` | Shared cross-platform atomic file-writing, path-identity, and CLI flag validation helpers |
 | `internal/releasepkg/` | Cross-platform release archive packager (`.tar.gz` and `.zip`) invoked by Bazel |
 | `internal/wininstaller/` | NSIS Windows installer builder wrapper invoked by Bazel |
 | `pkg/tsd/` | Pure-Go `TSD0`/`TSD1` reader, streaming bit-unpacker, Huffman/zlib/RTF decoder, `.tsm` parser, exporter, and `TSD1` writer |
@@ -84,7 +85,7 @@ All code must follow idiomatic conventions and best practices for its language a
 - Use idiomatic **Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`) rather than legacy Svelte 4 reactive declarations (`$:`, `export let`).
 - Organize top-level application state into focused Svelte 5 `.svelte.ts` rune store factories under `cmd/tisane/frontend/src/lib/stores/` rather than growing `App.svelte`. Use `$state.raw` for large virtualized match arrays.
 - Use Tailwind CSS v4 utility classes consistently and preserve responsive, accessible UI semantics (keyboard shortcuts, ARIA attributes, focus management).
-- Keep large result lists virtualized via `@tanstack/svelte-virtual` so 100k+ hits stay responsive.
+- Keep large result lists virtualized via `@tanstack/svelte-virtual` so 100k+ hits stay responsive. In `SearchStore`, append streamed batches in place (`push`) into `$state.raw` backing arrays and drive `VirtualResultPane` via frame-coalesced reactive counts (`totalMatches` / `dictMatchCounts`) rather than `.concat()` reallocations.
 - Whenever a Go service method signature, FQN, or DTO JSON field changes in `cmd/tisane/app`, update `cmd/tisane/frontend/src/lib/bindings.ts`, `src/lib/types.ts`, and `cmd/tisane/main_test.go` in the same change—and rebuild `cmd/tisane/frontend/dist` (`npm run build`) if verifying the embedded desktop binary.
 
 ### Desktop UI & Wails v3 Conventions
@@ -97,7 +98,8 @@ All code must follow idiomatic conventions and best practices for its language a
   - Every modal dialog must use `use:modalTrap` (`src/lib/actions/modalTrap.ts`) for focus entry, `Tab` wrapping, stacked `Escape` isolation, and focus restoration, while `App.svelte` marks background workspace regions `inert` + `aria-hidden="true"`.
   - Keep text contrast ≥ `4.5:1` and control border contrast ≥ `3.0:1` across both Dark and Light palettes in `src/app.css`, and keep `VirtualResultPane` options `tabindex="-1"` with `aria-activedescendant` + `aria-posinset`/`aria-setsize`.
 - **Security invariants**:
-  - Any URL passed to `HostBridge.OpenURL` (including `WebProvider.URLTemplate` in `OpenWebLookup` and `UpdateConfig`) must be validated to `http`/`https` (plus `mailto` for `OpenExternalURL`).
+  - Any URL passed to `HostBridge.OpenURL` (including `WebProvider.URLTemplate` in `OpenWebLookup` and `UpdateConfig`) must be validated to `http`/`https` (plus `mailto` for `OpenExternalURL`), reject whitespace/quotes/userinfo/control/bidi characters and `{entry}` inside the URL authority, and pass through `application.ValidateAndSanitizeURL`.
+  - Headless `-tags server` builds block host file-mutation and server-side browser-launch RPCs by default unless `TISANE_SERVER_ALLOW_HOST_IO=1` is set.
   - Any `{@html ...}` rendering (such as `DefinitionPane.svelte`) must only receive backend-sanitized HTML, and `cmd/tisane/frontend/index.html` must retain its strict Content Security Policy.
   - Never interpolate user-configurable strings (such as font families in `fonts.ts`) into inline `style` attributes without sanitizing CSS breakout characters (`;`, `{`, `}`, `(`, `)`, `\`).
 - **Runtime pinning**: Keep `@wailsio/runtime` in `cmd/tisane/frontend/package.json` pinned to the exact Wails v3 version in `go.mod`.
