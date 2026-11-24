@@ -71,6 +71,7 @@ function createMockHarness() {
     definitionHeight: 256,
     definitionCollapsed: false,
     theme: 'dark',
+    uiZoom: 100,
     autoWebFallback: false,
     defaultWebProvider: 'onelook',
     webProviders: [
@@ -293,6 +294,7 @@ function createMockHarness() {
         definitionHeight: 256,
         definitionCollapsed: false,
         theme: 'dark',
+        uiZoom: 100,
         autoWebFallback: false,
         defaultWebProvider: 'onelook',
         webProviders: [
@@ -329,6 +331,7 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     window.localStorage.clear();
     delete document.documentElement.dataset.theme;
     document.documentElement.style.colorScheme = '';
+    document.documentElement.style.zoom = '';
   });
 
   it('defaults to 2 separate tiled panes per dictionary, switches to unified view, and handles RTF definitions + Web Search fallback', async () => {
@@ -513,6 +516,7 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       definitionHeight: 0,
       definitionCollapsed: false,
       theme: 'dark',
+      uiZoom: 0,
       autoWebFallback: false,
       defaultWebProvider: 'onelook',
       webProviders: null as unknown as Config['webProviders'],
@@ -1541,5 +1545,56 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     await fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByTestId('settings-modal')).not.toBeInTheDocument());
     await waitFor(() => expect(document.activeElement).toBe(settingsBtn));
+  });
+
+  it('supports global UI zoom via shortcuts, menu events, Settings controls, and boot cache', async () => {
+    window.localStorage.setItem('tisane:boot', JSON.stringify({ theme: 'dark', uiZoom: 130 }));
+
+    const h = createMockHarness();
+    let resolveInitialConfig!: (cfg: Config) => void;
+    (h.backend.getConfig as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () =>
+        new Promise<Config>((resolve) => {
+          resolveInitialConfig = resolve;
+        })
+    );
+    setBackendForTesting(h.backend);
+
+    render(App);
+    expect(document.documentElement.style.zoom).toBe('1.3');
+
+    const baseCfg = await h.backend.updateConfig({});
+    resolveInitialConfig({ ...baseCfg, uiZoom: 100 });
+    await waitFor(() => expect(document.documentElement.style.zoom).toBe(''));
+
+    // Keyboard shortcuts Ctrl+=, Ctrl+-, Ctrl+0
+    await fireEvent.keyDown(window, { key: '=', ctrlKey: true });
+    await waitFor(() => {
+      expect(document.documentElement.style.zoom).toBe('1.1');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ uiZoom: 110 });
+      expect(JSON.parse(window.localStorage.getItem('tisane:boot') || '{}').uiZoom).toBe(110);
+    });
+
+    // Native View -> Zoom In menu event
+    h.emit('ui:zoom', 'in');
+    await waitFor(() => {
+      expect(document.documentElement.style.zoom).toBe('1.2');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ uiZoom: 120 });
+    });
+
+    // Settings modal UI Scale controls
+    await fireEvent.click(screen.getByTestId('open-settings-btn'));
+    expect(screen.getByTestId('zoom-value')).toHaveTextContent('120%');
+    await fireEvent.click(screen.getByTestId('zoom-out-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('zoom-value')).toHaveTextContent('110%');
+      expect(document.documentElement.style.zoom).toBe('1.1');
+    });
+
+    await fireEvent.click(screen.getByTestId('zoom-reset-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('zoom-value')).toHaveTextContent('100%');
+      expect(document.documentElement.style.zoom).toBe('');
+    });
   });
 });

@@ -1,6 +1,13 @@
 <script lang="ts">
   import { modalTrap } from '../actions/modalTrap';
   import {
+    clampUIZoom,
+    DEFAULT_UI_ZOOM,
+    MAX_UI_ZOOM,
+    MIN_UI_ZOOM,
+    UI_ZOOM_STEP
+  } from '../stores/config.svelte';
+  import {
     DEFAULT_FONTS,
     FONT_ELEMENTS,
     formatFontSummary,
@@ -22,6 +29,7 @@
   let atMacro = $state('');
   let hashMacro = $state('');
   let theme: ThemeMode = $state('dark');
+  let uiZoom = $state(DEFAULT_UI_ZOOM);
   let autoWebFallback = $state(false);
   let defaultWebProvider = $state('onelook');
   let providers: WebProvider[] = $state([]);
@@ -51,6 +59,7 @@
       atMacro = config.atMacro;
       hashMacro = config.hashMacro;
       theme = config.theme ?? 'dark';
+      uiZoom = clampUIZoom(config.uiZoom);
       autoWebFallback = config.autoWebFallback;
       defaultWebProvider = config.defaultWebProvider;
       providers = (config.webProviders ?? []).map((p) => ({ ...p }));
@@ -105,6 +114,12 @@
     onSave({ theme: nextTheme });
   }
 
+  function handleStepZoom(nextZoom: number) {
+    const clamped = clampUIZoom(nextZoom);
+    uiZoom = clamped;
+    onSave({ uiZoom: clamped });
+  }
+
   function handleSaveFonts(nextFonts: FontConfig) {
     fonts = normalizeFontConfig(nextFonts);
     onSave({ fonts });
@@ -131,6 +146,7 @@
       atMacro,
       hashMacro,
       theme,
+      uiZoom,
       autoWebFallback,
       defaultWebProvider,
       webProviders: providers,
@@ -161,9 +177,9 @@
           type="button"
           onclick={onClose}
           aria-label="Close preferences"
-          class="text-xs text-slate-400 hover:text-slate-100"
+          class="inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-100"
         >
-          ✕
+          <span aria-hidden="true">✕</span>
         </button>
       </div>
 
@@ -189,26 +205,73 @@
             </button>
           </div>
 
-          <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-            <span class="font-medium text-slate-200">Color Theme</span>
-            <div
-              class="inline-flex rounded-lg bg-slate-900 p-0.5 ring-1 ring-slate-600"
-              role="group"
-              aria-label="Color theme"
-            >
-              {#each THEME_OPTIONS as opt (opt.value)}
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+              <span class="font-medium text-slate-200">Color Theme</span>
+              <div
+                class="inline-flex rounded-lg bg-slate-900 p-0.5 ring-1 ring-slate-600"
+                role="group"
+                aria-label="Color theme"
+              >
+                {#each THEME_OPTIONS as opt (opt.value)}
+                  <button
+                    type="button"
+                    data-testid={`theme-${opt.value}-btn`}
+                    aria-pressed={theme === opt.value}
+                    onclick={() => handleSelectTheme(opt.value)}
+                    class="rounded-md px-2.5 py-1 text-xs font-medium transition {theme === opt.value
+                      ? 'bg-amber-500 text-neutral-950 shadow-xs'
+                      : 'text-slate-300 hover:text-slate-100'}"
+                  >
+                    {opt.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+              <span class="font-medium text-slate-200">UI Scale</span>
+              <div class="flex items-center gap-1.5" role="group" aria-label="Interface zoom">
                 <button
                   type="button"
-                  data-testid={`theme-${opt.value}-btn`}
-                  aria-pressed={theme === opt.value}
-                  onclick={() => handleSelectTheme(opt.value)}
-                  class="rounded-md px-3 py-1 text-xs font-medium transition {theme === opt.value
-                    ? 'bg-amber-500 text-neutral-950 shadow-xs'
-                    : 'text-slate-300 hover:text-slate-100'}"
+                  data-testid="zoom-out-btn"
+                  disabled={uiZoom <= MIN_UI_ZOOM}
+                  onclick={() => handleStepZoom(uiZoom - UI_ZOOM_STEP)}
+                  aria-label="Zoom out"
+                  title="Zoom out (Ctrl+-)"
+                  class="inline-flex min-h-6 min-w-6 items-center justify-center rounded border border-slate-600 bg-slate-900 font-mono text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-35"
                 >
-                  {opt.label}
+                  <span aria-hidden="true">−</span>
                 </button>
-              {/each}
+                <span
+                  data-testid="zoom-value"
+                  class="min-w-[4.5ch] text-center font-mono text-xs font-semibold text-slate-100"
+                >
+                  {uiZoom}%
+                </span>
+                <button
+                  type="button"
+                  data-testid="zoom-in-btn"
+                  disabled={uiZoom >= MAX_UI_ZOOM}
+                  onclick={() => handleStepZoom(uiZoom + UI_ZOOM_STEP)}
+                  aria-label="Zoom in"
+                  title="Zoom in (Ctrl+=)"
+                  class="inline-flex min-h-6 min-w-6 items-center justify-center rounded border border-slate-600 bg-slate-900 font-mono text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-35"
+                >
+                  <span aria-hidden="true">+</span>
+                </button>
+                {#if uiZoom !== DEFAULT_UI_ZOOM}
+                  <button
+                    type="button"
+                    data-testid="zoom-reset-btn"
+                    onclick={() => handleStepZoom(DEFAULT_UI_ZOOM)}
+                    title="Reset UI zoom to 100% (Ctrl+0)"
+                    class="rounded px-1.5 py-0.5 text-[11px] text-amber-400 hover:text-amber-300"
+                  >
+                    100%
+                  </button>
+                {/if}
+              </div>
             </div>
           </div>
 
@@ -318,10 +381,11 @@
                   type="button"
                   disabled={providers.length <= 1}
                   onclick={() => removeProvider(idx)}
-                  class="rounded px-2 py-1 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 disabled:opacity-30"
+                  aria-label={`Remove ${p.name || 'provider'}`}
+                  class="inline-flex min-h-6 min-w-6 items-center justify-center rounded px-1.5 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 disabled:opacity-35"
                   title="Remove provider"
                 >
-                  ✕
+                  <span aria-hidden="true">✕</span>
                 </button>
               </div>
             {/each}
@@ -408,9 +472,9 @@
             type="button"
             onclick={() => (showResetConfirm = false)}
             aria-label="Close confirmation dialog"
-            class="text-xs text-slate-400 hover:text-slate-100"
+            class="inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-100"
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
 

@@ -76,7 +76,7 @@
           disabled={!canGoBack}
           data-testid="def-back-btn"
           onclick={onBack}
-          class="px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-30"
+          class="inline-flex min-h-6 min-w-6 items-center justify-center px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-35"
           title="Previous looked-up word"
           aria-label="Back"
         >
@@ -87,7 +87,7 @@
           disabled={!canGoForward}
           data-testid="def-forward-btn"
           onclick={onForward}
-          class="border-l border-slate-800 px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-30"
+          class="inline-flex min-h-6 min-w-6 items-center justify-center border-l border-slate-800 px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-35"
           title="Next looked-up word"
           aria-label="Forward"
         >

@@ -273,6 +273,22 @@ func buildAppMenu(
 		OnClick(func(*application.Context) {
 			wailsApp.Event.Emit(app.EventUISetTheme, "system")
 		})
+	viewMenu.AddSeparator()
+	viewMenu.Add("Zoom In").
+		SetAccelerator("CmdOrCtrl+=").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit(app.EventUIZoom, "in")
+		})
+	viewMenu.Add("Zoom Out").
+		SetAccelerator("CmdOrCtrl+-").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit(app.EventUIZoom, "out")
+		})
+	viewMenu.Add("Actual Size").
+		SetAccelerator("CmdOrCtrl+0").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit(app.EventUIZoom, "reset")
+		})
 
 	helpMenu := menu.AddSubmenu("Help")
 	helpMenu.Add("About Tisane").

@@ -170,13 +170,18 @@
     setSidebarCollapsed(!cfgStore.value.sidebarCollapsed);
   }
 
+  function getZoomScale(): number {
+    return (cfgStore.value.uiZoom || 100) / 100;
+  }
+
   function getMaxSidebarWidth(): number {
     if (typeof window === 'undefined' || !window.innerWidth) {
       return MAX_SIDEBAR_WIDTH;
     }
+    const logicalWidth = window.innerWidth / getZoomScale();
     return Math.min(
       MAX_SIDEBAR_WIDTH,
-      Math.max(MIN_SIDEBAR_WIDTH, Math.floor(window.innerWidth * 0.55))
+      Math.max(MIN_SIDEBAR_WIDTH, Math.floor(logicalWidth * 0.55))
     );
   }
 
@@ -217,7 +222,7 @@
     };
 
     const onMouseMove = (moveEvent: MouseEvent) => {
-      const rawWidth = startWidth + (moveEvent.clientX - startX);
+      const rawWidth = startWidth + (moveEvent.clientX - startX) / getZoomScale();
       if (rawWidth < SIDEBAR_COLLAPSE_THRESHOLD) {
         collapsedDuringDrag = true;
         finishDrag(false);
@@ -277,9 +282,10 @@
     if (typeof window === 'undefined' || !window.innerHeight) {
       return MAX_DEFINITION_HEIGHT;
     }
+    const logicalHeight = window.innerHeight / getZoomScale();
     return Math.min(
       MAX_DEFINITION_HEIGHT,
-      Math.max(MIN_DEFINITION_HEIGHT, Math.floor(window.innerHeight * 0.6))
+      Math.max(MIN_DEFINITION_HEIGHT, Math.floor(logicalHeight * 0.6))
     );
   }
 
@@ -320,7 +326,7 @@
     };
 
     const onMouseMove = (moveEvent: MouseEvent) => {
-      const rawHeight = startHeight + (startY - moveEvent.clientY);
+      const rawHeight = startHeight + (startY - moveEvent.clientY) / getZoomScale();
       if (rawHeight < DEFINITION_COLLAPSE_THRESHOLD) {
         collapsedDuringDrag = true;
         finishDrag(false);
@@ -426,6 +432,15 @@
     } else if (mod && e.key === '2') {
       e.preventDefault();
       void applyConfigPatch({ layoutMode: 'unified' }, false);
+    } else if (mod && (e.key === '=' || e.key === '+')) {
+      e.preventDefault();
+      void applyConfigPatch({ uiZoom: cfgStore.nextZoomForAction('in') }, false);
+    } else if (mod && e.key === '-') {
+      e.preventDefault();
+      void applyConfigPatch({ uiZoom: cfgStore.nextZoomForAction('out') }, false);
+    } else if (mod && e.key === '0') {
+      e.preventDefault();
+      void applyConfigPatch({ uiZoom: cfgStore.nextZoomForAction('reset') }, false);
     } else if (e.key === 'F1') {
       e.preventDefault();
       showCheatsheet = !showCheatsheet;
@@ -478,6 +493,11 @@
         if (nextTheme === 'dark' || nextTheme === 'light' || nextTheme === 'system') {
           void applyConfigPatch({ theme: nextTheme }, false);
         }
+      }),
+      backend.onEvent('ui:zoom', (act) => {
+        if (act === 'in' || act === 'out' || act === 'reset') {
+          void applyConfigPatch({ uiZoom: cfgStore.nextZoomForAction(act) }, false);
+        }
       })
     ];
 
@@ -503,7 +523,7 @@
 <div
   data-testid="app-root"
   style={cfgStore.rootFontVars}
-  class="flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-slate-100"
+  class="flex h-full w-full flex-col overflow-hidden bg-slate-950 text-slate-100"
 >
   <div
     class="flex min-h-0 flex-1 flex-col overflow-hidden"

@@ -1,6 +1,6 @@
 import { getBackend } from '../bindings';
 import { buildFontCssVars, DEFAULT_FONTS, normalizeFontConfig } from '../fonts';
-import type { Config, ConfigPatch, EntryCategory, ThemeMode } from '../types';
+import type { Config, ConfigPatch, EntryCategory, ThemeMode, ZoomAction } from '../types';
 
 export const BOOT_CACHE_KEY = 'tisane:boot';
 
@@ -14,6 +14,11 @@ export const MIN_DEFINITION_HEIGHT = 120;
 export const MAX_DEFINITION_HEIGHT = 640;
 export const DEFINITION_COLLAPSE_THRESHOLD = 72;
 
+export const DEFAULT_UI_ZOOM = 100;
+export const MIN_UI_ZOOM = 75;
+export const MAX_UI_ZOOM = 200;
+export const UI_ZOOM_STEP = 10;
+
 export function clampSidebarWidth(w: unknown): number {
   if (typeof w !== 'number' || !Number.isFinite(w) || w <= 0) {
     return DEFAULT_SIDEBAR_WIDTH;
@@ -26,6 +31,13 @@ export function clampDefinitionHeight(h: unknown): number {
     return DEFAULT_DEFINITION_HEIGHT;
   }
   return Math.max(MIN_DEFINITION_HEIGHT, Math.min(MAX_DEFINITION_HEIGHT, Math.round(h)));
+}
+
+export function clampUIZoom(z: unknown): number {
+  if (typeof z !== 'number' || !Number.isFinite(z) || z <= 0) {
+    return DEFAULT_UI_ZOOM;
+  }
+  return Math.max(MIN_UI_ZOOM, Math.min(MAX_UI_ZOOM, Math.round(z)));
 }
 
 export function normalizeTheme(raw: unknown): ThemeMode {
@@ -58,6 +70,14 @@ export function applyDocumentTheme(theme: ThemeMode): 'dark' | 'light' {
     document.documentElement.style.colorScheme = effective;
   }
   return effective;
+}
+
+export function applyDocumentZoom(zoom: number): number {
+  const clamped = clampUIZoom(zoom);
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.style.zoom = clamped === 100 ? '' : String(clamped / 100);
+  }
+  return clamped;
 }
 
 interface BootCachePayload {
@@ -124,6 +144,7 @@ export const DEFAULT_CONFIG: Config = {
   definitionHeight: DEFAULT_DEFINITION_HEIGHT,
   definitionCollapsed: false,
   theme: 'dark',
+  uiZoom: DEFAULT_UI_ZOOM,
   autoWebFallback: false,
   defaultWebProvider: 'onelook',
   webProviders: [
@@ -164,6 +185,7 @@ export function normalizeConfig(raw: Partial<Config> | null | undefined): Config
         ? raw.definitionCollapsed
         : DEFAULT_CONFIG.definitionCollapsed,
     theme: normalizeTheme(raw.theme),
+    uiZoom: clampUIZoom(raw.uiZoom),
     fonts: normalizeFontConfig(raw.fonts)
   };
 }
@@ -172,7 +194,8 @@ function buildInitialConfig(): Config {
   const cached = readBootCache();
   return normalizeConfig({
     ...DEFAULT_CONFIG,
-    theme: cached.theme ?? DEFAULT_CONFIG.theme
+    theme: cached.theme ?? DEFAULT_CONFIG.theme,
+    uiZoom: cached.uiZoom ?? DEFAULT_CONFIG.uiZoom
   });
 }
 
@@ -182,11 +205,23 @@ export class ConfigStore {
 
   constructor() {
     applyDocumentTheme(this.value.theme);
+    applyDocumentZoom(this.value.uiZoom);
   }
 
   private syncBootAndDocument(): void {
     applyDocumentTheme(this.value.theme);
-    writeBootCache({ theme: this.value.theme });
+    applyDocumentZoom(this.value.uiZoom);
+    writeBootCache({ theme: this.value.theme, uiZoom: this.value.uiZoom });
+  }
+
+  nextZoomForAction(action: ZoomAction): number {
+    if (action === 'in') {
+      return clampUIZoom(this.value.uiZoom + UI_ZOOM_STEP);
+    }
+    if (action === 'out') {
+      return clampUIZoom(this.value.uiZoom - UI_ZOOM_STEP);
+    }
+    return DEFAULT_UI_ZOOM;
   }
 
   subscribeSystemTheme(): () => void {
@@ -261,6 +296,7 @@ export class ConfigStore {
       dictionaries: resetDictionaries ? [] : this.value.dictionaries
     });
     applyDocumentTheme(this.value.theme);
+    applyDocumentZoom(this.value.uiZoom);
     try {
       const updated = await getBackend().resetConfig(resetDictionaries);
       if (updated) {

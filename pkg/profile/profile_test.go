@@ -30,6 +30,7 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 	cfg.MaxLength = 15
 	cfg.SortMode = "smart"
 	cfg.Theme = "light"
+	cfg.UIZoom = 125
 	cfg.DictDirs = []string{tmp, dictsDir}
 	cfg.Dictionaries = []profile.DictConfig{
 		{Path: filepath.Join(dictsDir, "english-wordnet-2025-plus.tsd"), Name: "WordNet", Enabled: true},
@@ -54,7 +55,7 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if loaded.AtMacro != cfg.AtMacro || loaded.MinLength != 3 || loaded.MaxLength != 15 || loaded.SortMode != "smart" || loaded.LayoutMode != "tiled" || loaded.Theme != "light" {
+	if loaded.AtMacro != cfg.AtMacro || loaded.MinLength != 3 || loaded.MaxLength != 15 || loaded.SortMode != "smart" || loaded.LayoutMode != "tiled" || loaded.Theme != "light" || loaded.UIZoom != 125 {
 		t.Fatalf("scalar round-trip mismatch: %+v", loaded)
 	}
 	if loaded.Fonts != cfg.Fonts {
@@ -369,6 +370,22 @@ func TestNormalizeTheme(t *testing.T) {
 	for in, want := range cases {
 		if got := profile.NormalizeTheme(in); got != want {
 			t.Errorf("NormalizeTheme(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNormalizeUIZoom(t *testing.T) {
+	cases := map[int]int{
+		0:   100,
+		-20: 100,
+		50:  75,
+		100: 100,
+		135: 135,
+		250: 200,
+	}
+	for in, want := range cases {
+		if got := profile.NormalizeUIZoom(in); got != want {
+			t.Errorf("NormalizeUIZoom(%d) = %d, want %d", in, got, want)
 		}
 	}
 }

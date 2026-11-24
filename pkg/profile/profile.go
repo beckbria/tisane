@@ -43,6 +43,13 @@ const (
 	// DefaultTheme is the default UI color theme ("dark", "light", or "system").
 	DefaultTheme = "dark"
 
+	// DefaultUIZoom is the default global UI zoom percentage.
+	DefaultUIZoom = 100
+	// MinUIZoom is the minimum global UI zoom percentage.
+	MinUIZoom = 75
+	// MaxUIZoom is the maximum global UI zoom percentage.
+	MaxUIZoom = 200
+
 	// DefaultMaxRecentQueries is the default cap on Config.RecentQueries.
 	DefaultMaxRecentQueries = 50
 
@@ -77,6 +84,21 @@ func NormalizeDefinitionHeight(h int) int {
 		return MaxDefinitionHeight
 	}
 	return h
+}
+
+// NormalizeUIZoom clamps a global UI zoom percentage into [MinUIZoom, MaxUIZoom],
+// falling back to DefaultUIZoom when non-positive.
+func NormalizeUIZoom(z int) int {
+	if z <= 0 {
+		return DefaultUIZoom
+	}
+	if z < MinUIZoom {
+		return MinUIZoom
+	}
+	if z > MaxUIZoom {
+		return MaxUIZoom
+	}
+	return z
 }
 
 // DictConfig represents one configured .tsd dictionary in user priority order.
@@ -164,6 +186,7 @@ type Config struct {
 	DefinitionHeight        int                  `json:"definitionHeight"`    // expanded pixel height of the definition pane
 	DefinitionCollapsed     bool                 `json:"definitionCollapsed"` // whether the definition pane is collapsed
 	Theme                   string               `json:"theme"`               // "dark" (default), "light", or "system"
+	UIZoom                  int                  `json:"uiZoom"`              // global UI zoom percentage (75–200, default 100)
 	AutoWebFallback         bool                 `json:"autoWebFallback"`
 	DefaultWebProvider      string               `json:"defaultWebProvider"`
 	WebProviders            []lookup.WebProvider `json:"webProviders"`
@@ -315,6 +338,7 @@ func DefaultConfig() *Config {
 		DefinitionHeight:        DefaultDefinitionHeight,
 		DefinitionCollapsed:     false,
 		Theme:                   DefaultTheme,
+		UIZoom:                  DefaultUIZoom,
 		AutoWebFallback:         false,
 		DefaultWebProvider:      "onelook",
 		WebProviders:            lookup.DefaultWebProviders(),

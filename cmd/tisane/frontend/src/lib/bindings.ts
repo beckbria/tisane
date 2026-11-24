@@ -18,7 +18,8 @@ import type {
   SearchRequest,
   ThemeMode,
   ValidateRequest,
-  ValidationResult
+  ValidationResult,
+  ZoomAction
 } from './types';
 
 export type UnsubscribeFn = () => void;
@@ -41,6 +42,7 @@ export interface WailsEventMap {
   'ui:toggle-sidebar': null;
   'ui:toggle-definitions': null;
   'ui:set-theme': ThemeMode;
+  'ui:zoom': ZoomAction;
 }
 
 export interface TisaneBackend {

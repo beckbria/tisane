@@ -178,12 +178,12 @@
     <div class="min-w-0">
       <h3 class="truncate font-semibold text-slate-200">{title}</h3>
       {#if subtitle}
-        <p class="truncate text-[10px] text-slate-400">{subtitle}</p>
+        <p class="truncate text-[0.85em] text-slate-400">{subtitle}</p>
       {/if}
     </div>
     <span
       data-testid={`${testId}-count`}
-      class="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[11px] font-medium text-amber-300"
+      class="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[0.92em] font-medium text-amber-300"
     >
       {items.length.toLocaleString()}
     </span>
@@ -250,31 +250,35 @@
                 {/if}
               </div>
 
-              <div class="flex shrink-0 items-center gap-1.5" aria-hidden="true">
+              <div
+                class="flex shrink-0 items-center gap-1.5"
+                style="font-size: calc(var(--tisane-font-results-size) * 0.78);"
+                aria-hidden="true"
+              >
                 {#if bal.omitted}
-                  <span class="rounded bg-rose-500/15 px-1 font-mono text-[10px] text-rose-300">
+                  <span class="rounded bg-rose-500/15 px-1 font-mono text-rose-300">
                     {bal.omitted}
                   </span>
                 {/if}
                 {#if bal.added}
-                  <span class="rounded bg-emerald-500/15 px-1 font-mono text-[10px] text-emerald-300">
+                  <span class="rounded bg-emerald-500/15 px-1 font-mono text-emerald-300">
                     {bal.added}
                   </span>
                 {/if}
                 {#if showDictBadge && match.dict}
-                  <span class="max-w-[110px] truncate rounded bg-slate-800/90 px-1.5 py-0.2 text-[10px] text-slate-400">
+                  <span class="max-w-[12ch] truncate rounded bg-slate-800/90 px-1.5 py-0.2 text-slate-400">
                     {match.dict}
                   </span>
                 {/if}
                 {#if match.hasDefinition}
                   <span
-                    class="text-[11px] text-amber-400/90"
+                    class="text-amber-400/90"
                     title="Local definition available"
                   >
                     📖
                   </span>
                 {:else}
-                  <span class="w-3.5 text-center font-mono text-[10px] text-slate-400">{match.length}</span>
+                  <span class="min-w-[2.2ch] text-center font-mono text-slate-400">{match.length}</span>
                 {/if}
               </div>
             </button>

@@ -124,7 +124,7 @@
             aria-label={sidebarCollapsed ? 'Show dictionaries panel' : 'Hide dictionaries panel'}
             title={sidebarCollapsed ? 'Show dictionaries panel (Ctrl+B)' : 'Hide dictionaries panel (Ctrl+B)'}
             onclick={onToggleSidebar}
-            class="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium transition {sidebarCollapsed
+            class="flex min-h-6 items-center gap-1.5 rounded px-2 py-0.5 text-[0.92em] font-medium transition {sidebarCollapsed
               ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40 hover:bg-amber-500/30'
               : 'bg-slate-800/80 text-slate-300 ring-1 ring-slate-700/80 hover:bg-slate-800 hover:text-slate-100'}"
           >
@@ -134,7 +134,7 @@
               fill="none"
               stroke="currentColor"
               stroke-width="1.4"
-              class="h-3.5 w-3.5 shrink-0"
+              class="h-[1.15em] w-[1.15em] shrink-0"
               aria-hidden="true"
             >
               <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
@@ -161,7 +161,7 @@
             aria-label={definitionCollapsed ? 'Show definitions panel' : 'Hide definitions panel'}
             title={definitionCollapsed ? 'Show definitions panel (Ctrl+D)' : 'Hide definitions panel (Ctrl+D)'}
             onclick={onToggleDefinitions}
-            class="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium transition {definitionCollapsed
+            class="flex min-h-6 items-center gap-1.5 rounded px-2 py-0.5 text-[0.92em] font-medium transition {definitionCollapsed
               ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40 hover:bg-amber-500/30'
               : 'bg-slate-800/80 text-slate-300 ring-1 ring-slate-700/80 hover:bg-slate-800 hover:text-slate-100'}"
           >
@@ -171,7 +171,7 @@
               fill="none"
               stroke="currentColor"
               stroke-width="1.4"
-              class="h-3.5 w-3.5 shrink-0"
+              class="h-[1.15em] w-[1.15em] shrink-0"
               aria-hidden="true"
             >
               <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
@@ -190,7 +190,7 @@
 
     <!-- Min / Max Word Length Filter -->
     <div class="flex items-center gap-1.5" role="group" aria-label="Word length filter">
-      <span class="text-[11px] font-medium text-slate-400 select-none">Length</span>
+      <span class="text-[0.92em] font-medium text-slate-400 select-none">Length</span>
       <input
         type="number"
         min="1"
@@ -199,7 +199,7 @@
         aria-label="Minimum word length"
         data-testid="min-length-input"
         onchange={(e) => updateMin( Number((e.currentTarget as HTMLInputElement).value) )}
-        class="w-13 rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+        class="min-h-6 w-[5ch] rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-[1em] text-slate-100 focus:border-amber-400 focus:outline-none"
       />
       <button
         type="button"
@@ -209,7 +209,7 @@
         aria-label={exactPin
           ? 'Unpin exact word length'
           : 'Pin minimum and maximum word length together'}
-        class="rounded px-1.5 py-0.5 font-mono text-[11px] transition {exactPin
+        class="inline-flex min-h-6 min-w-6 items-center justify-center rounded px-1.5 py-0.5 font-mono text-[0.92em] transition {exactPin
           ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40'
           : 'text-slate-400 hover:text-slate-200'}"
         title={exactPin ? 'Pinned to exact length (click to unpin)' : 'Pin Min = Max for exact word length'}
@@ -224,7 +224,7 @@
         aria-label="Maximum word length"
         data-testid="max-length-input"
         onchange={(e) => updateMax( Number((e.currentTarget as HTMLInputElement).value) )}
-        class="w-13 rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+        class="min-h-6 w-[5ch] rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-[1em] text-slate-100 focus:border-amber-400 focus:outline-none"
       />
       {#if minLength !== 1 || maxLength !== 100}
         <button
@@ -234,7 +234,7 @@
             onLengthChange(1, 100);
           }}
           data-testid="reset-length-btn"
-          class="text-[11px] text-amber-400 hover:text-amber-300"
+          class="min-h-6 px-1 text-[0.92em] text-amber-400 hover:text-amber-300"
           title="Reset length filter to 1–100"
         >
           Reset
@@ -255,7 +255,7 @@
           aria-label={cb.label}
           onclick={() => onToggleCategory(cb.id)}
           title={cb.title}
-          class="rounded px-2 py-0.5 font-mono text-[11px] font-medium transition {active
+          class="min-h-6 rounded px-2 py-0.5 font-mono text-[0.92em] font-medium transition {active
             ? 'bg-slate-800 text-amber-300 ring-1 ring-amber-500/40'
             : 'bg-slate-950/60 text-slate-400 line-through ring-1 ring-slate-600/60 hover:text-slate-200'}"
         >
@@ -273,7 +273,7 @@
       aria-pressed={suppressDuplicates}
       onclick={onToggleSuppressDuplicates}
       title="Suppress duplicate matches already found in a higher-priority dictionary"
-      class="rounded px-2 py-0.5 text-[11px] font-medium transition {suppressDuplicates
+      class="min-h-6 rounded px-2 py-0.5 text-[0.92em] font-medium transition {suppressDuplicates
         ? 'bg-slate-800 text-emerald-300 ring-1 ring-emerald-500/35'
         : 'bg-slate-950/60 text-slate-400 hover:text-slate-200'}"
     >
@@ -288,12 +288,12 @@
   <!-- Right group: Sort Order + Tiled vs Unified Layout Switch -->
   <div class="flex items-center gap-3">
     <label class="flex items-center gap-1.5">
-      <span class="text-[11px] text-slate-400 select-none">Sort</span>
+      <span class="text-[0.92em] text-slate-400 select-none">Sort</span>
       <select
         value={sortMode}
         data-testid="sort-select"
         onchange={(e) => onSortChange((e.currentTarget as HTMLSelectElement).value as SortMode)}
-        class="rounded border border-slate-600 bg-slate-950 px-2 py-0.5 text-xs text-slate-200 focus:border-amber-400 focus:outline-none"
+        class="min-h-6 rounded border border-slate-600 bg-slate-950 px-2 py-0.5 text-[1em] text-slate-200 focus:border-amber-400 focus:outline-none"
       >
         <option value="dict">Dictionary Order</option>
         <option value="smart">Smart Balance</option>
@@ -316,7 +316,7 @@
         aria-pressed={layoutMode === 'tiled'}
         onclick={() => onLayoutChange('tiled')}
         title="Separate tiled pane per active dictionary (Ctrl+1)"
-        class="rounded px-2 py-0.5 text-[11px] font-medium transition {layoutMode === 'tiled'
+        class="min-h-6 rounded px-2 py-0.5 text-[0.92em] font-medium transition {layoutMode === 'tiled'
           ? 'bg-amber-500 text-neutral-950'
           : 'text-slate-400 hover:text-slate-200'}"
       >
@@ -328,7 +328,7 @@
         aria-pressed={layoutMode === 'unified'}
         onclick={() => onLayoutChange('unified')}
         title="Unified merged list across dictionaries (Ctrl+2)"
-        class="rounded px-2 py-0.5 text-[11px] font-medium transition {layoutMode === 'unified'
+        class="min-h-6 rounded px-2 py-0.5 text-[0.92em] font-medium transition {layoutMode === 'unified'
           ? 'bg-amber-500 text-neutral-950'
           : 'text-slate-400 hover:text-slate-200'}"
       >

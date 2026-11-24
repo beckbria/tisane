@@ -166,9 +166,9 @@
             type="button"
             onclick={onClose}
             aria-label="Close font settings"
-            class="ml-1 text-xs text-slate-400 hover:text-slate-100"
+            class="ml-1 inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-100"
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
       </div>

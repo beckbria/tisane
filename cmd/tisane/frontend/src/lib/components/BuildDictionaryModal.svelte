@@ -208,9 +208,9 @@
           disabled={isBuilding}
           onclick={onClose}
           aria-label="Close dictionary builder"
-          class="text-xs text-slate-400 hover:text-slate-100 disabled:opacity-40"
+          class="inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-40"
         >
-          ✕
+          <span aria-hidden="true">✕</span>
         </button>
       </div>
 

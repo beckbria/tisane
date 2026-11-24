@@ -324,7 +324,7 @@
             <!-- Name & Capability Badges -->
             <div class="min-w-0 flex-1" title={`${dict.name}\n${dict.path}\n${dict.wordCount.toLocaleString()} words (max length ${dict.maxWordLength})`}>
               <div class="truncate font-medium">{dict.name}</div>
-              <div class="flex items-center gap-1.5 text-[10px] text-slate-400">
+              <div class="flex items-center gap-1.5 text-[0.85em] text-slate-400">
                 <span class="font-mono">{formatCount(dict.wordCount)}</span>
                 {#if dict.hasDefinitions}
                   <span class="rounded bg-amber-500/15 px-1 text-amber-300" title="Contains local definitions">defs</span>
@@ -342,31 +342,31 @@
                 disabled={idx === 0}
                 data-testid={`dict-up-${idx}`}
                 onclick={() => moveByOffset(idx, -1)}
-                class="rounded px-1 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800 disabled:opacity-35"
+                class="inline-flex min-h-6 min-w-6 items-center justify-center rounded text-[0.9em] text-slate-300 hover:bg-slate-800 disabled:opacity-35"
                 title="Move dictionary higher in priority"
                 aria-label={`Move ${dict.name} up`}
               >
-                ↑
+                <span aria-hidden="true">↑</span>
               </button>
               <button
                 type="button"
                 disabled={idx === dictionaries.length - 1}
                 data-testid={`dict-down-${idx}`}
                 onclick={() => moveByOffset(idx, 1)}
-                class="rounded px-1 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800 disabled:opacity-35"
+                class="inline-flex min-h-6 min-w-6 items-center justify-center rounded text-[0.9em] text-slate-300 hover:bg-slate-800 disabled:opacity-35"
                 title="Move dictionary lower in priority"
                 aria-label={`Move ${dict.name} down`}
               >
-                ↓
+                <span aria-hidden="true">↓</span>
               </button>
               <button
                 type="button"
                 onclick={() => onRemove(dict.id)}
-                class="rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-rose-500/20 hover:text-rose-300"
+                class="inline-flex min-h-6 min-w-6 items-center justify-center rounded text-[0.9em] text-slate-400 hover:bg-rose-500/20 hover:text-rose-300"
                 title="Remove from list"
                 aria-label={`Remove ${dict.name}`}
               >
-                ×
+                <span aria-hidden="true">×</span>
               </button>
             </div>
           </li>

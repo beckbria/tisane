@@ -37,9 +37,9 @@
         onclick={onClose}
         aria-label="Close About dialog"
         data-testid="close-about-btn"
-        class="absolute top-3.5 right-4 text-xs text-slate-400 hover:text-slate-100"
+        class="absolute top-3 right-3 inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-100"
       >
-        ✕
+        <span aria-hidden="true">✕</span>
       </button>
 
       <img

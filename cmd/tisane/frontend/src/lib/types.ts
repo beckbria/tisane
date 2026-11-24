@@ -31,6 +31,7 @@ export interface ValidationResult {
 export type SearchMode = 'word' | 'fts';
 export type LayoutMode = 'tiled' | 'unified';
 export type ThemeMode = 'dark' | 'light' | 'system';
+export type ZoomAction = 'in' | 'out' | 'reset';
 export type SortMode = 'dict' | 'alpha' | 'alpha-desc' | 'len' | 'len-desc' | 'smart';
 export type EntryCategory = 'lowercase' | 'capitalized' | 'punctuated' | 'phrase';
 
@@ -190,6 +191,7 @@ export interface Config {
   definitionHeight: number;
   definitionCollapsed: boolean;
   theme: ThemeMode;
+  uiZoom: number;
   autoWebFallback: boolean;
   defaultWebProvider: string;
   webProviders: WebProvider[];
@@ -215,6 +217,7 @@ export interface ConfigPatch {
   definitionHeight?: number;
   definitionCollapsed?: boolean;
   theme?: ThemeMode;
+  uiZoom?: number;
   autoWebFallback?: boolean;
   defaultWebProvider?: string;
   webProviders?: WebProvider[];

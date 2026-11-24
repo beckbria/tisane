@@ -21,4 +21,5 @@ const (
 	EventUIToggleSidebar     = "ui:toggle-sidebar"
 	EventUIToggleDefinitions = "ui:toggle-definitions"
 	EventUISetTheme          = "ui:set-theme"
+	EventUIZoom              = "ui:zoom"
 )

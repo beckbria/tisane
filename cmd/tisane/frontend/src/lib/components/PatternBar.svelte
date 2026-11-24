@@ -220,7 +220,7 @@
               onQueryChange('');
               inputEl?.focus();
             }}
-            class="px-1.5 text-slate-400 hover:text-slate-200"
+            class="inline-flex min-h-6 min-w-6 items-center justify-center px-1.5 text-slate-400 hover:text-slate-200"
             title="Clear pattern"
             aria-label="Clear pattern"
           >
@@ -242,7 +242,7 @@
                 });
               }
             }}
-            class="border-l border-slate-700 px-2 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+            class="inline-flex min-h-6 min-w-6 items-center justify-center border-l border-slate-700 px-2 py-1.5 text-xs text-slate-400 hover:text-slate-200"
             title="Recent queries (Alt+Down)"
             aria-label="Recent queries"
           >
@@ -302,7 +302,7 @@
           aria-label="Enumeration"
           data-testid="enum-input"
           style="font-family: var(--tisane-font-pattern-family); font-size: var(--tisane-font-pattern-size);"
-          class="w-20 bg-transparent text-slate-100 placeholder-slate-400 focus:outline-none"
+          class="w-[7.5ch] bg-transparent text-slate-100 placeholder-slate-400 focus:outline-none"
         />
       </div>
     {/if}
