@@ -47,8 +47,8 @@ Tisane is a high-speed crossword, cryptic, anagram, and dictionary pattern-match
 | `artifacts/` | Design docs, specs, and implementation plans (`implementation_plan.md`, `pattern_syntax.md`, `dictionary_format.md`, `installer_plan.md`) |
 | `build/` | Shared app icon (`appicon.png`), embedded Go asset package (`assets.go`), Linux `.desktop` entry, and Windows manifest/NSIS/version metadata (`build/windows/`) |
 | `cmd/tisane/` | Desktop GUI entry point (`main.go`), Wails v3 wiring, and Bazel rules (`frontend.bzl`, `winrsrc.bzl`) |
-| `cmd/tisane/app/` | Testable desktop backend services (`dict_service.go`, `search_service.go`, `lookup_service.go`, `profile_service.go`, `dict_builder.go`, `wordlist_merge.go`, `state.go`) |
-| `cmd/tisane/frontend/` | Svelte 5 + TypeScript + Tailwind CSS v4 + Vite + `@tanstack/svelte-virtual` frontend (`src/lib/bindings.ts`, `src/lib/types.ts`, `src/lib/components/`) |
+| `cmd/tisane/app/` | Testable desktop backend services (`dict_service.go`, `tools_service.go`, `search_service.go`, `lookup_service.go`, `profile_service.go`, `dict_builder.go`, `wordlist_merge.go`, `events.go`, `state.go`) |
+| `cmd/tisane/frontend/` | Svelte 5 + TypeScript + Tailwind CSS v4 + Vite + `@tanstack/svelte-virtual` frontend (`src/lib/bindings.ts`, `src/lib/types.ts`, `src/lib/stores/`, `src/lib/components/`) |
 | `cmd/tisane/internal/` | Build-time helpers for `cmd/tisane` (`vitebuild` for frontend builds, `winrsrc` for Windows `.syso` generation) |
 | `cmd/tisane-cli/` | CLI and interactive REPL search tool (POSIX flags + legacy `TEACON` switches) |
 | `cmd/tisane-build/` | `.tsd` dictionary compiler and inspector (replaces `TSBuild.exe`) |
@@ -81,9 +81,21 @@ All code must follow idiomatic conventions and best practices for its language a
 ### TypeScript, Svelte 5 & Tailwind CSS
 - Follow strict TypeScript (`strict: true` in `tsconfig.json`); avoid `any` and ensure `npm run check` (`svelte-check`) passes with zero errors or warnings.
 - Use idiomatic **Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`) rather than legacy Svelte 4 reactive declarations (`$:`, `export let`).
+- Organize top-level application state into focused Svelte 5 `.svelte.ts` rune store factories under `cmd/tisane/frontend/src/lib/stores/` rather than growing `App.svelte`. Use `$state.raw` for large virtualized match arrays.
 - Use Tailwind CSS v4 utility classes consistently and preserve responsive, accessible UI semantics (keyboard shortcuts, ARIA attributes, focus management).
 - Keep large result lists virtualized via `@tanstack/svelte-virtual` so 100k+ hits stay responsive.
-- Whenever a Go service method signature, FQN, or DTO JSON field changes in `cmd/tisane/app`, update `cmd/tisane/frontend/src/lib/bindings.ts` and `src/lib/types.ts` in the same change—and rebuild `cmd/tisane/frontend/dist` (`npm run build`) if verifying the embedded desktop binary.
+- Whenever a Go service method signature, FQN, or DTO JSON field changes in `cmd/tisane/app`, update `cmd/tisane/frontend/src/lib/bindings.ts`, `src/lib/types.ts`, and `cmd/tisane/main_test.go` in the same change—and rebuild `cmd/tisane/frontend/dist` (`npm run build`) if verifying the embedded desktop binary.
+
+### Desktop UI & Wails v3 Conventions
+- **Bound service method hygiene**: Every exported method on a service registered in `cmd/tisane/main.go` (`DictionaryService`, `ToolsService`, `SearchService`, `LookupService`, `ProfileService`) is automatically exposed to the WebView. Keep internal helpers unexported or as package-level functions (e.g., `app.ShutdownSearch`). Accept `ctx context.Context` as the first parameter on cancellable I/O methods (Wails v3 injects it automatically without changing JS signatures).
+- **Typed event contracts & `searchId` correlation**: Define all event names in `cmd/tisane/app/events.go` and mirror their payload types in `WailsEventMap` (`cmd/tisane/frontend/src/lib/bindings.ts`). Because `StartSearch` streams asynchronously, the frontend generates and sends `searchId` up front so fast `search:batch`/`search:complete` events cannot race the RPC return value.
+- **Dictionary handle lifetimes**: `*tsd.Dictionary` handles in `app.State` are reference-counted (`acquire`/`release`). Never call `dict.Close()` directly on a dictionary that may still be held by an in-flight search or lookup; always use `SnapshotSearchDicts`/`SnapshotAllDicts` and `defer release()`.
+- **Shortcut ownership**: Native Wails menu accelerators (`cmd/tisane/main.go`) own global desktop shortcuts (`CmdOrCtrl+W/F/B/Shift+B/Shift+M/,/1/2`, `F1`), while `App.svelte` owns `Escape` exclusively and gates its `<svelte:window>` fallback on `!isDesktopWebview()` so toggles never double-fire on desktop while server mode and Vitest remain testable.
+- **Security invariants**:
+  - Any URL passed to `HostBridge.OpenURL` (including `WebProvider.URLTemplate` in `OpenWebLookup` and `UpdateConfig`) must be validated to `http`/`https` (plus `mailto` for `OpenExternalURL`).
+  - Any `{@html ...}` rendering (such as `DefinitionPane.svelte`) must only receive backend-sanitized HTML, and `cmd/tisane/frontend/index.html` must retain its strict Content Security Policy.
+  - Never interpolate user-configurable strings (such as font families in `fonts.ts`) into inline `style` attributes without sanitizing CSS breakout characters (`;`, `{`, `}`, `(`, `)`, `\`).
+- **Runtime pinning**: Keep `@wailsio/runtime` in `cmd/tisane/frontend/package.json` pinned to the exact Wails v3 version in `go.mod`.
 
 ### Bazel / Starlark
 - Keep `BUILD.bazel` files accurate and minimal. Respect `# keep` comments so Gazelle does not clobber custom attributes.
