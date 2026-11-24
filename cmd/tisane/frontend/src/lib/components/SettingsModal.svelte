@@ -31,6 +31,18 @@
   let newId = $state('');
   let newName = $state('');
   let newTemplate = $state('');
+  let providerError = $state('');
+
+  function isValidWebProviderTemplate(tmpl: string): boolean {
+    const trimmed = tmpl.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return false;
+    try {
+      const parsed = new URL(trimmed.replace(/\{entry\}/g, 'test'));
+      return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.host.length > 0;
+    } catch {
+      return false;
+    }
+  }
 
   $effect(() => {
     if (open) {
@@ -40,17 +52,27 @@
       defaultWebProvider = config.defaultWebProvider;
       providers = (config.webProviders ?? []).map((p) => ({ ...p }));
       fonts = normalizeFontConfig(config.fonts);
+      providerError = '';
     } else {
       showFontDialog = false;
       showResetConfirm = false;
       resetIncludeDicts = false;
+      providerError = '';
     }
   });
 
   function addProvider() {
     const name = newName.trim();
     const urlTemplate = newTemplate.trim();
-    if (!name || !urlTemplate.includes('{entry}')) return;
+    if (!name || !urlTemplate.includes('{entry}')) {
+      providerError = 'Provider name and a URL template containing {entry} are required.';
+      return;
+    }
+    if (!isValidWebProviderTemplate(urlTemplate)) {
+      providerError = 'Web provider URL templates must use http:// or https:// with a valid host.';
+      return;
+    }
+    providerError = '';
     const id =
       (newId.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).replace(/^-|-$/g, '') ||
       `custom-${providers.length + 1}`;
@@ -63,6 +85,7 @@
   function removeProvider(idx: number) {
     const next = providers.filter((_, i) => i !== idx);
     providers = next;
+    providerError = '';
     if (next.length > 0 && !next.some((p) => p.id === defaultWebProvider)) {
       defaultWebProvider = next[0].id;
     }
@@ -83,6 +106,13 @@
 
   function handleSubmit(e: Event) {
     e.preventDefault();
+    for (const p of providers) {
+      if (!isValidWebProviderTemplate(p.urlTemplate)) {
+        providerError = `Invalid URL template for "${p.name || p.id}": only http:// and https:// URLs are allowed.`;
+        return;
+      }
+    }
+    providerError = '';
     onSave({
       atMacro,
       hashMacro,
@@ -276,6 +306,11 @@
                 + Add
               </button>
             </div>
+            {#if providerError}
+              <p data-testid="settings-provider-error" class="text-[11px] text-rose-400">
+                {providerError}
+              </p>
+            {/if}
           </div>
         </section>
       </div>

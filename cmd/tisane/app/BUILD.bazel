@@ -28,6 +28,7 @@ go_test(
     srcs = ["services_test.go"],
     deps = [
         ":app",
+        "//pkg/lookup",
         "//pkg/profile",
         "//pkg/search",
         "//pkg/tsd",

@@ -54,6 +54,14 @@ func (ps *ProfileService) GetConfig() profile.Config {
 
 // UpdateConfig applies non-nil fields from patch and persists config.toml atomically.
 func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error) {
+	if patch.WebProviders != nil {
+		for _, wp := range patch.WebProviders {
+			if err := validateWebProviderURLTemplate(wp.URLTemplate); err != nil {
+				return ps.GetConfig(), err
+			}
+		}
+	}
+
 	ps.state.mu.Lock()
 	cfg := ps.state.cfg
 	if patch.AtMacro != nil {

@@ -129,6 +129,10 @@ export function normalizeFontConfig(raw?: Partial<FontConfig> | null): FontConfi
   };
 }
 
+function sanitizeFontToken(raw: string): string {
+  return raw.replace(/[^A-Za-z0-9 \-_'"]/g, '').replace(/"/g, '').trim();
+}
+
 export function resolveFontFamily(family: string): string {
   const clean = (family ?? '').trim();
   if (!clean || clean === 'sans-serif') {
@@ -141,9 +145,19 @@ export function resolveFontFamily(family: string): string {
     return 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif';
   }
   if (clean.includes(',')) {
-    return clean;
+    const parts = clean
+      .split(',')
+      .map((part) => sanitizeFontToken(part))
+      .filter((part) => part.length > 0);
+    if (parts.length === 0) {
+      return 'ui-sans-serif, system-ui, sans-serif';
+    }
+    return parts.join(', ');
   }
-  const escaped = clean.replace(/"/g, '');
+  const escaped = sanitizeFontToken(clean);
+  if (!escaped) {
+    return 'ui-sans-serif, system-ui, sans-serif';
+  }
   return `"${escaped}", ui-sans-serif, system-ui, sans-serif`;
 }
 

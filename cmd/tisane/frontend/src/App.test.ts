@@ -5,7 +5,7 @@ import { tick } from 'svelte';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import App from './App.svelte';
 import { setBackendForTesting, type TisaneBackend } from './lib/bindings';
-import { DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
+import { buildFontCssVars, DEFAULT_FONTS, normalizeFontConfig } from './lib/fonts';
 import { APP_VERSION } from './lib/version';
 import type {
   BuildDictionaryRequest,
@@ -1043,5 +1043,34 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     h.emit('ui:open-wordlist-merge', null);
     await tick();
     await waitFor(() => expect(screen.getByTestId('merge-wordlists-modal')).toBeInTheDocument());
+  });
+
+  it('sanitizes custom font CSS values and rejects non-http(s) web provider URLs in Settings', async () => {
+    const cssVars = buildFontCssVars({
+      ...normalizeFontConfig(DEFAULT_FONTS),
+      results: { family: 'Arial, sans-serif; background: url(https://evil.example/x)', size: 14 },
+      definitions: { family: 'Evil"; color: red; --x: "', size: 15 }
+    });
+    expect(cssVars).not.toContain('background:');
+    expect(cssVars).not.toContain('url(');
+    expect(cssVars).not.toContain('color:');
+
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+    render(App);
+    await waitFor(() => expect(h.backend.getConfig).toHaveBeenCalled());
+
+    h.emit('ui:open-settings', null);
+    await tick();
+    await waitFor(() => expect(screen.getByTestId('settings-modal')).toBeInTheDocument());
+
+    const nameInput = screen.getByPlaceholderText('Name (e.g. Chambers)');
+    const tmplInput = screen.getByPlaceholderText('https://example.com/search?q={entry}');
+    await fireEvent.input(nameInput, { target: { value: 'Evil' } });
+    await fireEvent.input(tmplInput, { target: { value: 'file:///etc/passwd?{entry}' } });
+    await fireEvent.click(screen.getByRole('button', { name: '+ Add' }));
+
+    await waitFor(() => expect(screen.getByTestId('settings-provider-error')).toBeInTheDocument());
+    expect(screen.getByTestId('settings-provider-error')).toHaveTextContent('http:// or https://');
   });
 });

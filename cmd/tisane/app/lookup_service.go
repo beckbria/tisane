@@ -54,22 +54,55 @@ func (ls *LookupService) OpenWebLookup(word string, providerID string) (string, 
 	}
 
 	targetURL := lookup.BuildWebURL(chosen.URLTemplate, word)
-	if err := ls.state.Bridge().OpenURL(targetURL); err != nil {
-		return targetURL, err
+	validated, err := validateExternalURL(targetURL, false)
+	if err != nil {
+		return "", fmt.Errorf("invalid web lookup URL for provider %q: %w", chosen.ID, err)
 	}
-	return targetURL, nil
+	if err := ls.state.Bridge().OpenURL(validated); err != nil {
+		return validated, err
+	}
+	return validated, nil
 }
 
 // OpenExternalURL safely validates that rawURL uses http, https, or mailto before opening it in the system browser.
 func (ls *LookupService) OpenExternalURL(rawURL string) error {
+	validated, err := validateExternalURL(rawURL, true)
+	if err != nil {
+		return err
+	}
+	return ls.state.Bridge().OpenURL(validated)
+}
+
+func validateExternalURL(rawURL string, allowMailto bool) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
+		return "", fmt.Errorf("invalid URL: %w", err)
 	}
 	switch strings.ToLower(parsed.Scheme) {
-	case "http", "https", "mailto":
-		return ls.state.Bridge().OpenURL(parsed.String())
-	default:
-		return fmt.Errorf("unsupported URL scheme %q (only http, https, and mailto are allowed)", parsed.Scheme)
+	case "http", "https":
+		if parsed.Host == "" {
+			return "", fmt.Errorf("URL must include a host")
+		}
+		return parsed.String(), nil
+	case "mailto":
+		if allowMailto {
+			return parsed.String(), nil
+		}
 	}
+	if allowMailto {
+		return "", fmt.Errorf("unsupported URL scheme %q (only http, https, and mailto are allowed)", parsed.Scheme)
+	}
+	return "", fmt.Errorf("unsupported URL scheme %q (only http and https are allowed)", parsed.Scheme)
+}
+
+func validateWebProviderURLTemplate(tmpl string) error {
+	trimmed := strings.TrimSpace(tmpl)
+	if trimmed == "" {
+		return fmt.Errorf("web provider URL template cannot be empty")
+	}
+	sample := lookup.BuildWebURL(trimmed, "test")
+	if _, err := validateExternalURL(sample, false); err != nil {
+		return fmt.Errorf("invalid web provider URL template %q: %w", tmpl, err)
+	}
+	return nil
 }

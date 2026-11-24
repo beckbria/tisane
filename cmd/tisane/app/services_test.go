@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"tisane/cmd/tisane/app"
+	"tisane/pkg/lookup"
 	"tisane/pkg/profile"
 	"tisane/pkg/search"
 	"tisane/pkg/tsd"
@@ -690,5 +691,58 @@ func TestWordListMergeService(t *testing.T) {
 	}
 	if string(data) != "cafe\nobrien\n" {
 		t.Fatalf("got %q, want %q", string(data), "cafe\nobrien\n")
+	}
+}
+
+func TestWebProviderURLSchemeSecurity(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	bridge := newMockBridge()
+
+	// Seed a config file with a malicious file:// web provider template to simulate a tampered config.toml.
+	cfg := profile.DefaultConfig()
+	cfg.WebProviders = []lookup.WebProvider{
+		{ID: "evil", Name: "Evil", URLTemplate: "file:///etc/passwd?{entry}"},
+	}
+	cfg.DefaultWebProvider = "evil"
+	if err := profile.Save(cfgPath, cfg); err != nil {
+		t.Fatalf("profile.Save: %v", err)
+	}
+
+	state, err := app.NewState(cfgPath, bridge)
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+	defer state.Close()
+
+	lookupSvc := app.NewLookupService(state)
+	if _, err := lookupSvc.OpenWebLookup("hello", "evil"); err == nil {
+		t.Fatalf("expected OpenWebLookup to reject file:// URL template")
+	}
+	if len(bridge.openedURLs) != 0 {
+		t.Fatalf("expected no URLs opened, got %v", bridge.openedURLs)
+	}
+
+	profileSvc := app.NewProfileService(state)
+	for _, bad := range []string{
+		"file:///etc/passwd?{entry}",
+		"javascript:alert('{entry}')",
+		"ms-msdt:/id/{entry}",
+		"https:///missing-host/{entry}",
+	} {
+		if _, err := profileSvc.UpdateConfig(app.ConfigPatch{
+			WebProviders: []lookup.WebProvider{{ID: "bad", Name: "Bad", URLTemplate: bad}},
+		}); err == nil {
+			t.Fatalf("expected UpdateConfig to reject %q", bad)
+		}
+	}
+
+	if _, err := profileSvc.UpdateConfig(app.ConfigPatch{
+		WebProviders: []lookup.WebProvider{{ID: "good", Name: "Good", URLTemplate: "https://example.com/?q={entry}"}},
+	}); err != nil {
+		t.Fatalf("expected valid https template to succeed: %v", err)
+	}
+	if got, err := lookupSvc.OpenWebLookup("hello", "good"); err != nil || got != "https://example.com/?q=hello" {
+		t.Fatalf("expected valid OpenWebLookup, got (%q, %v)", got, err)
 	}
 }
