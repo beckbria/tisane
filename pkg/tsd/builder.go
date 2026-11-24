@@ -21,7 +21,7 @@ type BuildOptions struct {
 	// MaxFTSPercent is the maximum percentage (0..100) of lines a word may appear in
 	// before its FTS occurrence list is omitted (once > 100 occurrences). 0 disables FTS lists.
 	MaxFTSPercent int
-	// SortAlphabetically sorts words within each length bucket using TSBuild's collation order.
+	// SortAlphabetically sorts words within each length bucket using the standard TSD collation order.
 	// When false, words are emitted in order of first appearance in the source file.
 	SortAlphabetically bool
 	// Description is an optional human-readable description stored in the 1000-byte TSD1 header.
@@ -35,7 +35,7 @@ type BuildOptions struct {
 	TabSeparatedAnnotations bool
 }
 
-// DefaultBuildOptions returns TSBuild.exe's standard defaults:
+// DefaultBuildOptions returns the standard TSD1 build defaults:
 // MinLen=1, MaxLen=100, MaxFTSPercent=10, SortAlphabetically=true, Alphabet=DefaultTSM().
 func DefaultBuildOptions() BuildOptions {
 	return BuildOptions{
@@ -164,8 +164,8 @@ func isASCIIDigit(b byte) bool {
 	return b >= '0' && b <= '9'
 }
 
-// StripRTFForFTS reproduces TSBuild.exe's RTF markup stripper (VA 0x4055f0) used when
-// tokenizing Pass 2 definitions for Full Text Search.
+// StripRTFForFTS strips RTF groups, control words, hex escapes, and \binN payloads
+// into plain text when tokenizing Pass 2 definitions for Full Text Search.
 func StripRTFForFTS(rawDef []byte) []byte {
 	if !bytes.HasPrefix(rawDef, []byte(`{\rtf1`)) {
 		if len(rawDef) > 0 && rawDef[len(rawDef)-1] == '\n' {

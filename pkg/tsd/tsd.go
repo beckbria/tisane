@@ -448,8 +448,8 @@ func (d *Dictionary) MappedChar(b byte) byte { return d.charTable[b].MappedChar 
 // IsLetter reports whether raw byte b is alphabetic in this dictionary.
 func (d *Dictionary) IsLetter(b byte) bool { return d.charTable[b].LetterIndex >= 0 }
 
-// CanonicalByteForIndex returns the canonical byte (e.g. 'A'..'Z') for letter index li,
-// matching TEA.exe's +0x2bf8 lookup used when formatting anagram balances.
+// CanonicalByteForIndex returns the canonical byte (e.g. 'A'..'Z') for letter index letterIdx
+// (used when formatting anagram balances), or '!' if out of range.
 func (d *Dictionary) CanonicalByteForIndex(letterIdx int) byte {
 	if letterIdx < 0 || letterIdx >= d.numTotalLetters {
 		return '!'

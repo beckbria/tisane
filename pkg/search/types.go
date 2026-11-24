@@ -153,7 +153,7 @@ type Request struct {
 	DedupeMode              DedupeMode
 	EntryFilter             EntryTypeMask // 0 is treated as EntryAll; set ExcludeAll explicitly only if empty desired
 	Sort                    SortMode
-	Limit                   int // 0 = unlimited (/N: in TEACON)
+	Limit                   int // 0 = unlimited
 	ForceSequentialFTS      bool
 }
 

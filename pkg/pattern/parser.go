@@ -519,7 +519,8 @@ func parseChoiceList(m mappedBuf, start int, tsm *tsd.TSM, poolCounter *int) (*C
 				Span:     m.rangeSpan(start, i+1),
 			}, i + 1, nil
 		}
-		// Match TEACON 0x40b24b: ')' at very end inside unclosed '[' reports ErrUnclosedChoiceList.
+		// A trailing ')' at end of input inside an unclosed '[' reports ErrUnclosedChoiceList
+		// rather than ErrInvalidChoiceList.
 		if c == ')' && i+1 == n {
 			return nil, 0, &SyntaxError{Code: ErrUnclosedChoiceList, Span: m.rangeSpan(start, n)}
 		}

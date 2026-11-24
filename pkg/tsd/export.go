@@ -9,13 +9,13 @@ import (
 	"sort"
 )
 
-// ExportMode controls whether word list extraction emits bare words or full TSBuild/tisane-build metadata.
+// ExportMode controls whether word list extraction emits bare words or full tisane-build metadata.
 type ExportMode uint8
 
 const (
 	// ExportSimple emits one word per line, discarding descriptions, annotations, qualifiers, and definitions.
 	ExportSimple ExportMode = iota
-	// ExportMetadata emits TSBuild / tisane-build source lines (optional | header, +annotations, +qualifiers, ;aliases, |definitions).
+	// ExportMetadata emits tisane-build source lines (optional | header, +annotations, +qualifiers, ;aliases, |definitions).
 	ExportMetadata
 )
 
@@ -25,7 +25,7 @@ type ExportSort uint8
 const (
 	// ExportSortAuto uses global A-Z order for ExportSimple, and original definition section order + A-Z standalone words for ExportMetadata.
 	ExportSortAuto ExportSort = iota
-	// ExportSortAlpha sorts all emitted entries globally A-Z using TEA/TSBuild collation.
+	// ExportSortAlpha sorts all emitted entries globally A-Z using standard TSD collation.
 	ExportSortAlpha
 	// ExportSortLength emits entries in canonical word-length bucket order (1..MaxWordLength).
 	ExportSortLength
@@ -111,7 +111,7 @@ type exportRecord struct {
 	isDef   bool
 }
 
-func appendEscapedTSBuildToken(dst, src []byte) []byte {
+func appendEscapedSourceToken(dst, src []byte) []byte {
 	for _, b := range src {
 		switch b {
 		case '\r', '\n':
@@ -145,26 +145,26 @@ func appendSanitizedSingleLine(dst, src []byte, isRTF bool) []byte {
 }
 
 func formatWordAnnotCP1252(dst, wordRaw, annotRaw []byte) []byte {
-	dst = appendEscapedTSBuildToken(dst, wordRaw)
+	dst = appendEscapedSourceToken(dst, wordRaw)
 	if len(annotRaw) > 0 {
 		dst = append(dst, '+')
-		dst = appendEscapedTSBuildToken(dst, annotRaw)
+		dst = appendEscapedSourceToken(dst, annotRaw)
 	}
 	return dst
 }
 
 func formatHeadwordCP1252(dst, wordRaw, annotRaw, qualRaw []byte) []byte {
-	dst = appendEscapedTSBuildToken(dst, wordRaw)
+	dst = appendEscapedSourceToken(dst, wordRaw)
 	if len(qualRaw) > 0 {
 		dst = append(dst, '+')
 		if len(annotRaw) > 0 {
-			dst = appendEscapedTSBuildToken(dst, annotRaw)
+			dst = appendEscapedSourceToken(dst, annotRaw)
 		}
 		dst = append(dst, '+')
-		dst = appendEscapedTSBuildToken(dst, qualRaw)
+		dst = appendEscapedSourceToken(dst, qualRaw)
 	} else if len(annotRaw) > 0 {
 		dst = append(dst, '+')
-		dst = appendEscapedTSBuildToken(dst, annotRaw)
+		dst = appendEscapedSourceToken(dst, annotRaw)
 	}
 	return dst
 }
@@ -322,7 +322,7 @@ func (d *Dictionary) Export(w io.Writer, opts ExportOptions) (*ExportStats, erro
 		return stats, bw.Flush()
 	}
 
-	// ExportMetadata mode (TSBuild / tisane-build compatible format).
+	// ExportMetadata mode (tisane-build source format).
 	if opts.IncludeHeader && len(d.rawDescription) > 0 {
 		hdr := append([]byte("| "), appendSanitizedSingleLine(nil, d.rawDescription, false)...)
 		if err := writeEncodedLine(bw, hdr, opts.Encoding); err != nil {
@@ -521,7 +521,7 @@ func (d *Dictionary) Export(w io.Writer, opts ExportOptions) (*ExportStats, erro
 			return CompareWordsAlpha(records[i].sortKey, records[j].sortKey) < 0
 		})
 	default:
-		// ExportSortSection / ExportSortLength: emit standalone words first (matching tsbuild2.txt style) then definitions in offset order.
+		// ExportSortSection / ExportSortLength: emit standalone words first, then definitions in offset order.
 		combined := make([]exportRecord, 0, len(standaloneRecords)+len(records))
 		combined = append(combined, standaloneRecords...)
 		combined = append(combined, records...)

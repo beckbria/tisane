@@ -17,8 +17,7 @@ const (
 	// while automatically transcoding valid UTF-8 input (including UTF-8 BOM)
 	// whose runes map into Windows-1252.
 	EncodingAuto InputEncoding = iota
-	// EncodingCP1252 treats input bytes verbatim as Windows-1252 / raw single-byte text
-	// (matching legacy TSBuild.exe byte-for-byte).
+	// EncodingCP1252 treats input bytes verbatim as Windows-1252 / raw single-byte text.
 	EncodingCP1252
 	// EncodingUTF8 decodes input text as UTF-8 and maps runes into Windows-1252.
 	EncodingUTF8

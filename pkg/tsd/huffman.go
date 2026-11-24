@@ -196,7 +196,7 @@ func (br *bitStreamReader) readBit() (uint8, error) {
 	return b, nil
 }
 
-// bitStreamWriter packs bits LSB-first into 16-bit little-endian words, matching TSBuild.exe.
+// bitStreamWriter packs bits LSB-first into 16-bit little-endian words.
 type bitStreamWriter struct {
 	dst    []byte
 	acc    uint16
@@ -267,9 +267,9 @@ func cmpHuffNodesDesc(a, b *huffBuildNode) int {
 	return 0
 }
 
-// borlandQSort reproduces Borland C++ runtime qsort (VA 0x470178 in TSBuild.exe)
-// so equal-frequency Huffman nodes break ties identically to TSBuild.exe.
-func borlandQSort(arr []*huffBuildNode, n int) {
+// sortHuffNodesDesc sorts the first n Huffman nodes by descending frequency using
+// an in-place median-of-three 3-way quicksort for deterministic tie-breaking.
+func sortHuffNodesDesc(arr []*huffBuildNode, n int) {
 	var sortRange func(base, count int)
 	sortRange = func(base, count int) {
 		for count >= 2 {
@@ -279,76 +279,76 @@ func borlandQSort(arr []*huffBuildNode, n int) {
 				}
 				return
 			}
-			esi := base + count - 1
-			ebx := base + (count >> 1)
-			edi := base
-			if cmpHuffNodesDesc(arr[ebx], arr[esi]) > 0 {
-				arr[ebx], arr[esi] = arr[esi], arr[ebx]
+			hi := base + count - 1
+			mid := base + (count >> 1)
+			lo := base
+			if cmpHuffNodesDesc(arr[mid], arr[hi]) > 0 {
+				arr[mid], arr[hi] = arr[hi], arr[mid]
 			}
-			if cmpHuffNodesDesc(arr[ebx], arr[edi]) > 0 {
-				arr[ebx], arr[edi] = arr[edi], arr[ebx]
-			} else if cmpHuffNodesDesc(arr[edi], arr[esi]) > 0 {
-				arr[edi], arr[esi] = arr[esi], arr[edi]
+			if cmpHuffNodesDesc(arr[mid], arr[lo]) > 0 {
+				arr[mid], arr[lo] = arr[lo], arr[mid]
+			} else if cmpHuffNodesDesc(arr[lo], arr[hi]) > 0 {
+				arr[lo], arr[hi] = arr[hi], arr[lo]
 			}
 			if count == 3 {
-				arr[edi], arr[ebx] = arr[ebx], arr[edi]
+				arr[lo], arr[mid] = arr[mid], arr[lo]
 				return
 			}
-			fc := edi + 1
-			ebx = fc
+			eqEnd := lo + 1
+			mid = eqEnd
 			for {
 				for {
-					c := cmpHuffNodesDesc(arr[ebx], arr[edi])
+					c := cmpHuffNodesDesc(arr[mid], arr[lo])
 					if c > 0 {
 						break
 					}
 					if c == 0 {
-						arr[ebx], arr[fc] = arr[fc], arr[ebx]
-						fc++
+						arr[mid], arr[eqEnd] = arr[eqEnd], arr[mid]
+						eqEnd++
 					}
-					if esi <= ebx {
+					if hi <= mid {
 						break
 					}
-					ebx++
+					mid++
 				}
-				if cmpHuffNodesDesc(arr[ebx], arr[edi]) <= 0 && esi <= ebx {
+				if cmpHuffNodesDesc(arr[mid], arr[lo]) <= 0 && hi <= mid {
 					break
 				}
-				for esi > ebx {
-					c := cmpHuffNodesDesc(arr[edi], arr[esi])
+				for hi > mid {
+					c := cmpHuffNodesDesc(arr[lo], arr[hi])
 					if c < 0 {
-						esi--
+						hi--
 					} else {
-						arr[ebx], arr[esi] = arr[esi], arr[ebx]
+						arr[mid], arr[hi] = arr[hi], arr[mid]
 						if c != 0 {
-							ebx++
-							esi--
+							mid++
+							hi--
 						}
 						break
 					}
 				}
-				if esi <= ebx {
+				if hi <= mid {
 					break
 				}
 			}
-			if cmpHuffNodesDesc(arr[ebx], arr[edi]) <= 0 {
-				ebx++
+			if cmpHuffNodesDesc(arr[mid], arr[lo]) <= 0 {
+				mid++
 			}
-			f8 := ebx - 1
-			s := edi
-			for s < fc && f8 >= fc {
-				arr[s], arr[f8] = arr[f8], arr[s]
+			swapHi := mid - 1
+			s := lo
+			for s < eqEnd && swapHi >= eqEnd {
+				arr[s], arr[swapHi] = arr[swapHi], arr[s]
 				s++
-				f8--
+				swapHi--
 			}
-			leftN := ebx - fc
-			rightN := (edi + count) - ebx
+			leftN := mid - eqEnd
+			rightN := (lo + count) - mid
 			if leftN <= rightN {
-				sortRange(edi, leftN)
-				base = ebx
+				sortRange(lo, leftN)
+				base = mid
 				count = rightN
 			} else {
-				sortRange(ebx, rightN)
+				sortRange(mid, rightN)
 				count = leftN
 			}
 		}
@@ -357,7 +357,7 @@ func borlandQSort(arr []*huffBuildNode, n int) {
 }
 
 // buildHuffmanCodes computes MSB-first Huffman code lengths and codewords from byte frequencies,
-// applying TSBuild.exe's 32-bit overflow fallback if any codeword exceeds 32 bits.
+// falling back to fixed 8-bit identity codes (code = byte value) if any codeword exceeds 32 bits.
 func buildHuffmanCodes(freq *[256]uint64) (lengths [256]uint8, codes [256]uint32) {
 	nodes := make([]*huffBuildNode, 0, 256)
 	for b := 0; b < 256; b++ {
@@ -380,7 +380,7 @@ func buildHuffmanCodes(freq *[256]uint64) (lengths [256]uint8, codes [256]uint32
 
 	for step := 0; step < numLeaves-1; step++ {
 		rem := numLeaves - step
-		borlandQSort(nodes, rem)
+		sortHuffNodesDesc(nodes, rem)
 		prependHuffBit(nodes[rem-2], 0)
 		prependHuffBit(nodes[rem-1], 1)
 		nodes[rem-2] = &huffBuildNode{

@@ -76,7 +76,7 @@ func defaultCLIOptions(cfg *profile.Config) cliOptions {
 		IgnorePunct:     cfg.IgnoreUnusedPunctuation,
 		OutputTransform: 0,
 		Sort:            sortMode,
-		Dedupe:          false, // TEACON default searches dicts sequentially unless --dedupe enabled
+		Dedupe:          false, // search dictionaries sequentially by default unless --dedupe is enabled
 		EntryFilter:     search.EntryFilterFromProfile(cfg.EntryFilter),
 		Format:          FormatText,
 	}

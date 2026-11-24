@@ -1,5 +1,5 @@
 // Command tisane-cli searches Tisane/TEA (.tsd) dictionaries from the command line,
-// providing full legacy TEACON.exe compatibility alongside Full Text Search,
+// providing legacy TEACON switch compatibility alongside Full Text Search,
 // local definition viewing, crossword enumerations, structured JSON/CSV output,
 // and an interactive REPL.
 package main
@@ -272,7 +272,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return 0
 	}
 
-	// Mode 3: Command-line patterns or TEACON Batch Stdin Mode
+	// Mode 3: Command-line patterns or batch stdin mode
 	eng := search.NewEngine()
 	exitCode := 0
 	writeFailed := false
@@ -466,7 +466,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			}
 		}
 	} else {
-		// Batch Stdin Mode (exact TEACON semantics: lines starting with ' ' or '\t' are comments)
+		// Batch stdin mode: lines starting with ' ' or '\t' are comments and echoed verbatim.
 		br := bufio.NewReader(stdin)
 		for {
 			if ctx.Err() != nil {

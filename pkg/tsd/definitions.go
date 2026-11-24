@@ -11,7 +11,7 @@ import (
 )
 
 // FTSOverflowSentinel is stored in occurrence pointers and link tables when a word's
-// definition frequency exceeded TSBuild's max_fts_pct indexing threshold.
+// definition frequency exceeded the max_fts_pct indexing threshold.
 const FTSOverflowSentinel uint32 = 0x7FFFFFFF
 
 const maxDefinitionRecordBytes = 64 << 20 // 64 MiB safety cap per single definition record

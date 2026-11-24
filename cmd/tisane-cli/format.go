@@ -16,9 +16,9 @@ import (
 	"tisane/pkg/tsd"
 )
 
-// teaconHighASCII reproduces TEACON.exe's exact 128-entry CP1252 (0x80..0xFF)
-// ASCII transliteration table (at VA 0x42ce84) for /O:1..4 output modes.
-var teaconHighASCII = [128]string{
+// cp1252HighASCII maps Windows-1252 bytes (0x80..0xFF) to ASCII transliterations
+// for /O:1..4 (--output-mode) text transforms.
+var cp1252HighASCII = [128]string{
 	0x8A - 0x80: "S",
 	0x8C - 0x80: "OE",
 	0x9A - 0x80: "s",
@@ -88,7 +88,7 @@ var teaconHighASCII = [128]string{
 	0xFF - 0x80: "y",
 }
 
-// transformWordAndAnnot applies TEACON's /O:0..4 transform to word (+ optional annotation).
+// transformWordAndAnnot applies the /O:0..4 (--output-mode) text transform to word (+ optional annotation).
 func transformWordAndAnnot(word, annot string, showAnnot bool, mode int) string {
 	combined := word
 	if showAnnot && annot != "" {
@@ -108,7 +108,7 @@ func transformWordAndAnnot(word, annot string, showAnnot bool, mode int) string 
 
 	for _, b := range cpBytes {
 		if b >= 0x80 {
-			repl := teaconHighASCII[b-0x80]
+			repl := cp1252HighASCII[b-0x80]
 			if repl == "" {
 				continue
 			}

@@ -812,7 +812,9 @@ func compileAtomic(a *AtomicPattern, dict *tsd.Dictionary, opts CompileOptions, 
 	}
 	ca.hasVars = hasVars
 
-	// Compute overall [minLen, maxLen] using TEA's exact hybrid length rules (0x40aae3..0x40ab65).
+	// Compute overall [minLen, maxLen]: anagram-only uses anagram bounds, template-only uses
+	// template bounds, and hybrid patterns start with template bounds and cap maxLen at the
+	// anagram maximum when the template has variable length and tmplMinLen < anagMax.
 	if !ca.hasTemplate {
 		ca.minLen = ca.anag.minLen
 		if ca.anag.hasStar || ca.anag.maxExtra >= unboundedMaxLen {

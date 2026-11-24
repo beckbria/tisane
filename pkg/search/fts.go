@@ -100,7 +100,7 @@ func collectIndexedLeafOffsets(
 
 	minL, maxL := cq.LeafBounds(leafIdx)
 	if minL <= 0 || maxL > dict.MaxWordLength() {
-		// TSBuild only writes FTS streams for lengths 1..MaxWordLength where WordCount(L) > 0.
+		// TSD1 dictionaries only store FTS streams for lengths 1..MaxWordLength where WordCount(L) > 0.
 		return nil, false, nil
 	}
 	for L := minL; L <= maxL; L++ {

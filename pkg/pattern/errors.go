@@ -4,7 +4,7 @@ package pattern
 
 import "fmt"
 
-// StatusCode matches the 15 status/diagnostic codes of TEA.exe & TEACON.exe (0..14),
+// StatusCode defines the 15 TEA-compatible pattern diagnostic codes (0..14),
 // plus WarnIncompatibleLengths (15) when boolean length ranges are disjoint.
 type StatusCode uint8
 
