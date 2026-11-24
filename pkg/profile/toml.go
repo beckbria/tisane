@@ -1,11 +1,14 @@
 package profile
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"tisane/pkg/lookup"
+	"tisane/pkg/tsd"
 )
 
 // MarshalTOML serializes Config into clean, human-editable TOML.
@@ -13,57 +16,106 @@ func MarshalTOML(cfg *Config) []byte {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
+	minLen, maxLen := cfg.MinLength, cfg.MaxLength
+	if minLen == 0 && maxLen == 0 {
+		minLen, maxLen = 1, tsd.MaxWordLengthLimit
+	} else {
+		minLen, maxLen = NormalizeLengthBounds(minLen, maxLen)
+	}
 	var sb strings.Builder
 	sb.WriteString("# Tisane Configuration\n\n")
-	fmt.Fprintf(&sb, "at_macro = %s\n", strconv.Quote(cfg.AtMacro))
-	fmt.Fprintf(&sb, "hash_macro = %s\n", strconv.Quote(cfg.HashMacro))
-	fmt.Fprintf(&sb, "min_length = %d\n", cfg.MinLength)
-	fmt.Fprintf(&sb, "max_length = %d\n", cfg.MaxLength)
+	fmt.Fprintf(&sb, "at_macro = %s\n", quoteTOMLString(cfg.AtMacro))
+	fmt.Fprintf(&sb, "hash_macro = %s\n", quoteTOMLString(cfg.HashMacro))
+	fmt.Fprintf(&sb, "min_length = %d\n", minLen)
+	fmt.Fprintf(&sb, "max_length = %d\n", maxLen)
 	fmt.Fprintf(&sb, "exclusive_vars = %t\n", cfg.ExclusiveVars)
 	fmt.Fprintf(&sb, "ignore_unused_punctuation = %t\n", cfg.IgnoreUnusedPunctuation)
 	fmt.Fprintf(&sb, "show_balances = %t\n", cfg.ShowBalances)
 	fmt.Fprintf(&sb, "show_annotations = %t\n", cfg.ShowAnnotations)
 	fmt.Fprintf(&sb, "suppress_duplicates = %t\n", cfg.SuppressDuplicates)
-	fmt.Fprintf(&sb, "entry_filter = %s\n", formatStringArray(cfg.EntryFilter))
-	fmt.Fprintf(&sb, "sort_mode = %s\n", strconv.Quote(cfg.SortMode))
-	fmt.Fprintf(&sb, "layout_mode = %s\n", strconv.Quote(cfg.LayoutMode))
+	fmt.Fprintf(&sb, "entry_filter = %s\n", formatStringArray(NormalizeEntryFilter(cfg.EntryFilter)))
+	fmt.Fprintf(&sb, "sort_mode = %s\n", quoteTOMLString(NormalizeSortMode(cfg.SortMode)))
+	fmt.Fprintf(&sb, "layout_mode = %s\n", quoteTOMLString(NormalizeLayoutMode(cfg.LayoutMode)))
 	fmt.Fprintf(&sb, "sidebar_width = %d\n", NormalizeSidebarWidth(cfg.SidebarWidth))
 	fmt.Fprintf(&sb, "sidebar_collapsed = %t\n", cfg.SidebarCollapsed)
 	fmt.Fprintf(&sb, "auto_web_fallback = %t\n", cfg.AutoWebFallback)
-	fmt.Fprintf(&sb, "default_web_provider = %s\n", strconv.Quote(cfg.DefaultWebProvider))
+	fmt.Fprintf(&sb, "default_web_provider = %s\n", quoteTOMLString(cfg.DefaultWebProvider))
 	fmt.Fprintf(&sb, "dict_dirs = %s\n", formatStringArray(cfg.DictDirs))
 	fmt.Fprintf(&sb, "recent_queries = %s\n", formatStringArray(cfg.RecentQueries))
 
 	fonts := NormalizeFontConfig(cfg.Fonts)
 	sb.WriteString("\n[fonts]\n")
-	fmt.Fprintf(&sb, "results_family = %s\n", strconv.Quote(fonts.Results.Family))
+	fmt.Fprintf(&sb, "results_family = %s\n", quoteTOMLString(fonts.Results.Family))
 	fmt.Fprintf(&sb, "results_size = %d\n", fonts.Results.Size)
-	fmt.Fprintf(&sb, "definitions_family = %s\n", strconv.Quote(fonts.Definitions.Family))
+	fmt.Fprintf(&sb, "definitions_family = %s\n", quoteTOMLString(fonts.Definitions.Family))
 	fmt.Fprintf(&sb, "definitions_size = %d\n", fonts.Definitions.Size)
-	fmt.Fprintf(&sb, "pattern_input_family = %s\n", strconv.Quote(fonts.PatternInput.Family))
+	fmt.Fprintf(&sb, "pattern_input_family = %s\n", quoteTOMLString(fonts.PatternInput.Family))
 	fmt.Fprintf(&sb, "pattern_input_size = %d\n", fonts.PatternInput.Size)
-	fmt.Fprintf(&sb, "dictionaries_list_family = %s\n", strconv.Quote(fonts.DictionariesList.Family))
+	fmt.Fprintf(&sb, "dictionaries_list_family = %s\n", quoteTOMLString(fonts.DictionariesList.Family))
 	fmt.Fprintf(&sb, "dictionaries_list_size = %d\n", fonts.DictionariesList.Size)
-	fmt.Fprintf(&sb, "status_bar_family = %s\n", strconv.Quote(fonts.StatusBar.Family))
+	fmt.Fprintf(&sb, "status_bar_family = %s\n", quoteTOMLString(fonts.StatusBar.Family))
 	fmt.Fprintf(&sb, "status_bar_size = %d\n", fonts.StatusBar.Size)
-	fmt.Fprintf(&sb, "toolbar_family = %s\n", strconv.Quote(fonts.Toolbar.Family))
+	fmt.Fprintf(&sb, "toolbar_family = %s\n", quoteTOMLString(fonts.Toolbar.Family))
 	fmt.Fprintf(&sb, "toolbar_size = %d\n", fonts.Toolbar.Size)
 
 	for _, dc := range cfg.Dictionaries {
 		sb.WriteString("\n[[dictionaries]]\n")
-		fmt.Fprintf(&sb, "path = %s\n", strconv.Quote(dc.Path))
-		fmt.Fprintf(&sb, "name = %s\n", strconv.Quote(dc.Name))
+		fmt.Fprintf(&sb, "path = %s\n", quoteTOMLString(dc.Path))
+		fmt.Fprintf(&sb, "name = %s\n", quoteTOMLString(dc.Name))
 		fmt.Fprintf(&sb, "enabled = %t\n", dc.Enabled)
 	}
 
 	for _, wp := range cfg.WebProviders {
+		if lookup.BuildWebURL(wp.URLTemplate, "test") == "" {
+			continue
+		}
 		sb.WriteString("\n[[web_providers]]\n")
-		fmt.Fprintf(&sb, "id = %s\n", strconv.Quote(wp.ID))
-		fmt.Fprintf(&sb, "name = %s\n", strconv.Quote(wp.Name))
-		fmt.Fprintf(&sb, "url_template = %s\n", strconv.Quote(wp.URLTemplate))
+		fmt.Fprintf(&sb, "id = %s\n", quoteTOMLString(wp.ID))
+		fmt.Fprintf(&sb, "name = %s\n", quoteTOMLString(wp.Name))
+		fmt.Fprintf(&sb, "url_template = %s\n", quoteTOMLString(wp.URLTemplate))
 	}
 
 	return []byte(sb.String())
+}
+
+// quoteTOMLString formats s as a standard TOML v1.0 basic string without Go-only \a, \v, or \xNN escapes.
+func quoteTOMLString(s string) string {
+	var sb strings.Builder
+	sb.Grow(len(s) + 2)
+	sb.WriteByte('"')
+	for i := 0; i < len(s); {
+		r, width := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && width == 1 {
+			sb.WriteString(`\uFFFD`)
+			i++
+			continue
+		}
+		i += width
+		switch r {
+		case '\b':
+			sb.WriteString(`\b`)
+		case '\t':
+			sb.WriteString(`\t`)
+		case '\n':
+			sb.WriteString(`\n`)
+		case '\f':
+			sb.WriteString(`\f`)
+		case '\r':
+			sb.WriteString(`\r`)
+		case '"':
+			sb.WriteString(`\"`)
+		case '\\':
+			sb.WriteString(`\\`)
+		default:
+			if r < 0x20 || r == 0x7F || (r >= 0x80 && r <= 0x9F) {
+				fmt.Fprintf(&sb, `\u%04X`, r)
+			} else {
+				sb.WriteRune(r)
+			}
+		}
+	}
+	sb.WriteByte('"')
+	return sb.String()
 }
 
 func formatStringArray(items []string) string {
@@ -72,19 +124,22 @@ func formatStringArray(items []string) string {
 	}
 	parts := make([]string, len(items))
 	for i, s := range items {
-		parts[i] = strconv.Quote(s)
+		parts[i] = quoteTOMLString(s)
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 // ParseTOML parses a Tisane TOML configuration file, layering values over DefaultConfig().
 func ParseTOML(data []byte) (*Config, error) {
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+
 	cfg := DefaultConfig()
 	sawWebProviders := false
 	var parsedWeb []lookup.WebProvider
 
-	section := "" // "", "dictionaries", "web_providers"
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	section := "" // "", "dictionaries", "web_providers", "fonts", or ignored custom table
+	normalized := strings.ReplaceAll(strings.ReplaceAll(string(data), "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(normalized, "\n")
 
 	for lineIdx, rawLine := range lines {
 		line := stripTOMLComment(rawLine)
@@ -95,6 +150,9 @@ func ParseTOML(data []byte) (*Config, error) {
 
 		if strings.HasPrefix(line, "[[") && strings.HasSuffix(line, "]]") {
 			secName := strings.TrimSpace(line[2 : len(line)-2])
+			if secName == "" || strings.ContainsAny(secName, "[]") {
+				return nil, fmt.Errorf("config.toml:%d: invalid array-of-tables header %q", lineIdx+1, line)
+			}
 			switch secName {
 			case "dictionaries":
 				section = "dictionaries"
@@ -103,13 +161,24 @@ func ParseTOML(data []byte) (*Config, error) {
 				section = "web_providers"
 				sawWebProviders = true
 				parsedWeb = append(parsedWeb, lookup.WebProvider{})
+			case "fonts":
+				return nil, fmt.Errorf("config.toml:%d: [fonts] must be a single-bracket table, not [[fonts]]", lineIdx+1)
 			default:
-				section = secName
+				section = "ignored:" + secName
 			}
 			continue
 		}
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section = strings.TrimSpace(line[1 : len(line)-1])
+			secName := strings.TrimSpace(line[1 : len(line)-1])
+			if secName == "" || strings.ContainsAny(secName, "[]") {
+				return nil, fmt.Errorf("config.toml:%d: invalid table header %q", lineIdx+1, line)
+			}
+			switch secName {
+			case "dictionaries", "web_providers":
+				return nil, fmt.Errorf("config.toml:%d: [[%s]] must be an array-of-tables (double brackets)", lineIdx+1, secName)
+			default:
+				section = secName
+			}
 			continue
 		}
 
@@ -118,6 +187,9 @@ func ParseTOML(data []byte) (*Config, error) {
 			return nil, fmt.Errorf("config.toml:%d: expected key = value", lineIdx+1)
 		}
 		key := strings.TrimSpace(line[:eq])
+		if key == "" {
+			return nil, fmt.Errorf("config.toml:%d: empty key before '='", lineIdx+1)
+		}
 		val := strings.TrimSpace(line[eq+1:])
 
 		switch section {
@@ -126,6 +198,9 @@ func ParseTOML(data []byte) (*Config, error) {
 				return nil, err
 			}
 		case "dictionaries":
+			if len(cfg.Dictionaries) == 0 {
+				return nil, fmt.Errorf("config.toml:%d: [[dictionaries]] entry missing header", lineIdx+1)
+			}
 			dc := &cfg.Dictionaries[len(cfg.Dictionaries)-1]
 			switch key {
 			case "path":
@@ -148,6 +223,9 @@ func ParseTOML(data []byte) (*Config, error) {
 				dc.Enabled = b
 			}
 		case "web_providers":
+			if len(parsedWeb) == 0 {
+				return nil, fmt.Errorf("config.toml:%d: [[web_providers]] entry missing header", lineIdx+1)
+			}
 			wp := &parsedWeb[len(parsedWeb)-1]
 			switch key {
 			case "id":
@@ -176,12 +254,39 @@ func ParseTOML(data []byte) (*Config, error) {
 		}
 	}
 
+	cfg.MinLength, cfg.MaxLength = NormalizeLengthBounds(cfg.MinLength, cfg.MaxLength)
+	cfg.SortMode = NormalizeSortMode(cfg.SortMode)
+	cfg.LayoutMode = NormalizeLayoutMode(cfg.LayoutMode)
+	cfg.EntryFilter = NormalizeEntryFilter(cfg.EntryFilter)
 	cfg.SidebarWidth = NormalizeSidebarWidth(cfg.SidebarWidth)
 	cfg.Fonts = NormalizeFontConfig(cfg.Fonts)
 	if sawWebProviders {
-		cfg.WebProviders = parsedWeb
+		validWeb := make([]lookup.WebProvider, 0, len(parsedWeb))
+		for _, wp := range parsedWeb {
+			if lookup.BuildWebURL(wp.URLTemplate, "test") != "" {
+				validWeb = append(validWeb, wp)
+			}
+		}
+		cfg.WebProviders = validWeb
 	}
+	cfg.DefaultWebProvider = normalizeDefaultWebProvider(cfg.DefaultWebProvider, cfg.WebProviders)
 	return cfg, nil
+}
+
+func normalizeDefaultWebProvider(defaultID string, providers []lookup.WebProvider) string {
+	effective := providers
+	if len(effective) == 0 {
+		effective = lookup.DefaultWebProviders()
+	}
+	for _, wp := range effective {
+		if strings.EqualFold(wp.ID, defaultID) && wp.ID != "" {
+			return wp.ID
+		}
+	}
+	if len(effective) > 0 {
+		return effective[0].ID
+	}
+	return "onelook"
 }
 
 func applyFontKey(fc *FontConfig, key, val string, lineNum int) error {
@@ -425,6 +530,11 @@ func parseTOMLStringArray(val string) ([]string, error) {
 	inSingle := false
 	escaped := false
 	for i := 0; i <= len(inner); i++ {
+		if i == len(inner) {
+			if inDouble || inSingle || escaped {
+				return nil, fmt.Errorf("unterminated string in array %q", val)
+			}
+		}
 		if i == len(inner) || (inner[i] == ',' && !inDouble && !inSingle) {
 			tok := strings.TrimSpace(inner[curStart:i])
 			if tok != "" {

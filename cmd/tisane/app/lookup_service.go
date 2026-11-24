@@ -40,8 +40,11 @@ func (ls *LookupService) OpenWebLookup(word string, providerID string) (string, 
 	if len(providers) == 0 {
 		providers = lookup.DefaultWebProviders()
 	}
-	if providerID == "" {
+	explicitID := strings.TrimSpace(providerID)
+	if explicitID == "" {
 		providerID = cfg.DefaultWebProvider
+	} else {
+		providerID = explicitID
 	}
 
 	var chosen *lookup.WebProvider
@@ -52,6 +55,9 @@ func (ls *LookupService) OpenWebLookup(word string, providerID string) (string, 
 		}
 	}
 	if chosen == nil {
+		if explicitID != "" {
+			return "", fmt.Errorf("unknown or invalid web lookup provider %q", explicitID)
+		}
 		chosen = &providers[0]
 	}
 

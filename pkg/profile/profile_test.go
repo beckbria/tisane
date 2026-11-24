@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"tisane/pkg/lookup"
@@ -78,6 +79,9 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 }
 
 func TestExecutableAndSubdirectoryDiscovery(t *testing.T) {
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
+
 	exeRoot := t.TempDir()
 	subDictsDir := filepath.Join(exeRoot, "dictionaries")
 	if err := os.MkdirAll(subDictsDir, 0o755); err != nil {
@@ -193,5 +197,125 @@ func TestSaveAtomicAndDoesNotClobberPredictableTmp(t *testing.T) {
 	}
 	if loaded.MinLength != 3 {
 		t.Fatalf("MinLength = %d, want 3", loaded.MinLength)
+	}
+}
+
+func TestMalformedTOMLHeadersBOMEscapesAndValidation(t *testing.T) {
+	badInputs := []struct {
+		name string
+		toml string
+	}{
+		{name: "single_bracket_dictionaries", toml: "[dictionaries]\npath = \"a.tsd\"\n"},
+		{name: "single_bracket_web_providers", toml: "[web_providers]\nid = \"x\"\n"},
+		{name: "double_bracket_fonts", toml: "[[fonts]]\nresults_size = 14\n"},
+		{name: "empty_table_header", toml: "[]\n"},
+		{name: "empty_array_header", toml: "[[]]\n"},
+		{name: "unterminated_array_quote", toml: "recent_queries = [\"abc]\n"},
+	}
+	for _, tc := range badInputs {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := profile.ParseTOML([]byte(tc.toml)); err == nil {
+				t.Fatalf("expected ParseTOML error for %s", tc.name)
+			}
+		})
+	}
+
+	// Unsafe web_providers schemes are stripped on load without discarding the rest of config.toml.
+	strippedWeb, err := profile.ParseTOML([]byte("min_length = 4\ndefault_web_provider = \"bad\"\n[[web_providers]]\nid = \"bad\"\nname = \"Bad\"\nurl_template = \"javascript:alert(1)\"\n"))
+	if err != nil {
+		t.Fatalf("ParseTOML with unsafe web_provider: %v", err)
+	}
+	if len(strippedWeb.WebProviders) != 0 || strippedWeb.MinLength != 4 || strippedWeb.DefaultWebProvider != "onelook" {
+		t.Fatalf("unexpected strippedWeb config: %+v", strippedWeb)
+	}
+
+	// UTF-8 BOM + classic CR line endings + normalization of bounds, sort, layout, and filter.
+	bomCR := "\xEF\xBB\xBFmin_length = 40\rmax_length = 5\rsort_mode = \"za\"\rlayout_mode = \"UNIFIED\"\rentry_filter = [\"upper\", \"invalid\", \"lower\"]\r"
+	parsed, err := profile.ParseTOML([]byte(bomCR))
+	if err != nil {
+		t.Fatalf("ParseTOML BOM+CR: %v", err)
+	}
+	if parsed.MinLength != 5 || parsed.MaxLength != 40 {
+		t.Fatalf("normalized lengths = (%d, %d), want (5, 40)", parsed.MinLength, parsed.MaxLength)
+	}
+	if parsed.SortMode != "alpha-desc" || parsed.LayoutMode != "unified" {
+		t.Fatalf("normalized sort=%q layout=%q", parsed.SortMode, parsed.LayoutMode)
+	}
+	if !slices.Equal(parsed.EntryFilter, []string{"capitalized", "lowercase"}) {
+		t.Fatalf("normalized entry_filter = %v", parsed.EntryFilter)
+	}
+
+	// Control characters serialize as standard TOML \uXXXX escapes (no Go \a, \v, or \xNN).
+	ctrlCfg := profile.DefaultConfig()
+	ctrlCfg.RecentQueries = []string{"bell:\a:vtab:\v:soh:\x01:del:\x7f"}
+	marshaled := string(profile.MarshalTOML(ctrlCfg))
+	if strings.Contains(marshaled, `\a`) || strings.Contains(marshaled, `\v`) || strings.Contains(marshaled, `\x`) {
+		t.Fatalf("MarshalTOML emitted non-TOML Go escape sequence:\n%s", marshaled)
+	}
+	roundTrip, err := profile.ParseTOML([]byte(marshaled))
+	if err != nil {
+		t.Fatalf("round-trip ParseTOML with control escapes: %v", err)
+	}
+	if !slices.Equal(roundTrip.RecentQueries, ctrlCfg.RecentQueries) {
+		t.Fatalf("control-char round-trip = %q, want %q", roundTrip.RecentQueries, ctrlCfg.RecentQueries)
+	}
+}
+
+func TestResolveDictionaryIgnoresExecutableShadowingAndDottedStems(t *testing.T) {
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
+
+	exeRoot := t.TempDir()
+	dictsSub := filepath.Join(exeRoot, "dictionaries")
+	if err := os.MkdirAll(dictsSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate "./tisane" executable in exeRoot alongside "dictionaries/tisane.tsd" and "WordNet-2.1.tsd".
+	exeBin := filepath.Join(exeRoot, "tisane")
+	tisaneDict := filepath.Join(dictsSub, "tisane.tsd")
+	dottedDict := filepath.Join(dictsSub, "WordNet-2.1.tsd")
+	if err := os.WriteFile(exeBin, []byte{0x7f, 'E', 'L', 'F'}, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{tisaneDict, dottedDict} {
+		if err := os.WriteFile(p, []byte("TSD1"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	origExeFunc := profile.ExecutablePathFunc
+	profile.ExecutablePathFunc = func() (string, error) { return exeBin, nil }
+	defer func() { profile.ExecutablePathFunc = origExeFunc }()
+
+	t.Chdir(exeRoot)
+
+	resolved, err := profile.ResolveDictionaryPaths([]string{"tisane", "WordNet-2.1"}, profile.DefaultConfig())
+	if err != nil {
+		t.Fatalf("ResolveDictionaryPaths: %v", err)
+	}
+	if len(resolved) != 2 || resolved[0] != tisaneDict || resolved[1] != dottedDict {
+		t.Fatalf("resolved = %v, want [%s %s]", resolved, tisaneDict, dottedDict)
+	}
+}
+
+func TestRecordRecentQuery(t *testing.T) {
+	cfg := profile.DefaultConfig()
+	cfg.RecordRecentQuery("  ", 3)
+	if len(cfg.RecentQueries) != 0 {
+		t.Fatalf("blank query should be ignored, got %v", cfg.RecentQueries)
+	}
+
+	cfg.RecordRecentQuery("first", 3)
+	cfg.RecordRecentQuery("second", 3)
+	cfg.RecordRecentQuery("third", 3)
+	cfg.RecordRecentQuery("first", 3) // move to front without growing past 3
+	if !slices.Equal(cfg.RecentQueries, []string{"first", "third", "second"}) {
+		t.Fatalf("RecentQueries = %v, want [first third second]", cfg.RecentQueries)
+	}
+
+	cfg.RecordRecentQuery("fourth", 3)
+	if !slices.Equal(cfg.RecentQueries, []string{"fourth", "first", "third"}) {
+		t.Fatalf("RecentQueries = %v, want [fourth first third]", cfg.RecentQueries)
 	}
 }

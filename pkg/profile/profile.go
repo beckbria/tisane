@@ -3,7 +3,9 @@
 package profile
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +32,11 @@ const (
 	MinSidebarWidth = 180
 	// MaxSidebarWidth is the maximum expanded pixel width of the dictionary sidebar.
 	MaxSidebarWidth = 560
+
+	// DefaultMaxRecentQueries is the default cap on Config.RecentQueries.
+	DefaultMaxRecentQueries = 50
+
+	maxConfigBytes = 4 << 20 // 4 MiB
 )
 
 // NormalizeSidebarWidth clamps a sidebar pixel width into [MinSidebarWidth, MaxSidebarWidth],
@@ -136,6 +143,115 @@ type Config struct {
 	Fonts                   FontConfig           `json:"fonts"`
 }
 
+// NormalizeSortMode canonicalizes a sort mode string, defaulting unknown values to "dict".
+func NormalizeSortMode(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "dict", "dictionary", "none":
+		return "dict"
+	case "alpha", "az", "a-z", "asc":
+		return "alpha"
+	case "alpha-desc", "za", "z-a", "desc":
+		return "alpha-desc"
+	case "len", "length", "len-asc":
+		return "len"
+	case "len-desc", "length-desc":
+		return "len-desc"
+	case "smart", "balance":
+		return "smart"
+	default:
+		return "dict"
+	}
+}
+
+// NormalizeLayoutMode canonicalizes a UI layout mode to "tiled" or "unified".
+func NormalizeLayoutMode(s string) string {
+	if strings.EqualFold(strings.TrimSpace(s), "unified") {
+		return "unified"
+	}
+	return "tiled"
+}
+
+// NormalizeEntryFilter canonicalizes and deduplicates entry category names,
+// falling back to all four categories when none are valid.
+func NormalizeEntryFilter(items []string) []string {
+	var seen [4]bool
+	var out []string
+	add := func(idx int, canon string) {
+		if !seen[idx] {
+			seen[idx] = true
+			out = append(out, canon)
+		}
+	}
+	for _, raw := range items {
+		for _, tok := range strings.Split(raw, ",") {
+			switch strings.ToLower(strings.TrimSpace(tok)) {
+			case "lower", "lowercase", "abc":
+				add(0, "lowercase")
+			case "upper", "cap", "capitalized", "proper":
+				add(1, "capitalized")
+			case "punct", "punctuated", "hyphen":
+				add(2, "punctuated")
+			case "phrase", "phrases", "space", "multi":
+				add(3, "phrase")
+			case "all":
+				add(0, "lowercase")
+				add(1, "capitalized")
+				add(2, "punctuated")
+				add(3, "phrase")
+			}
+		}
+	}
+	if len(out) == 0 {
+		return []string{"lowercase", "capitalized", "punctuated", "phrase"}
+	}
+	return out
+}
+
+// NormalizeLengthBounds clamps minLen and maxLen into [1, tsd.MaxWordLengthLimit] and ensures minLen <= maxLen.
+func NormalizeLengthBounds(minLen, maxLen int) (int, int) {
+	if minLen < 1 {
+		minLen = 1
+	} else if minLen > tsd.MaxWordLengthLimit {
+		minLen = tsd.MaxWordLengthLimit
+	}
+	if maxLen < 1 {
+		maxLen = 1
+	} else if maxLen > tsd.MaxWordLengthLimit {
+		maxLen = tsd.MaxWordLengthLimit
+	}
+	if minLen > maxLen {
+		minLen, maxLen = maxLen, minLen
+	}
+	return minLen, maxLen
+}
+
+// RecordRecentQuery prepends query to c.RecentQueries, deduplicating prior occurrences
+// and capping history length to maxItems (defaulting to DefaultMaxRecentQueries when <= 0).
+func (c *Config) RecordRecentQuery(query string, maxItems int) {
+	if c == nil {
+		return
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return
+	}
+	if maxItems <= 0 {
+		maxItems = DefaultMaxRecentQueries
+	}
+	next := make([]string, 0, min(len(c.RecentQueries)+1, maxItems))
+	next = append(next, query)
+	for _, existing := range c.RecentQueries {
+		if existing == query {
+			continue
+		}
+		if len(next) >= maxItems {
+			break
+		}
+		next = append(next, existing)
+	}
+	c.RecentQueries = next
+}
+
 // DefaultConfig returns Tisane's standard out-of-the-box configuration.
 // Note that LayoutMode defaults to "tiled" (separate tiled panes per dictionary).
 func DefaultConfig() *Config {
@@ -177,11 +293,30 @@ func DefaultConfigPath() (string, error) {
 	return filepath.Join(base, "tisane", "config.toml"), nil
 }
 
-// Load reads a TOML profile from path.
+// Load reads a TOML profile from path, requiring a regular file up to 4 MiB.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("config %q is not a regular file", path)
+	}
+	if info.Size() > maxConfigBytes {
+		return nil, fmt.Errorf("config %q exceeds maximum size (%d bytes)", path, maxConfigBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxConfigBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxConfigBytes {
+		return nil, fmt.Errorf("config %q exceeds maximum size (%d bytes)", path, maxConfigBytes)
 	}
 	return ParseTOML(data)
 }
@@ -194,7 +329,7 @@ func LoadOrDefault() (*Config, string, error) {
 	}
 	cfg, err := Load(p)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return DefaultConfig(), p, nil
 		}
 		return nil, p, err
@@ -342,7 +477,7 @@ func DiscoverDictionaries(dirs ...string) ([]string, error) {
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			if os.IsNotExist(err) || len(dirs) > 1 {
+			if errors.Is(err, os.ErrNotExist) || len(dirs) > 1 {
 				continue
 			}
 			return nil, err
@@ -355,7 +490,7 @@ func DiscoverDictionaries(dirs ...string) ([]string, error) {
 			if strings.EqualFold(filepath.Ext(e.Name()), ".tsd") {
 				full := filepath.Join(dir, e.Name())
 				info, statErr := os.Stat(full)
-				if statErr != nil || info.IsDir() {
+				if statErr != nil || !info.Mode().IsRegular() {
 					continue
 				}
 				abs, err := filepath.Abs(full)
@@ -430,19 +565,23 @@ func ResolveDictionaryPaths(specs []string, cfg *Config) ([]string, error) {
 }
 
 func resolveSingleSpec(spec string, cfg *Config, searchDirs []string) (string, bool) {
-	// 1. Exact path or exact path + ".tsd"
-	if fileExists(spec) {
-		return spec, true
-	}
-	if !strings.EqualFold(filepath.Ext(spec), ".tsd") && fileExists(spec+".tsd") {
+	hasTSDExt := hasTSDSuffix(spec)
+
+	// 1. Direct .tsd path (or spec + ".tsd"). Require .tsd suffix when probing bare paths
+	// so an executable or non-dictionary file (e.g. "./tisane") never shadows "tisane.tsd".
+	if hasTSDExt {
+		if fileExists(spec) {
+			return spec, true
+		}
+	} else if fileExists(spec + ".tsd") {
 		return spec + ".tsd", true
 	}
 
 	// 2. Match configured profile dictionary by Name or base stem (case-insensitive)
-	specStem := strings.TrimSuffix(spec, filepath.Ext(spec))
+	specStem := trimTSDExt(spec)
 	for _, dc := range cfg.Dictionaries {
 		base := filepath.Base(dc.Path)
-		stem := strings.TrimSuffix(base, filepath.Ext(base))
+		stem := trimTSDExt(base)
 		if strings.EqualFold(dc.Name, spec) || strings.EqualFold(dc.Name, specStem) ||
 			strings.EqualFold(base, spec) || strings.EqualFold(stem, specStem) {
 			if fileExists(dc.Path) {
@@ -451,13 +590,14 @@ func resolveSingleSpec(spec string, cfg *Config, searchDirs []string) (string, b
 		}
 	}
 
-	// 3. Search directories (exact filename, stem + .tsd, or case-insensitive stem match)
+	// 3. Search directories (exact .tsd filename, stem + .tsd, or case-insensitive stem match)
 	for _, dir := range searchDirs {
 		cand := filepath.Join(dir, spec)
-		if fileExists(cand) {
-			return cand, true
-		}
-		if !strings.EqualFold(filepath.Ext(spec), ".tsd") {
+		if hasTSDExt {
+			if fileExists(cand) {
+				return cand, true
+			}
+		} else {
 			candTSD := cand + ".tsd"
 			if fileExists(candTSD) {
 				return candTSD, true
@@ -468,12 +608,15 @@ func resolveSingleSpec(spec string, cfg *Config, searchDirs []string) (string, b
 			continue
 		}
 		for _, e := range entries {
-			if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".tsd") {
+			if e.IsDir() || !hasTSDSuffix(e.Name()) {
 				continue
 			}
-			stem := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+			stem := trimTSDExt(e.Name())
 			if strings.EqualFold(e.Name(), spec) || strings.EqualFold(stem, specStem) {
-				return filepath.Join(dir, e.Name()), true
+				candMatch := filepath.Join(dir, e.Name())
+				if fileExists(candMatch) {
+					return candMatch, true
+				}
 			}
 		}
 	}
@@ -481,7 +624,18 @@ func resolveSingleSpec(spec string, cfg *Config, searchDirs []string) (string, b
 	return "", false
 }
 
+func hasTSDSuffix(name string) bool {
+	return len(name) >= 4 && strings.EqualFold(name[len(name)-4:], ".tsd")
+}
+
+func trimTSDExt(name string) string {
+	if hasTSDSuffix(name) {
+		return name[:len(name)-4]
+	}
+	return name
+}
+
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	return err == nil && info.Mode().IsRegular()
 }
