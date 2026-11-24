@@ -102,7 +102,7 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 
 	mapPath := strings.TrimSpace(req.MapPath)
 	var mapInfo os.FileInfo
-	if mapPath != "" {
+	if mapPath != "" && !strings.EqualFold(mapPath, "default") {
 		mapInfo, err = os.Stat(mapPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to inspect alphabet map %q: %w", mapPath, err)
@@ -127,19 +127,71 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 	if err != nil {
 		absOut = filepath.Clean(outputPath)
 	}
-	if filepath.Clean(outputPath) == filepath.Clean(inputPath) || (mapPath != "" && filepath.Clean(outputPath) == filepath.Clean(mapPath)) {
+	if filepath.Clean(outputPath) == filepath.Clean(inputPath) || (mapPath != "" && !strings.EqualFold(mapPath, "default") && filepath.Clean(outputPath) == filepath.Clean(mapPath)) {
 		return nil, fmt.Errorf("output dictionary path %q cannot overwrite an input file", outputPath)
 	}
 	if preOutInfo, preErr := os.Stat(absOut); preErr == nil {
+		if preOutInfo.IsDir() {
+			return nil, fmt.Errorf("output dictionary path %q is a directory", outputPath)
+		}
 		if os.SameFile(preOutInfo, inInfo) || (mapInfo != nil && os.SameFile(preOutInfo, mapInfo)) {
 			return nil, fmt.Errorf("output dictionary path %q refers to the same file as an input file", outputPath)
 		}
 	}
 
-	// If the target .tsd file is already open in Tisane, close its handle before overwriting
-	// so OS file locks (especially on Windows) do not prevent writing and handles stay fresh.
+	// Compile into a temporary sibling file first so State.dicts and config.toml stay untouched
+	// if compilation fails or is cancelled.
+	outDir := filepath.Dir(absOut)
+	if outDir == "" {
+		outDir = "."
+	}
+	if outDir != "." {
+		if mkErr := os.MkdirAll(outDir, 0o755); mkErr != nil {
+			return nil, fmt.Errorf("create output directory %q: %w", outDir, mkErr)
+		}
+	}
+	stageFile, err := os.CreateTemp(outDir, ".tisane-stage-*.tsd.tmp")
+	if err != nil {
+		return nil, fmt.Errorf("create staging dictionary in %q: %w", outDir, err)
+	}
+	stagePath := stageFile.Name()
+	_ = stageFile.Close()
+	keepStage := false
+	defer func() {
+		if !keepStage {
+			_ = os.Remove(stagePath)
+		}
+	}()
+
+	params := tsd.BuildParams{
+		InputPath:               inputPath,
+		OutputPath:              stagePath,
+		MapPath:                 mapPath,
+		Description:             req.Description,
+		MinLen:                  req.MinLen,
+		MaxLen:                  req.MaxLen,
+		MaxFTSPercent:           req.MaxFTSPercent,
+		SortAlphabetically:      req.SortAlphabetically,
+		TabSeparatedAnnotations: req.TabSeparatedAnnotations,
+		Encoding:                req.Encoding,
+	}
+
+	start := time.Now()
+	_, stats, buildErr := tsd.BuildFileWithParamsContext(ctx, params)
+	elapsedMs := float64(time.Since(start).Microseconds()) / 1000.0
+	if buildErr != nil {
+		return nil, buildErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// Detach any existing loaded handle at absOut and wait for in-flight readers to release
+	// before renaming over absOut (avoiding Windows ERROR_SHARING_VIOLATION).
 	var (
+		detached    *loadedDict
 		prevIdx     = -1
+		prevPath    string
 		prevName    string
 		prevEnabled = true
 	)
@@ -154,7 +206,9 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 			}
 		}
 		if match {
+			detached = existing
 			prevIdx = i
+			prevPath = existing.info.Path
 			prevName = existing.info.Name
 			prevEnabled = existing.info.Enabled
 			_ = existing.release()
@@ -164,44 +218,41 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 	}
 	ts.state.mu.Unlock()
 
-	params := tsd.BuildParams{
-		InputPath:               inputPath,
-		OutputPath:              outputPath,
-		MapPath:                 mapPath,
-		Description:             req.Description,
-		MinLen:                  req.MinLen,
-		MaxLen:                  req.MaxLen,
-		MaxFTSPercent:           req.MaxFTSPercent,
-		SortAlphabetically:      req.SortAlphabetically,
-		TabSeparatedAnnotations: req.TabSeparatedAnnotations,
-		Encoding:                req.Encoding,
+	if detached != nil && detached.closed != nil {
+		select {
+		case <-detached.closed:
+		case <-ctx.Done():
+			// Restore previous handle if cancellation raced before rename.
+			ts.state.mu.Lock()
+			if ld, reopenErr := ts.state.openAndAppendLocked(prevPath, prevName, prevEnabled); reopenErr == nil {
+				moveLoadedDictLocked(ts.state, ld, prevIdx)
+			}
+			ts.state.syncConfigDictionariesLocked()
+			_ = ts.state.saveConfigLocked()
+			ts.state.mu.Unlock()
+			ts.state.emitDictsUpdated()
+			return nil, ctx.Err()
+		}
 	}
 
-	start := time.Now()
-	writtenPath, stats, buildErr := tsd.BuildFileWithParams(params)
-	elapsedMs := float64(time.Since(start).Microseconds()) / 1000.0
-
-	if buildErr != nil {
-		// Restore previously loaded dictionary handle if the file is still intact on disk.
+	if renameErr := os.Rename(stagePath, outputPath); renameErr != nil {
 		if prevIdx >= 0 {
 			ts.state.mu.Lock()
-			if ld, reopenErr := ts.state.openAndAppendLocked(absOut, prevName, prevEnabled); reopenErr == nil {
+			if ld, reopenErr := ts.state.openAndAppendLocked(prevPath, prevName, prevEnabled); reopenErr == nil {
 				moveLoadedDictLocked(ts.state, ld, prevIdx)
-				ts.state.mu.Unlock()
-			} else {
-				ts.state.syncConfigDictionariesLocked()
-				_ = ts.state.saveConfigLocked()
-				infos := ts.state.listInfosLocked()
-				bridge := ts.state.bridge
-				ts.state.mu.Unlock()
-				bridge.EmitEvent(EventDictsUpdated, infos)
 			}
+			ts.state.syncConfigDictionariesLocked()
+			_ = ts.state.saveConfigLocked()
+			ts.state.mu.Unlock()
+			ts.state.emitDictsUpdated()
 		}
-		return nil, buildErr
+		return nil, fmt.Errorf("replace dictionary %q: %w", outputPath, renameErr)
 	}
+	keepStage = true
 
 	addedToLibrary := false
 	var saveErr error
+	var openErr error
 	if prevIdx >= 0 || req.AddToLibrary {
 		ts.state.mu.Lock()
 		customName := ""
@@ -210,24 +261,23 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 			customName = prevName
 			enabled = prevEnabled
 		}
-		ld, openErr := ts.state.openAndAppendLocked(writtenPath, customName, enabled)
+		var ld *loadedDict
+		ld, openErr = ts.state.openAndAppendLocked(outputPath, customName, enabled)
 		if openErr == nil {
 			if prevIdx >= 0 {
 				moveLoadedDictLocked(ts.state, ld, prevIdx)
 			}
-			ts.state.syncConfigDictionariesLocked()
-			saveErr = ts.state.saveConfigLocked()
 			addedToLibrary = true
 		}
-		infos := ts.state.listInfosLocked()
-		bridge := ts.state.bridge
+		ts.state.syncConfigDictionariesLocked()
+		saveErr = ts.state.saveConfigLocked()
 		ts.state.mu.Unlock()
 
-		bridge.EmitEvent(EventDictsUpdated, infos)
+		ts.state.emitDictsUpdated()
 	}
 
 	res := &BuildDictionaryResult{
-		OutputPath:       writtenPath,
+		OutputPath:       outputPath,
 		InputLines:       stats.InputLines,
 		UniqueWords:      stats.UniqueWords,
 		MaxWordLength:    stats.MaxWordLength,
@@ -239,6 +289,9 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 		BytesWritten:     stats.BytesWritten,
 		ElapsedMs:        elapsedMs,
 		AddedToLibrary:   addedToLibrary,
+	}
+	if openErr != nil {
+		return res, fmt.Errorf("reload built dictionary %q: %w", outputPath, openErr)
 	}
 	if saveErr != nil {
 		return res, fmt.Errorf("save config: %w", saveErr)

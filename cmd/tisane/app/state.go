@@ -69,9 +69,10 @@ type DictionaryInfo struct {
 // State.dicts owns a base reference of 1 while registered; acquire() must only be called
 // while holding State.mu on a live State.dicts entry so 0 -> 1 resurrection cannot occur.
 type loadedDict struct {
-	info DictionaryInfo
-	dict *tsd.Dictionary
-	refs atomic.Int32
+	info   DictionaryInfo
+	dict   *tsd.Dictionary
+	refs   atomic.Int32
+	closed chan struct{}
 }
 
 func (ld *loadedDict) acquire() {
@@ -79,33 +80,44 @@ func (ld *loadedDict) acquire() {
 }
 
 func (ld *loadedDict) release() error {
-	if ld.refs.Add(-1) == 0 && ld.dict != nil {
-		return ld.dict.Close()
+	if ld.refs.Add(-1) == 0 {
+		var err error
+		if ld.dict != nil {
+			err = ld.dict.Close()
+		}
+		if ld.closed != nil {
+			close(ld.closed)
+		}
+		return err
 	}
 	return nil
 }
 
 // State manages shared configuration and open *tsd.Dictionary handles across all bound services.
 type State struct {
-	mu             sync.RWMutex
-	cfg            *profile.Config
-	cfgPath        string
-	dicts          []*loadedDict
-	bridge         HostBridge
-	restrictHostIO bool
+	eventMu          sync.Mutex
+	mu               sync.RWMutex
+	cfg              *profile.Config
+	cfgPath          string
+	dicts            []*loadedDict
+	unavailableDicts []profile.DictConfig
+	bridge           HostBridge
+	restrictHostIO   bool
 }
 
 // NewState initializes desktop application state from cfgPath (or DefaultConfigPath if empty),
-// auto-discovering .tsd dictionaries on first run if none are configured yet.
+// auto-discovering .tsd dictionaries only on genuine first run (missing or corrupt config.toml).
 func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 	if bridge == nil {
 		bridge = NoopBridge{}
 	}
 
 	var (
-		cfg *profile.Config
-		err error
+		cfg        *profile.Config
+		err        error
+		isFirstRun bool
 	)
+	cfgPath = strings.TrimSpace(cfgPath)
 	if cfgPath != "" {
 		cfg, err = profile.Load(cfgPath)
 		if err != nil {
@@ -113,14 +125,24 @@ func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 				backupCorruptConfig(cfgPath)
 			}
 			cfg = profile.DefaultConfig()
+			isFirstRun = true
 		}
 	} else {
-		cfg, cfgPath, err = profile.LoadOrDefault()
-		if err != nil {
-			if cfgPath != "" && !errors.Is(err, os.ErrNotExist) {
-				backupCorruptConfig(cfgPath)
-			}
+		if p, pErr := profile.DefaultConfigPath(); pErr == nil {
+			cfgPath = p
+		}
+		if cfgPath == "" {
 			cfg = profile.DefaultConfig()
+			isFirstRun = true
+		} else {
+			cfg, err = profile.Load(cfgPath)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					backupCorruptConfig(cfgPath)
+				}
+				cfg = profile.DefaultConfig()
+				isFirstRun = true
+			}
 		}
 	}
 
@@ -130,19 +152,20 @@ func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 		bridge:  bridge,
 	}
 
-	if len(cfg.Dictionaries) > 0 {
+	if isFirstRun {
+		_ = s.runFirstRunLocked(true)
+	} else {
 		for _, dc := range cfg.Dictionaries {
-			_, _ = s.openAndAppendLocked(dc.Path, dc.Name, dc.Enabled)
+			if _, openErr := s.openAndAppendLocked(dc.Path, dc.Name, dc.Enabled); openErr != nil {
+				s.unavailableDicts = append(s.unavailableDicts, dc)
+			}
 		}
-	}
-	if len(s.dicts) == 0 {
-		s.runFirstRunLocked(true)
 	}
 
 	return s, nil
 }
 
-func (s *State) runFirstRunLocked(resetDictionaries bool) {
+func (s *State) runFirstRunLocked(resetDictionaries bool) error {
 	if resetDictionaries {
 		// First-run discovery across TISANE_DICT_PATH, the executable directory,
 		// the current working directory, and the dictionaries subdirectory.
@@ -152,7 +175,7 @@ func (s *State) runFirstRunLocked(resetDictionaries bool) {
 		}
 	}
 	s.syncConfigDictionariesLocked()
-	_ = s.saveConfigLocked()
+	return s.saveConfigLocked()
 }
 
 func (s *State) resetLocked(resetDictionaries bool) error {
@@ -162,12 +185,22 @@ func (s *State) resetLocked(resetDictionaries bool) error {
 			_ = ld.release()
 		}
 		s.dicts = nil
+		s.unavailableDicts = nil
 	}
-	if s.cfgPath != "" {
-		_ = os.Remove(s.cfgPath)
-	}
-	s.runFirstRunLocked(resetDictionaries)
-	return s.saveConfigLocked()
+	return s.runFirstRunLocked(resetDictionaries)
+}
+
+func (s *State) emitDictsUpdated() []DictionaryInfo {
+	s.eventMu.Lock()
+	defer s.eventMu.Unlock()
+
+	s.mu.RLock()
+	infos := s.listInfosLocked()
+	bridge := s.bridge
+	s.mu.RUnlock()
+
+	bridge.EmitEvent(EventDictsUpdated, infos)
+	return infos
 }
 
 // SetBridge attaches the live Wails HostBridge once the application instance is created.
@@ -284,7 +317,8 @@ func (s *State) openAndAppendLocked(path string, customName string, enabled bool
 	}
 
 	ld := &loadedDict{
-		dict: d,
+		dict:   d,
+		closed: make(chan struct{}),
 		info: DictionaryInfo{
 			ID:             id,
 			Path:           absPath,
@@ -300,16 +334,37 @@ func (s *State) openAndAppendLocked(path string, customName string, enabled bool
 	}
 	ld.refs.Store(1)
 	s.dicts = append(s.dicts, ld)
+	if len(s.unavailableDicts) > 0 {
+		kept := s.unavailableDicts[:0]
+		for _, u := range s.unavailableDicts {
+			if !pathsReferToSameTarget(u.Path, absPath) {
+				kept = append(kept, u)
+			}
+		}
+		s.unavailableDicts = kept
+	}
 	return ld, nil
 }
 
 func (s *State) syncConfigDictionariesLocked() {
-	s.cfg.Dictionaries = make([]profile.DictConfig, len(s.dicts))
-	for i, ld := range s.dicts {
-		s.cfg.Dictionaries[i] = profile.DictConfig{
+	s.cfg.Dictionaries = make([]profile.DictConfig, 0, len(s.dicts)+len(s.unavailableDicts))
+	for _, ld := range s.dicts {
+		s.cfg.Dictionaries = append(s.cfg.Dictionaries, profile.DictConfig{
 			Path:    ld.info.Path,
 			Name:    ld.info.Name,
 			Enabled: ld.info.Enabled,
+		})
+	}
+	for _, u := range s.unavailableDicts {
+		alreadyLoaded := false
+		for _, ld := range s.dicts {
+			if pathsReferToSameTarget(u.Path, ld.info.Path) {
+				alreadyLoaded = true
+				break
+			}
+		}
+		if !alreadyLoaded {
+			s.cfg.Dictionaries = append(s.cfg.Dictionaries, u)
 		}
 	}
 }
@@ -413,6 +468,9 @@ func (s *State) RecordRecentQuery(query string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if len(s.cfg.RecentQueries) > 0 && s.cfg.RecentQueries[0] == query {
+		return
+	}
 	s.cfg.RecordRecentQuery(query, profile.DefaultMaxRecentQueries)
 	_ = s.saveConfigLocked()
 }

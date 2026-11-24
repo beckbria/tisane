@@ -93,7 +93,7 @@ func (ts *ToolsService) MergeWordLists(ctx context.Context, req MergeWordListsRe
 	}
 
 	start := time.Now()
-	stats, err := wordlist.MergeFiles(primaryPath, secondaryPath, outputPath, opts)
+	stats, err := wordlist.MergeFilesContext(ctx, primaryPath, secondaryPath, outputPath, opts)
 	elapsedMs := float64(time.Since(start).Microseconds()) / 1000.0
 	if err != nil {
 		return nil, err

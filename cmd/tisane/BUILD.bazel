@@ -90,6 +90,7 @@ genrule(
 go_test(
     name = "tisane_test",
     srcs = ["main_test.go"],
+    data = ["frontend/src/lib/bindings.ts"],
     embed = [":tisane_lib"],
     deps = [
         "//:version",

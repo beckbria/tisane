@@ -2,9 +2,11 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	"tisane/pkg/lookup"
 	"tisane/pkg/profile"
+	"tisane/pkg/search"
 )
 
 // ConfigPatch allows partial or full updates to user preferences from the Settings dialog or toolbar.
@@ -51,24 +53,61 @@ func (ps *ProfileService) GetConfig() profile.Config {
 }
 
 // UpdateConfig applies non-nil fields from patch and persists config.toml atomically.
+// All fields are validated against a cloned Config before mutating live State.cfg.
 func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error) {
+	var cleanedProviders []lookup.WebProvider
 	if patch.WebProviders != nil {
+		seenIDs := make(map[string]bool, len(patch.WebProviders))
+		cleanedProviders = make([]lookup.WebProvider, 0, len(patch.WebProviders))
 		for _, wp := range patch.WebProviders {
+			id := strings.TrimSpace(wp.ID)
+			name := strings.TrimSpace(wp.Name)
+			if id == "" || name == "" {
+				return ps.GetConfig(), fmt.Errorf("web provider ID and name cannot be empty")
+			}
+			lowerID := strings.ToLower(id)
+			if seenIDs[lowerID] {
+				return ps.GetConfig(), fmt.Errorf("duplicate web provider ID %q", id)
+			}
+			seenIDs[lowerID] = true
 			if err := validateWebProviderURLTemplate(wp.URLTemplate); err != nil {
 				return ps.GetConfig(), err
 			}
+			cleanedProviders = append(cleanedProviders, lookup.WebProvider{
+				ID:          id,
+				Name:        name,
+				URLTemplate: strings.TrimSpace(wp.URLTemplate),
+			})
 		}
 	}
 
+	var normalizedSort string
+	if patch.SortMode != nil {
+		if _, err := search.ParseSortMode(*patch.SortMode); err != nil {
+			return ps.GetConfig(), err
+		}
+		normalizedSort = profile.NormalizeSortMode(*patch.SortMode)
+	}
+
+	var normalizedLayout string
+	if patch.LayoutMode != nil {
+		lm := strings.ToLower(strings.TrimSpace(*patch.LayoutMode))
+		if lm != "tiled" && lm != "unified" {
+			return ps.GetConfig(), fmt.Errorf("unsupported layoutMode %q (expected tiled or unified)", *patch.LayoutMode)
+		}
+		normalizedLayout = lm
+	}
+
 	ps.state.mu.Lock()
-	cfg := ps.state.cfg
+	next := ps.state.cloneConfigLocked()
+
 	if patch.AtMacro != nil {
-		cfg.AtMacro = *patch.AtMacro
+		next.AtMacro = *patch.AtMacro
 	}
 	if patch.HashMacro != nil {
-		cfg.HashMacro = *patch.HashMacro
+		next.HashMacro = *patch.HashMacro
 	}
-	nextMin := cfg.MinLength
+	nextMin := next.MinLength
 	if patch.MinLength != nil {
 		if *patch.MinLength < 1 || *patch.MinLength > 100 {
 			ps.state.mu.Unlock()
@@ -76,7 +115,7 @@ func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error
 		}
 		nextMin = *patch.MinLength
 	}
-	nextMax := cfg.MaxLength
+	nextMax := next.MaxLength
 	if patch.MaxLength != nil {
 		if *patch.MaxLength < 1 || *patch.MaxLength > 100 {
 			ps.state.mu.Unlock()
@@ -88,63 +127,64 @@ func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error
 		ps.state.mu.Unlock()
 		return ps.GetConfig(), fmt.Errorf("minLength (%d) cannot exceed maxLength (%d)", nextMin, nextMax)
 	}
-	cfg.MinLength = nextMin
-	cfg.MaxLength = nextMax
+	next.MinLength = nextMin
+	next.MaxLength = nextMax
 	if patch.ExclusiveVars != nil {
-		cfg.ExclusiveVars = *patch.ExclusiveVars
+		next.ExclusiveVars = *patch.ExclusiveVars
 	}
 	if patch.IgnoreUnusedPunctuation != nil {
-		cfg.IgnoreUnusedPunctuation = *patch.IgnoreUnusedPunctuation
+		next.IgnoreUnusedPunctuation = *patch.IgnoreUnusedPunctuation
 	}
 	if patch.ShowBalances != nil {
-		cfg.ShowBalances = *patch.ShowBalances
+		next.ShowBalances = *patch.ShowBalances
 	}
 	if patch.ShowAnnotations != nil {
-		cfg.ShowAnnotations = *patch.ShowAnnotations
+		next.ShowAnnotations = *patch.ShowAnnotations
 	}
 	if patch.SuppressDuplicates != nil {
-		cfg.SuppressDuplicates = *patch.SuppressDuplicates
+		next.SuppressDuplicates = *patch.SuppressDuplicates
 	}
 	if patch.EntryFilter != nil {
-		cfg.EntryFilter = append([]string(nil), patch.EntryFilter...)
+		next.EntryFilter = profile.NormalizeEntryFilter(patch.EntryFilter)
 	}
 	if patch.SortMode != nil {
-		cfg.SortMode = *patch.SortMode
+		next.SortMode = normalizedSort
 	}
-	if patch.LayoutMode != nil && (*patch.LayoutMode == "tiled" || *patch.LayoutMode == "unified") {
-		cfg.LayoutMode = *patch.LayoutMode
+	if patch.LayoutMode != nil {
+		next.LayoutMode = normalizedLayout
 	}
 	if patch.SidebarWidth != nil {
-		cfg.SidebarWidth = profile.NormalizeSidebarWidth(*patch.SidebarWidth)
+		next.SidebarWidth = profile.NormalizeSidebarWidth(*patch.SidebarWidth)
 	}
 	if patch.SidebarCollapsed != nil {
-		cfg.SidebarCollapsed = *patch.SidebarCollapsed
+		next.SidebarCollapsed = *patch.SidebarCollapsed
 	}
 	if patch.DefinitionHeight != nil {
-		cfg.DefinitionHeight = profile.NormalizeDefinitionHeight(*patch.DefinitionHeight)
+		next.DefinitionHeight = profile.NormalizeDefinitionHeight(*patch.DefinitionHeight)
 	}
 	if patch.DefinitionCollapsed != nil {
-		cfg.DefinitionCollapsed = *patch.DefinitionCollapsed
+		next.DefinitionCollapsed = *patch.DefinitionCollapsed
 	}
 	if patch.Theme != nil {
-		cfg.Theme = profile.NormalizeTheme(*patch.Theme)
+		next.Theme = profile.NormalizeTheme(*patch.Theme)
 	}
 	if patch.UIZoom != nil {
-		cfg.UIZoom = profile.NormalizeUIZoom(*patch.UIZoom)
+		next.UIZoom = profile.NormalizeUIZoom(*patch.UIZoom)
 	}
 	if patch.AutoWebFallback != nil {
-		cfg.AutoWebFallback = *patch.AutoWebFallback
+		next.AutoWebFallback = *patch.AutoWebFallback
 	}
 	if patch.DefaultWebProvider != nil {
-		cfg.DefaultWebProvider = *patch.DefaultWebProvider
+		next.DefaultWebProvider = *patch.DefaultWebProvider
 	}
 	if patch.WebProviders != nil {
-		cfg.WebProviders = append([]lookup.WebProvider(nil), patch.WebProviders...)
+		next.WebProviders = cleanedProviders
 	}
 	if patch.Fonts != nil {
-		cfg.Fonts = profile.NormalizeFontConfig(*patch.Fonts)
+		next.Fonts = profile.NormalizeFontConfig(*patch.Fonts)
 	}
 
+	*ps.state.cfg = next
 	err := ps.state.saveConfigLocked()
 	ps.state.mu.Unlock()
 	return ps.GetConfig(), err
@@ -159,10 +199,8 @@ func (ps *ProfileService) ResetConfig(resetDictionaries bool) (profile.Config, e
 	}
 	ps.state.mu.Lock()
 	err := ps.state.resetLocked(resetDictionaries)
-	infos := ps.state.listInfosLocked()
-	bridge := ps.state.bridge
 	ps.state.mu.Unlock()
 
-	bridge.EmitEvent(EventDictsUpdated, infos)
+	ps.state.emitDictsUpdated()
 	return ps.GetConfig(), err
 }

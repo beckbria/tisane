@@ -1111,3 +1111,141 @@ func TestSecurityURLValidationAndServerModeGuards(t *testing.T) {
 		t.Fatalf("expected read-only GetDefinitions to succeed in server mode: %v", err)
 	}
 }
+
+func TestStartupPreservesMissingDictsSearchOrderingAndTransactionalConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.toml")
+	missingPath := filepath.Join(tmpDir, "unmounted", "offline.tsd")
+
+	// 1. Pre-seed config.toml with an offline dictionary path; NewState must NOT wipe config.toml.
+	seedCfg := profile.DefaultConfig()
+	seedCfg.Dictionaries = []profile.DictConfig{
+		{Path: missingPath, Name: "Offline USB Dict", Enabled: true},
+	}
+	if err := profile.Save(cfgPath, seedCfg); err != nil {
+		t.Fatalf("profile.Save: %v", err)
+	}
+
+	bridge := newMockBridge()
+	state, err := app.NewState(cfgPath, bridge)
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+
+	profileSvc := app.NewProfileService(state)
+	zoom110 := 110
+	if _, err := profileSvc.UpdateConfig(app.ConfigPatch{UIZoom: &zoom110}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	_ = state.Close()
+
+	reloadedCfg, err := profile.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("profile.Load after offline startup: %v", err)
+	}
+	if len(reloadedCfg.Dictionaries) != 1 || reloadedCfg.Dictionaries[0].Path != missingPath {
+		t.Fatalf("offline dictionary was wiped from config.toml: %+v", reloadedCfg.Dictionaries)
+	}
+
+	// 2. Empty dictionary list in existing config.toml is respected on restart (not overwritten by discovery).
+	emptyCfg := profile.DefaultConfig()
+	emptyCfg.Dictionaries = nil
+	if err := profile.Save(cfgPath, emptyCfg); err != nil {
+		t.Fatalf("profile.Save(empty): %v", err)
+	}
+	state2, err := app.NewState(cfgPath, bridge)
+	if err != nil {
+		t.Fatalf("NewState(empty): %v", err)
+	}
+	defer state2.Close()
+
+	dictSvc := app.NewDictionaryService(state2)
+	toolsSvc := app.NewToolsService(state2)
+	searchSvc := app.NewSearchService(state2)
+	defer app.ShutdownSearch(searchSvc)
+	profileSvc2 := app.NewProfileService(state2)
+
+	if got := dictSvc.ListDictionaries(); len(got) != 0 {
+		t.Fatalf("expected 0 dictionaries when config.toml saved empty list, got %+v", got)
+	}
+
+	// 3. Transactional UpdateConfig: invalid MinLength > MaxLength or invalid SortMode rolls back AtMacro.
+	badAt := "[xyz]"
+	badMin := 80
+	badMax := 10
+	if _, err := profileSvc2.UpdateConfig(app.ConfigPatch{
+		AtMacro:   &badAt,
+		MinLength: &badMin,
+		MaxLength: &badMax,
+	}); err == nil {
+		t.Fatal("expected UpdateConfig to reject MinLength > MaxLength")
+	}
+	if gotAt := profileSvc2.GetConfig().AtMacro; gotAt == badAt {
+		t.Fatalf("failed UpdateConfig mutated live AtMacro to %q", gotAt)
+	}
+	badSort := "not-a-valid-sort"
+	if _, err := profileSvc2.UpdateConfig(app.ConfigPatch{
+		AtMacro:  &badAt,
+		SortMode: &badSort,
+	}); err == nil {
+		t.Fatal("expected UpdateConfig to reject invalid SortMode")
+	}
+
+	// 4. BuildDictionary supports MapPath="default" and preserves loaded dictionary if rebuild fails.
+	srcWords := filepath.Join(tmpDir, "words.txt")
+	if err := os.WriteFile(srcWords, []byte("matador\naorta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dictOut := filepath.Join(tmpDir, "built.tsd")
+	if _, err := toolsSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
+		InputPath:    srcWords,
+		OutputPath:   dictOut,
+		MapPath:      "default",
+		AddToLibrary: true,
+	}); err != nil {
+		t.Fatalf("BuildDictionary(MapPath=default): %v", err)
+	}
+	if len(dictSvc.ListDictionaries()) != 1 {
+		t.Fatalf("expected built dictionary in library")
+	}
+	// Attempt failing rebuild onto the same output path (MinLen > MaxLen) — existing handle must stay loaded.
+	if _, err := toolsSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
+		InputPath:  srcWords,
+		OutputPath: dictOut,
+		MinLen:     50,
+		MaxLen:     5,
+	}); err == nil {
+		t.Fatal("expected BuildDictionary with MinLen > MaxLen to fail")
+	}
+	if len(dictSvc.ListDictionaries()) != 1 {
+		t.Fatalf("failed in-place BuildDictionary unloaded existing dictionary")
+	}
+
+	// 5. Out-of-order stale SearchID (< curID) is ignored without cancelling newer search.
+	sid2, err := searchSvc.StartSearch(app.SearchRequest{
+		SearchID: 10,
+		Query:    "*",
+		Mode:     "word",
+		SortMode: "dict",
+	})
+	if err != nil || sid2 != 10 {
+		t.Fatalf("StartSearch(10): sid=%d err=%v", sid2, err)
+	}
+	if _, err := searchSvc.StartSearch(app.SearchRequest{
+		SearchID: 9, // stale!
+		Query:    "nomatch",
+		Mode:     "word",
+		SortMode: "dict",
+	}); err != nil {
+		t.Fatalf("StartSearch(stale 9): %v", err)
+	}
+
+	select {
+	case done := <-bridge.completeCh:
+		if done.SearchID != 10 || done.TotalMatches != 2 {
+			t.Fatalf("expected SearchID 10 to complete with 2 matches, got %+v", done)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for SearchID 10 completion")
+	}
+}

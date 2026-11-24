@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"tisane/pkg/profile"
@@ -35,11 +36,9 @@ func (ds *DictionaryService) SetEnabled(id string, enabled bool) ([]DictionaryIn
 	ds.state.dicts[idx].info.Enabled = enabled
 	ds.state.syncConfigDictionariesLocked()
 	saveErr := ds.state.saveConfigLocked()
-	infos := ds.state.listInfosLocked()
-	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
-	bridge.EmitEvent(EventDictsUpdated, infos)
+	infos := ds.state.emitDictsUpdated()
 	if saveErr != nil {
 		return infos, fmt.Errorf("save config: %w", saveErr)
 	}
@@ -53,42 +52,40 @@ func (ds *DictionaryService) ReorderDictionaries(orderedIDs []string) ([]Diction
 		ds.state.mu.Unlock()
 		return nil, err
 	}
-	infos := ds.state.listInfosLocked()
-	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
-	bridge.EmitEvent(EventDictsUpdated, infos)
-	return infos, nil
+	return ds.state.emitDictsUpdated(), nil
 }
 
 // addDictionaryPaths opens and appends one or more .tsd files by path.
 func (ds *DictionaryService) addDictionaryPaths(paths []string) ([]DictionaryInfo, error) {
 	ds.state.mu.Lock()
-	var lastErr error
+	var openErrs []error
 	added := 0
 	for _, p := range paths {
 		if p == "" {
 			continue
 		}
 		if _, err := ds.state.openAndAppendLocked(p, "", true); err != nil {
-			lastErr = err
+			openErrs = append(openErrs, fmt.Errorf("%s: %w", p, err))
 		} else {
 			added++
 		}
 	}
-	if added == 0 && lastErr != nil {
+	if added == 0 && len(openErrs) > 0 {
 		ds.state.mu.Unlock()
-		return nil, lastErr
+		return nil, errors.Join(openErrs...)
 	}
 	ds.state.syncConfigDictionariesLocked()
 	saveErr := ds.state.saveConfigLocked()
-	infos := ds.state.listInfosLocked()
-	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
-	bridge.EmitEvent(EventDictsUpdated, infos)
+	infos := ds.state.emitDictsUpdated()
 	if saveErr != nil {
 		return infos, fmt.Errorf("save config: %w", saveErr)
+	}
+	if len(openErrs) > 0 {
+		return infos, errors.Join(openErrs...)
 	}
 	return infos, nil
 }
@@ -165,12 +162,10 @@ func (ds *DictionaryService) RemoveDictionary(id string) ([]DictionaryInfo, erro
 	ds.state.dicts = append(ds.state.dicts[:idx], ds.state.dicts[idx+1:]...)
 	ds.state.syncConfigDictionariesLocked()
 	saveErr := ds.state.saveConfigLocked()
-	infos := ds.state.listInfosLocked()
-	bridge := ds.state.bridge
 	ds.state.mu.Unlock()
 
 	_ = removed.release()
-	bridge.EmitEvent(EventDictsUpdated, infos)
+	infos := ds.state.emitDictsUpdated()
 	if saveErr != nil {
 		return infos, fmt.Errorf("save config: %w", saveErr)
 	}

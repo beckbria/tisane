@@ -88,6 +88,7 @@ type SearchService struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	curID  uint64
+	active bool
 	wg     sync.WaitGroup
 }
 
@@ -97,7 +98,7 @@ func ShutdownSearch(ss *SearchService) {
 	if ss == nil {
 		return
 	}
-	ss.CancelSearch()
+	ss.cancelActive(false)
 	ss.wg.Wait()
 }
 
@@ -146,6 +147,13 @@ func (ss *SearchService) ValidatePattern(req ValidateRequest) pattern.Validation
 	if strings.EqualFold(req.Mode, "fts") {
 		// In FTS mode, leaf patterns match words of any length 1..100 inside definitions.
 		minL, maxL = 1, 100
+	} else {
+		if minL <= 0 {
+			minL = 1
+		}
+		if maxL <= 0 {
+			maxL = 100
+		}
 	}
 
 	cOpts := pattern.CompileOptions{
@@ -157,24 +165,77 @@ func (ss *SearchService) ValidatePattern(req ValidateRequest) pattern.Validation
 	return pattern.Validate(req.Query, pOpts, cOpts, activeDicts...)
 }
 
-// CancelSearch cancels any currently running search immediately and notifies the frontend.
-func (ss *SearchService) CancelSearch() bool {
+func (ss *SearchService) cancelActive(emit bool) bool {
 	ss.mu.Lock()
 	cancel := ss.cancel
 	cancelledID := ss.curID
+	wasActive := ss.active
 	ss.cancel = nil
+	ss.active = false
 	ss.mu.Unlock()
+
 	if cancel != nil {
 		cancel()
+	}
+	if wasActive && emit {
 		ss.state.Bridge().EmitEvent(EventSearchCancelled, SearchCancelledEvent{SearchID: cancelledID})
 		return true
 	}
-	return false
+	return cancel != nil
+}
+
+func (ss *SearchService) isCurrentActive(searchID uint64) bool {
+	ss.mu.Lock()
+	ok := ss.curID == searchID && ss.active
+	ss.mu.Unlock()
+	return ok
+}
+
+func (ss *SearchService) finishSearch(searchID uint64) bool {
+	ss.mu.Lock()
+	ok := ss.curID == searchID && ss.active
+	if ok {
+		ss.active = false
+		ss.cancel = nil
+	}
+	ss.mu.Unlock()
+	return ok
+}
+
+// CancelSearch cancels any currently running search immediately and notifies the frontend.
+func (ss *SearchService) CancelSearch() bool {
+	return ss.cancelActive(true)
 }
 
 // StartSearch validates inputs synchronously, cancels any prior running search, and launches
 // a background streaming search that emits "search:batch", "search:progress", and "search:complete".
 func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
+	ss.mu.Lock()
+	searchID := req.SearchID
+	if searchID == 0 {
+		searchID = ss.seq.Add(1)
+	} else {
+		for {
+			cur := ss.seq.Load()
+			if cur >= searchID || ss.seq.CompareAndSwap(cur, searchID) {
+				break
+			}
+		}
+		if searchID < ss.curID {
+			ss.mu.Unlock()
+			return searchID, nil
+		}
+	}
+	prevCancel := ss.cancel
+	ss.cancel = nil
+	ss.active = false
+	ss.curID = searchID
+	ss.mu.Unlock()
+
+	if prevCancel != nil {
+		prevCancel()
+	}
+
 	activeDicts, activeInfos, extraDefDicts, cfg, release := ss.state.SnapshotSearchDicts()
 	released := false
 	defer func() {
@@ -251,18 +312,14 @@ func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ss.mu.Lock()
-	searchID := req.SearchID
-	if searchID == 0 {
-		searchID = ss.seq.Add(1)
+	if ss.curID != searchID {
+		ss.mu.Unlock()
+		cancel()
+		return searchID, nil
 	}
-	prevCancel := ss.cancel
 	ss.cancel = cancel
-	ss.curID = searchID
+	ss.active = true
 	ss.mu.Unlock()
-
-	if prevCancel != nil {
-		prevCancel()
-	}
 
 	bridge := ss.state.Bridge()
 	released = true
@@ -296,11 +353,13 @@ func (ss *SearchService) runSearchWorker(
 	}()
 
 	if len(sReq.Dictionaries) == 0 {
-		bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
-			SearchID:    searchID,
-			ElapsedMs:   0,
-			ActiveDicts: activeInfos,
-		})
+		if ss.finishSearch(searchID) {
+			bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
+				SearchID:    searchID,
+				ElapsedMs:   0,
+				ActiveDicts: activeInfos,
+			})
+		}
 		return
 	}
 
@@ -317,10 +376,12 @@ func (ss *SearchService) runSearchWorker(
 				if ctx.Err() != nil {
 					return
 				}
-				bridge.EmitEvent(EventSearchError, SearchErrorEvent{
-					SearchID: searchID,
-					Message:  err.Error(),
-				})
+				if ss.finishSearch(searchID) {
+					bridge.EmitEvent(EventSearchError, SearchErrorEvent{
+						SearchID: searchID,
+						Message:  err.Error(),
+					})
+				}
 				return
 			}
 			lastProg = batch.Progress
@@ -330,6 +391,9 @@ func (ss *SearchService) runSearchWorker(
 			}
 
 			if len(accMatches) >= 2500 || time.Since(lastFlush) >= 25*time.Millisecond {
+				if ctx.Err() != nil || !ss.isCurrentActive(searchID) {
+					return
+				}
 				if len(accMatches) > 0 {
 					bridge.EmitEvent(EventSearchBatch, SearchBatchEvent{
 						SearchID: searchID,
@@ -347,7 +411,7 @@ func (ss *SearchService) runSearchWorker(
 			}
 		}
 
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || !ss.isCurrentActive(searchID) {
 			return
 		}
 		if len(accMatches) > 0 {
@@ -357,15 +421,17 @@ func (ss *SearchService) runSearchWorker(
 				Progress: lastProg,
 			})
 		}
-		bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
-			SearchID:            searchID,
-			TotalMatches:        totalMatches,
-			WordsScanned:        lastProg.WordsScanned,
-			TotalCandidateWords: lastProg.TotalCandidateWords,
-			ElapsedMs:           float64(time.Since(start).Microseconds()) / 1000.0,
-			UsedIndexedFTS:      usedIndexedFTS,
-			ActiveDicts:         activeInfos,
-		})
+		if ss.finishSearch(searchID) {
+			bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
+				SearchID:            searchID,
+				TotalMatches:        totalMatches,
+				WordsScanned:        lastProg.WordsScanned,
+				TotalCandidateWords: lastProg.TotalCandidateWords,
+				ElapsedMs:           float64(time.Since(start).Microseconds()) / 1000.0,
+				UsedIndexedFTS:      usedIndexedFTS,
+				ActiveDicts:         activeInfos,
+			})
+		}
 		return
 	}
 
@@ -383,10 +449,12 @@ func (ss *SearchService) runSearchWorker(
 			if ctx.Err() != nil {
 				return
 			}
-			bridge.EmitEvent(EventSearchError, SearchErrorEvent{
-				SearchID: searchID,
-				Message:  err.Error(),
-			})
+			if ss.finishSearch(searchID) {
+				bridge.EmitEvent(EventSearchError, SearchErrorEvent{
+					SearchID: searchID,
+					Message:  err.Error(),
+				})
+			}
 			return
 		}
 		lastProg = batch.Progress
@@ -394,6 +462,9 @@ func (ss *SearchService) runSearchWorker(
 			allMatches = append(allMatches, batch.Matches...)
 		}
 		if time.Since(lastProgressEmit) >= 25*time.Millisecond {
+			if ctx.Err() != nil || !ss.isCurrentActive(searchID) {
+				return
+			}
 			bridge.EmitEvent(EventSearchProgress, SearchProgressEvent{
 				SearchID: searchID,
 				Progress: lastProg,
@@ -401,7 +472,7 @@ func (ss *SearchService) runSearchWorker(
 			lastProgressEmit = time.Now()
 		}
 	}
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || !ss.isCurrentActive(searchID) {
 		return
 	}
 
@@ -412,7 +483,7 @@ func (ss *SearchService) runSearchWorker(
 
 	const emitChunk = 5000
 	for off := 0; off < len(allMatches); off += emitChunk {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || !ss.isCurrentActive(searchID) {
 			return
 		}
 		end := min(off+emitChunk, len(allMatches))
@@ -423,13 +494,15 @@ func (ss *SearchService) runSearchWorker(
 		})
 	}
 
-	bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
-		SearchID:            searchID,
-		TotalMatches:        len(allMatches),
-		WordsScanned:        lastProg.WordsScanned,
-		TotalCandidateWords: lastProg.TotalCandidateWords,
-		ElapsedMs:           float64(time.Since(start).Microseconds()) / 1000.0,
-		UsedIndexedFTS:      usedIndexedFTS,
-		ActiveDicts:         activeInfos,
-	})
+	if ss.finishSearch(searchID) {
+		bridge.EmitEvent(EventSearchComplete, SearchCompleteEvent{
+			SearchID:            searchID,
+			TotalMatches:        len(allMatches),
+			WordsScanned:        lastProg.WordsScanned,
+			TotalCandidateWords: lastProg.TotalCandidateWords,
+			ElapsedMs:           float64(time.Since(start).Microseconds()) / 1000.0,
+			UsedIndexedFTS:      usedIndexedFTS,
+			ActiveDicts:         activeInfos,
+		})
+	}
 }

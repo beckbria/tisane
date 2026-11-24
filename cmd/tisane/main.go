@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -306,7 +307,7 @@ func buildAppMenu(
 }
 
 func main() {
-	cfgPath := os.Getenv("TISANE_CONFIG")
+	cfgPath := strings.TrimSpace(os.Getenv("TISANE_CONFIG"))
 	state, err := app.NewState(cfgPath, nil)
 	if err != nil {
 		log.Fatalf("tisane: failed to initialize state: %v", err)

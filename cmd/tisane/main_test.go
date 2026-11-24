@@ -3,8 +3,10 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -91,6 +93,19 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 	slices.Sort(actualFQNs)
 	if !slices.Equal(actualFQNs, wantSorted) {
 		t.Fatalf("bound service FQN mismatch:\n got: %v\nwant: %v", actualFQNs, wantSorted)
+	}
+
+	// Verify 1-to-1 parity against Call.ByName(...) FQNs in frontend/src/lib/bindings.ts.
+	bindingsTS, err := os.ReadFile(filepath.Join("frontend", "src", "lib", "bindings.ts"))
+	if err != nil {
+		t.Fatalf("ReadFile(bindings.ts): %v", err)
+	}
+	fqnRe := regexp.MustCompile(`tisane/cmd/tisane/app\.[A-Za-z0-9_]+\.[A-Za-z0-9_]+`)
+	tsMatches := fqnRe.FindAllString(string(bindingsTS), -1)
+	slices.Sort(tsMatches)
+	tsFQNs := slices.Compact(tsMatches)
+	if !slices.Equal(tsFQNs, actualFQNs) {
+		t.Fatalf("frontend bindings.ts FQN drift:\nbindings.ts: %v\nGo services: %v", tsFQNs, actualFQNs)
 	}
 
 	// Verify embedded Svelte 5 dist bundle serves index.html
