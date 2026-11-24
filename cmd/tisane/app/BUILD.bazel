@@ -16,6 +16,7 @@ go_library(
     importpath = "tisane/cmd/tisane/app",
     visibility = ["//visibility:public"],
     deps = [
+        "//internal/fsutil",
         "//pkg/lookup",
         "//pkg/pattern",
         "//pkg/profile",

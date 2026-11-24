@@ -379,12 +379,42 @@ func writeFileAtomic(outputPath string, writeFn func(*os.File) error) error {
 	return fsutil.WritePublicFile(outputPath, writeFn)
 }
 
+// MaxBuildInputBytes caps plain-text source files read into memory by BuildFile (512 MiB).
+const MaxBuildInputBytes = 512 << 20
+
+func readBoundedSourceFile(inputPath string) ([]byte, error) {
+	f, err := os.Open(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("read input %q: %w", inputPath, err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat input %q: %w", inputPath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("input %q is not a regular file", inputPath)
+	}
+	if info.Size() > MaxBuildInputBytes {
+		return nil, fmt.Errorf("input %q exceeds maximum size (%d MiB)", inputPath, MaxBuildInputBytes>>20)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, MaxBuildInputBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read input %q: %w", inputPath, err)
+	}
+	if int64(len(data)) > MaxBuildInputBytes {
+		return nil, fmt.Errorf("input %q exceeds maximum size (%d MiB)", inputPath, MaxBuildInputBytes>>20)
+	}
+	return data, nil
+}
+
 // BuildFile reads a .txt source file from inputPath, compiles a TSD1 dictionary with opts,
 // and writes the resulting .tsd file atomically to outputPath.
 func BuildFile(inputPath, outputPath string, opts BuildOptions) (*BuildStats, error) {
-	inData, err := os.ReadFile(inputPath)
+	inData, err := readBoundedSourceFile(inputPath)
 	if err != nil {
-		return nil, fmt.Errorf("read input %q: %w", inputPath, err)
+		return nil, err
 	}
 	outBytes, stats, err := BuildBytes(inData, opts)
 	if err != nil {

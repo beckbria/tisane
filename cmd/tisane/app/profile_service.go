@@ -154,6 +154,9 @@ func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error
 // When resetDictionaries is true, all currently loaded dictionaries are closed and cleared before
 // re-discovering default dictionaries from the executable directory and dictionaries subdirectory.
 func (ps *ProfileService) ResetConfig(resetDictionaries bool) (profile.Config, error) {
+	if err := ps.state.checkHostIOAllowed("resetting server configuration"); err != nil {
+		return ps.GetConfig(), err
+	}
 	ps.state.mu.Lock()
 	err := ps.state.resetLocked(resetDictionaries)
 	infos := ps.state.listInfosLocked()

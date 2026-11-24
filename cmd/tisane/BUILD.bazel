@@ -27,7 +27,11 @@ windows_syso(
 
 go_library(
     name = "tisane_lib",
-    srcs = ["main.go"] + select({
+    srcs = [
+        "main.go",
+        "mode_default.go",
+        "mode_server.go",
+    ] + select({
         "@rules_go//go/platform:windows_amd64": [":tisane_rsrc_windows_amd64"],
         "//conditions:default": [],
     }),  # keep

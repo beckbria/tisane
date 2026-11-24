@@ -204,3 +204,24 @@ func TestRTFSafetyLinkifierSpeedSubstream2AndURLValidation(t *testing.T) {
 		t.Fatalf("expected fallback to direct definition of 'march', got %+v", marchRes.Entries)
 	}
 }
+
+func TestBuildWebURLHardening(t *testing.T) {
+	badTemplates := []string{
+		"https://{entry}/wiki",
+		"https://{entry}.example.com/search",
+		"https://{entry}",
+		"https://user:pass@example.com/?q={entry}",
+		"https://example.com/?q={entry}&bad=\"quote\"",
+		"https://example.com/?q={entry}\u202E",
+	}
+	for _, tmpl := range badTemplates {
+		if got := lookup.BuildWebURL(tmpl, "127.0.0.1:8080"); got != "" {
+			t.Fatalf("BuildWebURL(%q) = %q, want empty", tmpl, got)
+		}
+	}
+
+	got := lookup.BuildWebURL("https://en.wiktionary.org/wiki/{entry}", `a"b c:d`)
+	if got == "" || strings.ContainsAny(got, `" `) {
+		t.Fatalf("unexpected escaped URL %q", got)
+	}
+}

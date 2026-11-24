@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode"
 
 	"tisane/pkg/tsd"
 )
@@ -37,14 +38,48 @@ func DefaultWebProviders() []WebProvider {
 	}
 }
 
+func containsUnsafeURLRune(s string) bool {
+	for _, r := range s {
+		if r <= 0x20 || r == 0x7F || unicode.IsSpace(r) || unicode.IsControl(r) {
+			return true
+		}
+		switch r {
+		case '"', '\'', '\\', '<', '>', '`', '|', ';', '$':
+			return true
+		}
+		if (r >= 0x200B && r <= 0x200F) ||
+			(r >= 0x2028 && r <= 0x202F) ||
+			(r >= 0x2060 && r <= 0x206F) ||
+			r == 0xFEFF ||
+			(r >= 0xFFF0 && r <= 0xFFFF) {
+			return true
+		}
+	}
+	return false
+}
+
 // BuildWebURL substitutes "{entry}" in urlTemplate with the properly escaped word.
 // Query-parameter templates (after '?') use url.QueryEscape; URL path segments use url.PathEscape.
-// Returns "" if the resulting URL does not use http or https with a non-empty host.
+// Returns "" if the template places "{entry}" inside the scheme/authority or if the resulting URL
+// is not a safe http/https URL with a non-empty host.
 func BuildWebURL(urlTemplate, word string) string {
 	tmpl := strings.TrimSpace(urlTemplate)
 	if tmpl == "" {
 		return ""
 	}
+	schemeIdx := strings.Index(tmpl, "://")
+	if schemeIdx <= 0 {
+		return ""
+	}
+	rest := tmpl[schemeIdx+3:]
+	authEnd := len(rest)
+	if cut := strings.IndexAny(rest, "/?#"); cut >= 0 {
+		authEnd = cut
+	}
+	if strings.Contains(tmpl[:schemeIdx+3+authEnd], "{entry}") {
+		return ""
+	}
+
 	trimmed := strings.TrimSpace(word)
 	var built string
 	if !strings.Contains(tmpl, "{entry}") {
@@ -70,6 +105,9 @@ func BuildWebURL(urlTemplate, word string) string {
 		}
 	}
 
+	if containsUnsafeURLRune(built) {
+		return ""
+	}
 	parsed, err := url.Parse(built)
 	if err != nil || parsed.Host == "" || parsed.User != nil {
 		return ""
@@ -78,7 +116,7 @@ func BuildWebURL(urlTemplate, word string) string {
 	if scheme != "http" && scheme != "https" {
 		return ""
 	}
-	return built
+	return parsed.String()
 }
 
 // BuildWebLinks resolves all configured WebProviders with valid http/https URLs for word.

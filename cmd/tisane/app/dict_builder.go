@@ -45,11 +45,17 @@ type BuildDictionaryResult struct {
 
 // BrowseWordListFile opens the native OS file picker for selecting a source word list file.
 func (ts *ToolsService) BrowseWordListFile() (string, error) {
+	if err := ts.state.checkHostIOAllowed("browsing host files"); err != nil {
+		return "", err
+	}
 	return ts.state.Bridge().PickWordListFile()
 }
 
 // BrowseSaveDictionaryFile opens the native OS save dialog for choosing the output .tsd file path.
 func (ts *ToolsService) BrowseSaveDictionaryFile(defaultPath string) (string, error) {
+	if err := ts.state.checkHostIOAllowed("browsing host save paths"); err != nil {
+		return "", err
+	}
 	defaultDir, defaultName := splitDefaultSaveTarget(defaultPath, "dictionary.tsd")
 	chosen, err := ts.state.Bridge().PickSaveDictionaryFile(defaultDir, defaultName)
 	if err != nil || strings.TrimSpace(chosen) == "" {
@@ -63,12 +69,18 @@ func (ts *ToolsService) BrowseSaveDictionaryFile(defaultPath string) (string, er
 
 // BrowseAlphabetMapFile opens the native OS file picker for selecting an optional .tsm alphabet map file.
 func (ts *ToolsService) BrowseAlphabetMapFile() (string, error) {
+	if err := ts.state.checkHostIOAllowed("browsing host files"); err != nil {
+		return "", err
+	}
 	return ts.state.Bridge().PickAlphabetMapFile()
 }
 
 // BuildDictionary compiles a word/definition list file into a .tsd dictionary using the
 // shared pkg/tsd builder logic, optionally registering or reloading the output in Tisane.
 func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionaryRequest) (*BuildDictionaryResult, error) {
+	if err := ts.state.checkHostIOAllowed("building dictionaries on the server host"); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -83,6 +95,9 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 	}
 	if !inInfo.Mode().IsRegular() {
 		return nil, fmt.Errorf("input word list %q is not a regular file", inputPath)
+	}
+	if inInfo.Size() > tsd.MaxBuildInputBytes {
+		return nil, fmt.Errorf("input word list %q exceeds maximum size (%d MiB)", inputPath, tsd.MaxBuildInputBytes>>20)
 	}
 
 	mapPath := strings.TrimSpace(req.MapPath)
@@ -103,6 +118,9 @@ func (ts *ToolsService) BuildDictionary(ctx context.Context, req BuildDictionary
 	}
 	if outputPath == "" {
 		return nil, fmt.Errorf("output dictionary path is required")
+	}
+	if ts.state.IsConfigPath(outputPath) {
+		return nil, fmt.Errorf("output dictionary path %q cannot overwrite application configuration", outputPath)
 	}
 
 	absOut, err := filepath.Abs(outputPath)

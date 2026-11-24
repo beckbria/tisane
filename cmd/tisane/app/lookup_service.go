@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode"
 
 	"tisane/pkg/lookup"
 )
@@ -34,6 +35,9 @@ func (ls *LookupService) GetDefinitions(ctx context.Context, word string, includ
 // OpenWebLookup builds the external lookup URL for word using providerID (or the profile's default provider)
 // and launches it in the user's system browser via Wails Browser.OpenURL.
 func (ls *LookupService) OpenWebLookup(word string, providerID string) (string, error) {
+	if err := ls.state.checkHostIOAllowed("opening external web lookups on the server host"); err != nil {
+		return "", err
+	}
 	_, cfg, release := ls.state.SnapshotAllDicts()
 	release()
 	providers := cfg.WebProviders
@@ -74,6 +78,9 @@ func (ls *LookupService) OpenWebLookup(word string, providerID string) (string, 
 
 // OpenExternalURL safely validates that rawURL uses http, https, or mailto before opening it in the system browser.
 func (ls *LookupService) OpenExternalURL(rawURL string) error {
+	if err := ls.state.checkHostIOAllowed("opening external URLs on the server host"); err != nil {
+		return err
+	}
 	validated, err := validateExternalURL(rawURL, true)
 	if err != nil {
 		return err
@@ -81,20 +88,63 @@ func (ls *LookupService) OpenExternalURL(rawURL string) error {
 	return ls.state.Bridge().OpenURL(validated)
 }
 
+func hasForbiddenURLCharacters(s string) bool {
+	for _, r := range s {
+		if r <= 0x20 || r == 0x7F || unicode.IsSpace(r) || unicode.IsControl(r) {
+			return true
+		}
+		switch r {
+		case '"', '\'', '\\', '<', '>', '`', '|', ';', '$':
+			return true
+		}
+		if (r >= 0x200B && r <= 0x200F) ||
+			(r >= 0x2028 && r <= 0x202F) ||
+			(r >= 0x2060 && r <= 0x206F) ||
+			r == 0xFEFF ||
+			(r >= 0xFFF0 && r <= 0xFFFF) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateExternalURL(rawURL string, allowMailto bool) (string, error) {
-	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return "", fmt.Errorf("URL cannot be empty")
+	}
+	if hasForbiddenURLCharacters(trimmed) {
+		return "", fmt.Errorf("URL contains forbidden whitespace, control, or quote characters")
+	}
+
+	parsed, err := url.Parse(trimmed)
 	if err != nil {
 		return "", fmt.Errorf("invalid URL: %w", err)
 	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("URL must not include userinfo credentials")
+	}
+
 	switch strings.ToLower(parsed.Scheme) {
 	case "http", "https":
 		if parsed.Host == "" {
 			return "", fmt.Errorf("URL must include a host")
 		}
-		return parsed.String(), nil
+		out := parsed.String()
+		if hasForbiddenURLCharacters(out) {
+			return "", fmt.Errorf("URL contains forbidden characters")
+		}
+		return out, nil
 	case "mailto":
 		if allowMailto {
-			return parsed.String(), nil
+			if parsed.Host != "" || strings.TrimSpace(parsed.Opaque) == "" {
+				return "", fmt.Errorf("mailto URL must specify a recipient without a host authority")
+			}
+			out := parsed.String()
+			if hasForbiddenURLCharacters(out) {
+				return "", fmt.Errorf("mailto URL contains forbidden characters")
+			}
+			return out, nil
 		}
 	}
 	if allowMailto {
@@ -108,9 +158,14 @@ func validateWebProviderURLTemplate(tmpl string) error {
 	if trimmed == "" {
 		return fmt.Errorf("web provider URL template cannot be empty")
 	}
-	sample := lookup.BuildWebURL(trimmed, "test")
-	if _, err := validateExternalURL(sample, false); err != nil {
-		return fmt.Errorf("invalid web provider URL template %q: %w", tmpl, err)
+	for _, probe := range []string{"test", "a:b"} {
+		sample := lookup.BuildWebURL(trimmed, probe)
+		if sample == "" {
+			return fmt.Errorf("invalid web provider URL template %q: must use http/https with {entry} in path or query", tmpl)
+		}
+		if _, err := validateExternalURL(sample, false); err != nil {
+			return fmt.Errorf("invalid web provider URL template %q: %w", tmpl, err)
+		}
 	}
 	return nil
 }

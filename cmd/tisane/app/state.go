@@ -10,10 +10,21 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"tisane/internal/fsutil"
 	"tisane/pkg/lookup"
 	"tisane/pkg/profile"
 	"tisane/pkg/tsd"
 )
+
+// EnvServerAllowHostIO opts headless "-tags server" deployments into allowing host
+// filesystem mutations and server-side browser launches ("1" or "true").
+const EnvServerAllowHostIO = "TISANE_SERVER_ALLOW_HOST_IO"
+
+// ServerHostIOAllowedFromEnv reports whether TISANE_SERVER_ALLOW_HOST_IO explicitly enables host I/O.
+func ServerHostIOAllowedFromEnv() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(EnvServerAllowHostIO)))
+	return v == "1" || v == "true" || v == "yes"
+}
 
 // HostBridge abstracts OS/Wails runtime operations (events, browser URL launching, native file dialogs)
 // so all desktop services can be unit-tested deterministically without a GUI display.
@@ -76,11 +87,12 @@ func (ld *loadedDict) release() error {
 
 // State manages shared configuration and open *tsd.Dictionary handles across all bound services.
 type State struct {
-	mu      sync.RWMutex
-	cfg     *profile.Config
-	cfgPath string
-	dicts   []*loadedDict
-	bridge  HostBridge
+	mu             sync.RWMutex
+	cfg            *profile.Config
+	cfgPath        string
+	dicts          []*loadedDict
+	bridge         HostBridge
+	restrictHostIO bool
 }
 
 // NewState initializes desktop application state from cfgPath (or DefaultConfigPath if empty),
@@ -172,6 +184,58 @@ func (s *State) Bridge() HostBridge {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.bridge
+}
+
+// SetRestrictHostIO configures whether host file-mutation and server-side browser launch RPCs
+// are blocked (enabled by default in "-tags server" builds unless TISANE_SERVER_ALLOW_HOST_IO=1).
+func (s *State) SetRestrictHostIO(restrict bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.restrictHostIO = restrict
+}
+
+func (s *State) checkHostIOAllowed(action string) error {
+	s.mu.RLock()
+	restricted := s.restrictHostIO
+	s.mu.RUnlock()
+	if restricted {
+		return fmt.Errorf("%s is disabled in headless server mode (set %s=1 to allow)", action, EnvServerAllowHostIO)
+	}
+	return nil
+}
+
+func pathsReferToSameTarget(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if fsutil.SameFileOrClean(a, b) {
+		return true
+	}
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	return errA == nil && errB == nil && filepath.Clean(absA) == filepath.Clean(absB)
+}
+
+// IsConfigPath reports whether target refers to the active config.toml file.
+func (s *State) IsConfigPath(target string) bool {
+	s.mu.RLock()
+	cfgPath := s.cfgPath
+	s.mu.RUnlock()
+	return pathsReferToSameTarget(target, cfgPath)
+}
+
+// HasOpenDictionaryAt reports whether target refers to any currently registered .tsd dictionary.
+func (s *State) HasOpenDictionaryAt(target string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, ld := range s.dicts {
+		if pathsReferToSameTarget(target, ld.info.Path) {
+			return true
+		}
+	}
+	return false
 }
 
 // Close releases all registered .tsd file handles cleanly on shutdown.

@@ -36,6 +36,9 @@ type MergeWordListsResult struct {
 
 // BrowseSaveWordListFile opens the native OS save dialog for choosing the output .txt word list path.
 func (ts *ToolsService) BrowseSaveWordListFile(defaultPath string) (string, error) {
+	if err := ts.state.checkHostIOAllowed("browsing host save paths"); err != nil {
+		return "", err
+	}
 	defaultDir, defaultName := splitDefaultSaveTarget(defaultPath, "merged.txt")
 	chosen, err := ts.state.Bridge().PickSaveWordListFile(defaultDir, defaultName)
 	if err != nil || strings.TrimSpace(chosen) == "" {
@@ -49,6 +52,9 @@ func (ts *ToolsService) BrowseSaveWordListFile(defaultPath string) (string, erro
 
 // MergeWordLists converts and merges two word lists using the shared pkg/wordlist logic.
 func (ts *ToolsService) MergeWordLists(ctx context.Context, req MergeWordListsRequest) (*MergeWordListsResult, error) {
+	if err := ts.state.checkHostIOAllowed("merging host word list files"); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -64,6 +70,12 @@ func (ts *ToolsService) MergeWordLists(ctx context.Context, req MergeWordListsRe
 	outputPath := strings.TrimSpace(req.OutputPath)
 	if outputPath == "" {
 		return nil, fmt.Errorf("output word list file is required")
+	}
+	if ts.state.IsConfigPath(outputPath) {
+		return nil, fmt.Errorf("output word list path %q cannot overwrite application configuration", outputPath)
+	}
+	if ts.state.HasOpenDictionaryAt(outputPath) {
+		return nil, fmt.Errorf("output word list path %q cannot overwrite a loaded dictionary", outputPath)
 	}
 
 	params := wordlist.MergeParams{

@@ -2,6 +2,8 @@ package tsd_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,5 +103,27 @@ func TestBuilderEmptyInput(t *testing.T) {
 	defer d.Close()
 	if d.TotalWords() != 0 || d.MaxWordLength() != 0 || d.HasDefinitions() {
 		t.Fatalf("unexpected empty dictionary properties")
+	}
+}
+
+func TestBuildFileRejectsDirectoryAndOversizedInput(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "out.tsd")
+
+	if _, err := tsd.BuildFile(dir, outPath, tsd.DefaultBuildOptions()); err == nil {
+		t.Fatal("expected BuildFile to reject directory input")
+	}
+
+	sparse := filepath.Join(dir, "huge.txt")
+	f, err := os.Create(sparse)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	_ = f.Close()
+	if err := os.Truncate(sparse, tsd.MaxBuildInputBytes+1); err != nil {
+		t.Skipf("os.Truncate sparse file unsupported: %v", err)
+	}
+	if _, err := tsd.BuildFile(sparse, outPath, tsd.DefaultBuildOptions()); err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("expected BuildFile size-limit error, got %v", err)
 	}
 }

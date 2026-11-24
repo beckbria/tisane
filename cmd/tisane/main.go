@@ -32,8 +32,12 @@ func (b *wailsHostBridge) EmitEvent(name string, data any) {
 }
 
 func (b *wailsHostBridge) OpenURL(url string) error {
+	sanitized, err := application.ValidateAndSanitizeURL(url)
+	if err != nil {
+		return err
+	}
 	if b.wailsApp != nil && b.wailsApp.Browser != nil {
-		return b.wailsApp.Browser.OpenURL(url)
+		return b.wailsApp.Browser.OpenURL(sanitized)
 	}
 	return nil
 }
@@ -306,6 +310,9 @@ func main() {
 	state, err := app.NewState(cfgPath, nil)
 	if err != nil {
 		log.Fatalf("tisane: failed to initialize state: %v", err)
+	}
+	if serverModeBuild && !app.ServerHostIOAllowedFromEnv() {
+		state.SetRestrictHostIO(true)
 	}
 
 	dictSvc, _, searchSvc, _, profileSvc, services := newServices(state)

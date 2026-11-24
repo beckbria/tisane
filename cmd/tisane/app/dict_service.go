@@ -95,6 +95,9 @@ func (ds *DictionaryService) addDictionaryPaths(paths []string) ([]DictionaryInf
 
 // BrowseAndAddDictionaries opens the native OS file picker for *.tsd files and registers chosen dictionaries.
 func (ds *DictionaryService) BrowseAndAddDictionaries(ctx context.Context) ([]DictionaryInfo, error) {
+	if err := ds.state.checkHostIOAllowed("adding host dictionaries"); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -113,6 +116,9 @@ func (ds *DictionaryService) BrowseAndAddDictionaries(ctx context.Context) ([]Di
 
 // BrowseAndAddDirectory opens the native OS directory picker and registers all *.tsd files in that directory.
 func (ds *DictionaryService) BrowseAndAddDirectory(ctx context.Context) ([]DictionaryInfo, error) {
+	if err := ds.state.checkHostIOAllowed("scanning host dictionary directories"); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -146,6 +152,9 @@ func (ds *DictionaryService) scanDirectory(ctx context.Context, dir string) ([]D
 // RemoveDictionary unregisters dictionary id from the profile and releases State's reference
 // so the underlying file handle closes once any in-flight searches or lookups finish.
 func (ds *DictionaryService) RemoveDictionary(id string) ([]DictionaryInfo, error) {
+	if err := ds.state.checkHostIOAllowed("removing configured dictionaries"); err != nil {
+		return nil, err
+	}
 	ds.state.mu.Lock()
 	idx := ds.state.findIndexLocked(id)
 	if idx < 0 {

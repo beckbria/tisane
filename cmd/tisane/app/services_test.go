@@ -41,7 +41,7 @@ type mockBridge struct {
 
 func newMockBridge() *mockBridge {
 	return &mockBridge{
-		completeCh: make(chan app.SearchCompleteEvent, 8),
+		completeCh: make(chan app.SearchCompleteEvent, 64),
 	}
 }
 
@@ -49,9 +49,12 @@ func (m *mockBridge) EmitEvent(name string, data any) {
 	m.mu.Lock()
 	m.events = append(m.events, recordedEvent{name: name, data: data})
 	m.mu.Unlock()
-	if name == "search:complete" {
+	if name == app.EventSearchComplete {
 		if ev, ok := data.(app.SearchCompleteEvent); ok {
-			m.completeCh <- ev
+			select {
+			case m.completeCh <- ev:
+			default:
+			}
 		}
 	}
 }
@@ -999,4 +1002,112 @@ func TestConcurrentSearchLookupRemoveAndRebuild(t *testing.T) {
 
 	wg.Wait()
 	app.ShutdownSearch(searchSvc)
+}
+
+func TestSecurityURLValidationAndServerModeGuards(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.toml")
+	dictPath := filepath.Join(tmpDir, "test.tsd")
+	srcPath := filepath.Join(tmpDir, "words.txt")
+	if err := os.WriteFile(srcPath, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := tsd.BuildFile(srcPath, dictPath, tsd.DefaultBuildOptions()); err != nil {
+		t.Fatalf("BuildFile: %v", err)
+	}
+
+	bridge := newMockBridge()
+	bridge.picked = []string{dictPath}
+	state, err := app.NewState(cfgPath, bridge)
+	if err != nil {
+		t.Fatalf("NewState: %v", err)
+	}
+	defer state.Close()
+
+	dictSvc := app.NewDictionaryService(state)
+	toolsSvc := app.NewToolsService(state)
+	lookupSvc := app.NewLookupService(state)
+	profileSvc := app.NewProfileService(state)
+
+	if _, err := dictSvc.BrowseAndAddDictionaries(context.Background()); err != nil {
+		t.Fatalf("BrowseAndAddDictionaries: %v", err)
+	}
+
+	// 1. External URL validation blocks quote/flag injection, userinfo, NBSP, bidi, and bad mailto.
+	badURLs := []string{
+		`mailto:user@example.com" --gpu-launcher="calc.exe`,
+		`mailto:`,
+		`mailto://evil.example/user@example.com`,
+		`https://example.com/?q=1" --evil`,
+		`https://en.wiktionary.org@evil.example/wiki/cat`,
+		"https://example.com/a\u00A0b",
+		"https://example.com/\u202Eevil",
+	}
+	for _, u := range badURLs {
+		if err := lookupSvc.OpenExternalURL(u); err == nil {
+			t.Fatalf("OpenExternalURL(%q) succeeded, expected rejection", u)
+		}
+	}
+	if err := lookupSvc.OpenExternalURL("mailto:editor@example.com?subject=clue"); err != nil {
+		t.Fatalf("expected valid mailto to succeed, got %v", err)
+	}
+
+	// 2. WebProvider template rejects {entry} inside URL authority.
+	if _, err := profileSvc.UpdateConfig(app.ConfigPatch{
+		WebProviders: []lookup.WebProvider{
+			{ID: "bad", Name: "Bad", URLTemplate: "https://{entry}/wiki"},
+		},
+	}); err == nil {
+		t.Fatal("expected UpdateConfig to reject {entry} inside host authority")
+	}
+
+	// 3. ToolsService blocks overwriting config.toml and loaded dictionaries.
+	if _, err := toolsSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
+		InputPath:  srcPath,
+		OutputPath: cfgPath,
+	}); err == nil {
+		t.Fatal("expected BuildDictionary to reject overwriting config.toml")
+	}
+	if _, err := toolsSvc.MergeWordLists(context.Background(), app.MergeWordListsRequest{
+		PrimaryPath:   srcPath,
+		SecondaryPath: srcPath,
+		OutputPath:    cfgPath,
+	}); err == nil {
+		t.Fatal("expected MergeWordLists to reject overwriting config.toml")
+	}
+	if _, err := toolsSvc.MergeWordLists(context.Background(), app.MergeWordListsRequest{
+		PrimaryPath:   srcPath,
+		SecondaryPath: srcPath,
+		OutputPath:    dictPath,
+	}); err == nil {
+		t.Fatal("expected MergeWordLists to reject overwriting open .tsd dictionary")
+	}
+
+	// 4. Server-mode host I/O restriction blocks mutating/host-spawning RPCs while keeping lookups working.
+	state.SetRestrictHostIO(true)
+	if _, err := toolsSvc.BuildDictionary(context.Background(), app.BuildDictionaryRequest{
+		InputPath:  srcPath,
+		OutputPath: filepath.Join(tmpDir, "other.tsd"),
+	}); err == nil || !strings.Contains(err.Error(), app.EnvServerAllowHostIO) {
+		t.Fatalf("expected server-mode block on BuildDictionary, got %v", err)
+	}
+	if _, err := toolsSvc.MergeWordLists(context.Background(), app.MergeWordListsRequest{
+		PrimaryPath:   srcPath,
+		SecondaryPath: srcPath,
+		OutputPath:    filepath.Join(tmpDir, "merged.txt"),
+	}); err == nil || !strings.Contains(err.Error(), app.EnvServerAllowHostIO) {
+		t.Fatalf("expected server-mode block on MergeWordLists, got %v", err)
+	}
+	if err := lookupSvc.OpenExternalURL("https://example.com"); err == nil {
+		t.Fatal("expected server-mode block on OpenExternalURL")
+	}
+	if _, err := lookupSvc.OpenWebLookup("alpha", ""); err == nil {
+		t.Fatal("expected server-mode block on OpenWebLookup")
+	}
+	if _, err := profileSvc.ResetConfig(false); err == nil {
+		t.Fatal("expected server-mode block on ResetConfig")
+	}
+	if _, err := lookupSvc.GetDefinitions(context.Background(), "alpha", false); err != nil {
+		t.Fatalf("expected read-only GetDefinitions to succeed in server mode: %v", err)
+	}
 }
