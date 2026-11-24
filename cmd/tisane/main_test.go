@@ -77,6 +77,11 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 		}
 	}
 
+	// Internal helpers must not be exposed as Wails RPC methods.
+	if bm := bindings.Get(&application.CallOptions{MethodName: "tisane/cmd/tisane/app.SearchService.RecordQueryAsync"}); bm != nil {
+		t.Errorf("unexpectedly bound internal helper method: %s", bm.Name)
+	}
+
 	// Verify embedded Svelte 5 dist bundle serves index.html
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()

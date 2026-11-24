@@ -230,8 +230,6 @@ func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
 		Limit:                   req.Limit,
 	}
 
-	ss.RecordQueryAsync(req.Query)
-
 	searchID := ss.seq.Add(1)
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -248,7 +246,7 @@ func (ss *SearchService) StartSearch(req SearchRequest) (uint64, error) {
 	return searchID, nil
 }
 
-func (ss *SearchService) RecordQueryAsync(q string) {
+func (ss *SearchService) recordQuery(q string) {
 	ss.state.RecordRecentQuery(q)
 }
 
@@ -260,6 +258,7 @@ func (ss *SearchService) runSearchWorker(
 	bridge HostBridge,
 ) {
 	start := time.Now()
+	ss.recordQuery(sReq.Query)
 	defer func() {
 		ss.mu.Lock()
 		if ss.curID == searchID {
