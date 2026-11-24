@@ -127,10 +127,22 @@ func parseCLIArgs(args []string, base cliOptions) (cliOptions, error) {
 		return args[*i], nil
 	}
 
+	parseOptBool := func(hasEq bool, i *int, currentArg, flagName string) (bool, error) {
+		if !hasEq {
+			return true, nil
+		}
+		val, _ := nextValue(i, currentArg, flagName)
+		return parseZeroOne(val, flagName)
+	}
+
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if endOfFlags {
-			opts.Patterns = append(opts.Patterns, arg)
+			if opts.DefineMode {
+				opts.DefineWords = append(opts.DefineWords, arg)
+			} else {
+				opts.Patterns = append(opts.Patterns, arg)
+			}
 			continue
 		}
 		if arg == "--" {
@@ -215,15 +227,35 @@ func parseCLIArgs(args []string, base cliOptions) (cliOptions, error) {
 
 			switch name {
 			case "-h", "--help":
-				opts.ShowHelp = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.ShowHelp = b
 			case "-v", "--version":
-				opts.ShowVersion = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.ShowVersion = b
 			case "-q", "--quiet", "--quiet-banner":
-				opts.Quiet = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.Quiet = b
 			case "-i", "--interactive", "--repl":
-				opts.Interactive = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.Interactive = b
 			case "-F", "--fts", "--full-text":
-				opts.FTSMode = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.FTSMode = b
 			case "-D", "--define":
 				opts.DefineMode = true
 				if hasEq {
@@ -233,23 +265,55 @@ func parseCLIArgs(args []string, base cliOptions) (cliOptions, error) {
 					}
 				}
 			case "--mentions":
-				opts.IncludeMentions = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.IncludeMentions = b
 			case "-c", "--count":
-				opts.CountOnly = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.CountOnly = b
 			case "--stats":
-				opts.ShowStats = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.ShowStats = b
 			case "--dedupe":
-				opts.Dedupe = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.Dedupe = b
 				opts.DedupeExplicit = true
 			case "--no-dedupe":
-				opts.Dedupe = false
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.Dedupe = !b
 				opts.DedupeExplicit = true
 			case "--show-dict":
-				opts.ShowDict = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.ShowDict = b
 			case "--no-phrases":
-				opts.NoPhrases = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.NoPhrases = b
 			case "--no-proper":
-				opts.NoProper = true
+				b, err := parseOptBool(hasEq, &i, arg, name)
+				if err != nil {
+					return opts, err
+				}
+				opts.NoProper = b
 			case "-a", "--annotations":
 				if hasEq {
 					val, _ := nextValue(&i, arg, name)
@@ -433,6 +497,9 @@ func parseCLIArgs(args []string, base cliOptions) (cliOptions, error) {
 	}
 	if opts.NoProper {
 		opts.EntryFilter &^= search.EntryCapitalized
+	}
+	if (opts.NoPhrases || opts.NoProper) && opts.EntryFilter == 0 {
+		opts.EntryFilter = search.EntryNone
 	}
 	return opts, nil
 }

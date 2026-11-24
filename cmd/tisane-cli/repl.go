@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,16 +22,17 @@ import (
 const replPageSize = 40
 
 type replSession struct {
-	cfg     *profile.Config
-	cfgPath string
-	opts    cliOptions
-	dicts   []*tsd.Dictionary
-	enabled []bool
-	eng     *search.Engine
-	history []string
-	stdin   *bufio.Reader
-	stdout  io.Writer
-	stderr  io.Writer
+	cfg              *profile.Config
+	cfgPath          string
+	opts             cliOptions
+	dicts            []*tsd.Dictionary
+	enabled          []bool
+	eng              *search.Engine
+	addedQueries     []string
+	interactiveInput bool
+	stdin            *bufio.Reader
+	stdout           io.Writer
+	stderr           io.Writer
 }
 
 func runREPL(
@@ -42,23 +44,34 @@ func runREPL(
 	stdin io.Reader,
 	stdout, stderr io.Writer,
 ) int {
+	initialDictCount := len(dicts)
 	enabled := make([]bool, len(dicts))
 	for i := range enabled {
 		enabled[i] = true
 	}
 
-	s := &replSession{
-		cfg:     cfg,
-		cfgPath: cfgPath,
-		opts:    opts,
-		dicts:   dicts,
-		enabled: enabled,
-		eng:     search.NewEngine(),
-		history: append([]string(nil), cfg.RecentQueries...),
-		stdin:   bufio.NewReader(stdin),
-		stdout:  stdout,
-		stderr:  stderr,
+	interactiveIn := false
+	if f, ok := stdin.(*os.File); ok {
+		interactiveIn = isInteractiveStdin(f)
 	}
+
+	s := &replSession{
+		cfg:              cfg,
+		cfgPath:          cfgPath,
+		opts:             opts,
+		dicts:            dicts,
+		enabled:          enabled,
+		eng:              search.NewEngine(),
+		interactiveInput: interactiveIn,
+		stdin:            bufio.NewReader(stdin),
+		stdout:           stdout,
+		stderr:           stderr,
+	}
+	defer func() {
+		for _, d := range s.dicts[initialDictCount:] {
+			_ = d.Close()
+		}
+	}()
 
 	if !opts.Quiet {
 		fmt.Fprintf(stdout, "Tisane Interactive Mode (v%s) — %d dictionary(ies) loaded.\n", cliVersion, len(dicts))
@@ -67,7 +80,7 @@ func runREPL(
 
 	for {
 		if err := ctx.Err(); err != nil {
-			return 0
+			return 130
 		}
 
 		modeTag := "word"
@@ -80,19 +93,23 @@ func runREPL(
 		}
 		fmt.Fprintf(stdout, "tisane[%s%s]> ", modeTag, enumTag)
 
-		line, err := s.stdin.ReadString('\n')
-		if err != nil && len(line) == 0 {
-			if err == io.EOF {
-				fmt.Fprintln(stdout)
-				s.persistHistory()
-				return 0
-			}
+		line, err := readBoundedLine(s.stdin, maxStdinLineBytes)
+		if err != nil && !errors.Is(err, io.EOF) {
 			fmt.Fprintf(stderr, "read error: %v\n", err)
 			return 1
 		}
+		if errors.Is(err, io.EOF) && line == "" {
+			fmt.Fprintln(stdout)
+			s.persistHistory()
+			return 0
+		}
 
-		trimmed := strings.TrimSpace(strings.TrimRight(line, "\r\n"))
+		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
+			if errors.Is(err, io.EOF) {
+				s.persistHistory()
+				return 0
+			}
 			continue
 		}
 
@@ -102,13 +119,17 @@ func runREPL(
 				s.persistHistory()
 				return 0
 			}
+			if errors.Is(err, io.EOF) {
+				s.persistHistory()
+				return 0
+			}
 			continue
 		}
 
 		s.recordHistory(trimmed)
 		s.executeREPLQuery(ctx, trimmed)
 
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			s.persistHistory()
 			return 0
 		}
@@ -126,23 +147,24 @@ func (s *replSession) activeDicts() []*tsd.Dictionary {
 }
 
 func (s *replSession) recordHistory(q string) {
-	if len(s.history) > 0 && s.history[len(s.history)-1] == q {
-		return
+	if s.cfg != nil {
+		s.cfg.RecordRecentQuery(q, profile.DefaultMaxRecentQueries)
 	}
-	s.history = append(s.history, q)
-	if len(s.history) > 100 {
-		s.history = s.history[len(s.history)-100:]
-	}
+	s.addedQueries = append(s.addedQueries, q)
 }
 
 func (s *replSession) persistHistory() {
-	if s.cfg == nil || s.cfgPath == "" {
+	if s.cfg == nil || s.cfgPath == "" || len(s.addedQueries) == 0 {
 		return
 	}
-	if _, err := os.Stat(s.cfgPath); err == nil {
-		s.cfg.RecentQueries = s.history
-		_ = profile.Save(s.cfgPath, s.cfg)
+	diskCfg, err := profile.Load(s.cfgPath)
+	if err != nil {
+		return
 	}
+	for _, q := range s.addedQueries {
+		diskCfg.RecordRecentQuery(q, profile.DefaultMaxRecentQueries)
+	}
+	_ = profile.Save(s.cfgPath, diskCfg)
 }
 
 func (s *replSession) handleCommand(ctx context.Context, cmdLine string) (quit bool) {
@@ -363,8 +385,10 @@ func (s *replSession) handleCommand(ctx context.Context, cmdLine string) (quit b
 		}
 
 	case ":history":
-		for i, q := range s.history {
-			fmt.Fprintf(s.stdout, "  %3d  %s\n", i+1, q)
+		if s.cfg != nil {
+			for i, q := range s.cfg.RecentQueries {
+				fmt.Fprintf(s.stdout, "  %3d  %s\n", i+1, q)
+			}
 		}
 
 	case ":set":
@@ -413,10 +437,13 @@ func (s *replSession) executeREPLQuery(ctx context.Context, query string) {
 
 	total := len(sum.Matches)
 	for i, m := range sum.Matches {
-		if i > 0 && i%replPageSize == 0 && isInteractiveStdin(os.Stdin) {
+		if i > 0 && i%replPageSize == 0 && s.interactiveInput {
 			fmt.Fprintf(s.stdout, "-- More (%d/%d, Enter=next page, q=stop) -- ", i, total)
-			resp, _ := s.stdin.ReadString('\n')
+			resp, rErr := readBoundedLine(s.stdin, maxStdinLineBytes)
 			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp)), "q") {
+				break
+			}
+			if rErr != nil {
 				break
 			}
 		}

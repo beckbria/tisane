@@ -3,23 +3,36 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"tisane"
 	"tisane/pkg/wordlist"
 )
 
+const maxMergeInputBytes = 512 << 20 // 512 MiB
+
 var version = tisane.Version
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	os.Exit(runContext(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return runContext(context.Background(), args, stdin, stdout, stderr)
+}
+
+func runContext(ctx context.Context, args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("tisane-merge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -69,7 +82,7 @@ func run(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
+		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
 		return 2
@@ -81,6 +94,10 @@ func run(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	pos := fs.Args()
+	if badFlag := findMisplacedFlag(args, pos); badFlag != "" {
+		fmt.Fprintf(stderr, "tisane-merge: unexpected flag %q after positional argument (place flags first, or use '--' before filenames starting with '-')\n", badFlag)
+		return 2
+	}
 	if primaryPath == "" && len(pos) >= 1 {
 		primaryPath = pos[0]
 		pos = pos[1:]
@@ -117,17 +134,21 @@ func run(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if ctx.Err() != nil {
+		return 130
+	}
+
 	start := time.Now()
 	var stats *wordlist.MergeStats
 	if outputPath == "-" {
-		primaryData, readErr := os.ReadFile(primaryPath)
+		primaryData, readErr := readBoundedRegularFile(primaryPath, "primary")
 		if readErr != nil {
-			fmt.Fprintf(stderr, "tisane-merge: failed to read primary word list %q: %v\n", primaryPath, readErr)
+			fmt.Fprintf(stderr, "tisane-merge: %v\n", readErr)
 			return 1
 		}
-		secondaryData, readErr := os.ReadFile(secondaryPath)
+		secondaryData, readErr := readBoundedRegularFile(secondaryPath, "secondary")
 		if readErr != nil {
-			fmt.Fprintf(stderr, "tisane-merge: failed to read secondary word list %q: %v\n", secondaryPath, readErr)
+			fmt.Fprintf(stderr, "tisane-merge: %v\n", readErr)
 			return 1
 		}
 		outBytes, s, mergeErr := wordlist.MergeBytes(primaryData, secondaryData, opts)
@@ -162,4 +183,39 @@ func run(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(summaryOut, "  Output:      %d entries\n", stats.OutputEntries)
 	}
 	return 0
+}
+
+func findMisplacedFlag(args, pos []string) string {
+	if len(pos) == 0 {
+		return ""
+	}
+	parsed := len(args) - len(pos)
+	if parsed > 0 && args[parsed-1] == "--" {
+		return ""
+	}
+	for _, p := range pos {
+		if len(p) > 1 && strings.HasPrefix(p, "-") {
+			return p
+		}
+	}
+	return ""
+}
+
+func readBoundedRegularFile(path, label string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s word list %q: %w", label, path, err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat %s word list %q: %w", label, path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s word list %q is not a regular file", label, path)
+	}
+	if info.Size() > maxMergeInputBytes {
+		return nil, fmt.Errorf("%s word list %q exceeds maximum size (%d MiB)", label, path, maxMergeInputBytes>>20)
+	}
+	return io.ReadAll(io.LimitReader(f, maxMergeInputBytes))
 }

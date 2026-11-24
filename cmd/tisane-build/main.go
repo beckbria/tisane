@@ -3,23 +3,37 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
 	"time"
 
 	"tisane"
 	"tisane/pkg/tsd"
 )
 
+const maxStdinBuildBytes = 512 << 20 // 512 MiB
+
 var version = tisane.Version
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	os.Exit(runContext(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return runContext(context.Background(), args, stdin, stdout, stderr)
+}
+
+func runContext(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("tisane-build", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -69,7 +83,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
+		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
 		return 2
@@ -81,6 +95,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	pos := fs.Args()
+	if badFlag := findMisplacedFlag(args, pos); badFlag != "" {
+		fmt.Fprintf(stderr, "tisane-build: unexpected flag %q after positional argument (place flags first, or use '--' before filenames starting with '-')\n", badFlag)
+		return 2
+	}
+
 	if infoMode {
 		targets := pos
 		if inputPath != "" {
@@ -91,6 +110,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 		for idx, p := range targets {
+			if ctx.Err() != nil {
+				return 130
+			}
 			if idx > 0 {
 				fmt.Fprintln(stdout)
 			}
@@ -100,6 +122,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 		}
 		return 0
+	}
+
+	if minLen < 1 || minLen > tsd.MaxWordLengthLimit || maxLen < 1 || maxLen > tsd.MaxWordLengthLimit || minLen > maxLen {
+		fmt.Fprintf(stderr, "tisane-build: invalid length bounds (expected 1 <= min-len (%d) <= max-len (%d) <= %d)\n", minLen, maxLen, tsd.MaxWordLengthLimit)
+		return 2
+	}
+	if maxFTSPct < 0 || maxFTSPct > 100 {
+		fmt.Fprintf(stderr, "tisane-build: invalid --max-fts-pct %d (must be 0..100)\n", maxFTSPct)
+		return 2
 	}
 
 	if inputPath == "" && len(pos) >= 1 {
@@ -126,6 +157,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		outputPath = tsd.DefaultOutputPath(inputPath)
 	}
 
+	if err := checkBuildPathCollisions(inputPath, outputPath, mapPath); err != nil {
+		fmt.Fprintf(stderr, "tisane-build: %v\n", err)
+		return 2
+	}
+
 	if _, err := tsd.ParseInputEncoding(encoding); err != nil {
 		fmt.Fprintf(stderr, "tisane-build: %v\n", err)
 		return 2
@@ -150,20 +186,31 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	if ctx.Err() != nil {
+		return 130
+	}
+
 	start := time.Now()
 	var stats *tsd.BuildStats
 	if inputPath == "-" {
-		rawInput, readErr := io.ReadAll(stdin)
+		rawInput, readErr := io.ReadAll(io.LimitReader(stdin, maxStdinBuildBytes+1))
 		if readErr != nil {
-			fmt.Fprintf(stderr, "tisane-build: failed to read input %q: %v\n", inputPath, readErr)
+			fmt.Fprintf(stderr, "tisane-build: failed to read stdin: %v\n", readErr)
 			return 1
+		}
+		if int64(len(rawInput)) > maxStdinBuildBytes {
+			fmt.Fprintf(stderr, "tisane-build: stdin exceeds maximum size (%d MiB)\n", maxStdinBuildBytes>>20)
+			return 1
+		}
+		if ctx.Err() != nil {
+			return 130
 		}
 		outBytes, s, buildErr := tsd.BuildBytes(rawInput, opts)
 		if buildErr != nil {
 			fmt.Fprintf(stderr, "tisane-build: build failed: %v\n", buildErr)
 			return 1
 		}
-		if writeErr := os.WriteFile(outputPath, outBytes, 0o644); writeErr != nil {
+		if writeErr := writeOutputAtomic(outputPath, outBytes); writeErr != nil {
 			fmt.Fprintf(stderr, "tisane-build: failed to write %q: %v\n", outputPath, writeErr)
 			return 1
 		}
@@ -199,10 +246,109 @@ func printDictInfo(path string, w io.Writer) error {
 	fmt.Fprintf(w, "File:          %s\n", path)
 	fmt.Fprintf(w, "Format:        %s (%d bytes)\n", d.Version(), d.Size())
 	if d.Description() != "" {
-		fmt.Fprintf(w, "Description:   %s\n", d.Description())
+		fmt.Fprintf(w, "Description:   %s\n", sanitizeControlChars(d.Description()))
 	}
 	fmt.Fprintf(w, "Words:         %d (max length %d)\n", d.TotalWords(), d.MaxWordLength())
 	fmt.Fprintf(w, "Alphabet:      %d used / %d total letter classes\n", d.NumUsedLetters(), d.NumTotalLetters())
 	fmt.Fprintf(w, "Definitions:   %v (FTS index: %v)\n", d.HasDefinitions(), d.HasFTSIndex())
+	return nil
+}
+
+func findMisplacedFlag(args, pos []string) string {
+	if len(pos) == 0 {
+		return ""
+	}
+	parsed := len(args) - len(pos)
+	if parsed > 0 && args[parsed-1] == "--" {
+		return ""
+	}
+	for _, p := range pos {
+		if len(p) > 1 && strings.HasPrefix(p, "-") {
+			return p
+		}
+	}
+	return ""
+}
+
+func checkBuildPathCollisions(inputPath, outputPath, mapPath string) error {
+	cleanOut := filepath.Clean(outputPath)
+	outInfo, outErr := os.Stat(outputPath)
+
+	checkAgainst := func(srcPath, label string) error {
+		if srcPath == "" || srcPath == "-" {
+			return nil
+		}
+		if cleanOut == filepath.Clean(srcPath) {
+			return fmt.Errorf("output path %q cannot overwrite %s %q", outputPath, label, srcPath)
+		}
+		if outErr == nil {
+			if srcInfo, err := os.Stat(srcPath); err == nil && os.SameFile(outInfo, srcInfo) {
+				return fmt.Errorf("output path %q refers to the same file as %s %q", outputPath, label, srcPath)
+			}
+		}
+		return nil
+	}
+
+	if err := checkAgainst(inputPath, "input file"); err != nil {
+		return err
+	}
+	return checkAgainst(mapPath, "alphabet map")
+}
+
+func sanitizeControlChars(s string) string {
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for _, r := range s {
+		if r == '\r' || r == '\n' || r == '\t' {
+			sb.WriteByte(' ')
+		} else if r < 0x20 || r == 0x7F || (r >= 0x80 && r <= 0x9F) {
+			continue
+		} else {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+func writeOutputAtomic(outputPath string, data []byte) error {
+	if info, err := os.Lstat(outputPath); err == nil && (info.Mode()&os.ModeCharDevice) != 0 {
+		return os.WriteFile(outputPath, data, 0o644)
+	}
+	dir := filepath.Dir(outputPath)
+	if dir == "" {
+		dir = "."
+	}
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	f, err := os.CreateTemp(dir, ".tisane-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := f.Name()
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	_ = f.Chmod(0o644)
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, outputPath); err != nil {
+		return err
+	}
+	keepTmp = true
 	return nil
 }

@@ -76,4 +76,16 @@ func TestCLIBuildAndInfo(t *testing.T) {
 	if info, err := os.Stat(stdinOut); err != nil || info.Size() == 0 {
 		t.Fatalf("stdin output missing or empty: %v", err)
 	}
+
+	// Misplaced flag after positional argument returns exit 2 instead of writing a file named "-q".
+	if code := run([]string{inPath, "-q"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
+		t.Fatalf("expected exit 2 for misplaced trailing flag, got %d", code)
+	}
+	// Invalid length bounds and input==output collision return exit 2.
+	if code := run([]string{"--min-len", "20", "--max-len", "5", inPath, outPath}, strings.NewReader(""), &stdout, &stderr); code != 2 {
+		t.Fatalf("expected exit 2 for min-len > max-len, got %d", code)
+	}
+	if code := run([]string{inPath, inPath}, strings.NewReader(""), &stdout, &stderr); code != 2 {
+		t.Fatalf("expected exit 2 for input == output collision, got %d", code)
+	}
 }

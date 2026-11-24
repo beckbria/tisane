@@ -98,4 +98,12 @@ func TestCLIMergeOperationsAndConversions(t *testing.T) {
 			t.Fatalf("expected exit 2, got %d", code)
 		}
 	})
+
+	t.Run("misplaced trailing flag returns exit 2", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := run([]string{p1, p2, "-q"}, nil, &stdout, &stderr)
+		if code != 2 {
+			t.Fatalf("expected exit 2 for misplaced trailing flag, got %d", code)
+		}
+	})
 }

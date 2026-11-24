@@ -304,6 +304,92 @@ func TestCLIDiscoversExecutableDirAndDictionariesSubdir(t *testing.T) {
 	}
 }
 
+func TestCLIHardeningConfigIsolationDefineJSONAndSignals(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
+	cfgPath := filepath.Join(tmp, "config.toml")
+	t.Setenv(profile.EnvConfigPath, cfgPath)
+	if err := profile.Save(cfgPath, profile.DefaultConfig()); err != nil {
+		t.Fatal(err)
+	}
+
+	rawSrc := "alpha|First Greek letter\nbeta|Second Greek letter\n-dashword|Hyphenated word\n"
+	tsdBytes, _, err := tsd.BuildBytes([]byte(rawSrc), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dictPath := filepath.Join(tmp, "synth.tsd")
+	if err := os.WriteFile(dictPath, tsdBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. REPL with auto-discovered dictionary must NOT pollute cfg.Dictionaries on exit,
+	// while persisting RecentQueries cleanly.
+	t.Chdir(tmp)
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-i", "-q"}, strings.NewReader("alpha\n:q\n"), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("REPL exited %d: %s", code, stderr.String())
+	}
+	reloaded, err := profile.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Dictionaries) != 0 {
+		t.Fatalf("REPL polluted config.toml Dictionaries with runtime discovery: %+v", reloaded.Dictionaries)
+	}
+	if len(reloaded.RecentQueries) != 1 || reloaded.RecentQueries[0] != "alpha" {
+		t.Fatalf("expected RecentQueries=[alpha], got %v", reloaded.RecentQueries)
+	}
+
+	// 2. Multi-word --define --format=json emits a single valid JSON array, and '--' allows words starting with '-'.
+	stdout.Reset()
+	stderr.Reset()
+	code = run(
+		context.Background(),
+		[]string{"-d", dictPath, "--define", "--format=json", "--", "alpha", "-dashword"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("multi --define JSON failed (%d): %s", code, stderr.String())
+	}
+	var defArr []map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &defArr); err != nil || len(defArr) != 2 {
+		t.Fatalf("expected valid 2-element JSON array from multi --define, err=%v raw=%s", err, stdout.String())
+	}
+
+	// 3. --count with --format=json and boolean =false flag (--dedupe=false).
+	stdout.Reset()
+	stderr.Reset()
+	code = run(
+		context.Background(),
+		[]string{"-d", dictPath, "--dedupe=false", "--count", "--format=json", "*"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("--count --format=json failed (%d): %s", code, stderr.String())
+	}
+	var cntRec jsonCountRecord
+	if err := json.Unmarshal(stdout.Bytes(), &cntRec); err != nil || cntRec.Count != 3 {
+		t.Fatalf("unexpected --count JSON: err=%v rec=%+v raw=%s", err, cntRec, stdout.String())
+	}
+
+	// 4. Pre-canceled context returns exit 130 without emitting truncated/empty JSON array.
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stdout.Reset()
+	stderr.Reset()
+	code = run(canceledCtx, []string{"-d", dictPath, "--format=json", "*"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 130 || stdout.Len() != 0 {
+		t.Fatalf("expected exit 130 and empty stdout on canceled context, got code=%d stdout=%q", code, stdout.String())
+	}
+}
+
 func BenchmarkSearchCoreEnglish(b *testing.B) {
 	requireCorpus(b)
 	d, err := tsd.Open(filepath.Join(testBinDir, "Dictionaries", "Core English.tsd"))

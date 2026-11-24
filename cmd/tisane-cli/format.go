@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"tisane/pkg/lookup"
 	"tisane/pkg/pattern"
@@ -262,23 +264,71 @@ func writeCSVMatch(cw *csv.Writer, pat string, multiPattern bool, m search.Match
 	return cw.Write([]string{word, strconv.Itoa(m.Length), bal, annot, m.DictName, hasDef})
 }
 
+type jsonCountRecord struct {
+	Pattern string `json:"pattern,omitempty"`
+	Count   int    `json:"count"`
+}
+
 func formatPatternError(w io.Writer, query string, err error, quiet bool) {
-	if se, ok := err.(*pattern.SyntaxError); ok {
+	var se *pattern.SyntaxError
+	if errors.As(err, &se) {
 		fmt.Fprintf(w, "Pattern error: %s\n", se.Error())
 		if !quiet && query != "" && se.Span.Start >= 0 && se.Span.Start <= len(query) {
 			fmt.Fprintf(w, "  %s\n", query)
-			caretLen := se.Span.End - se.Span.Start
+			end := se.Span.End
+			if end < se.Span.Start {
+				end = se.Span.Start
+			}
+			if end > len(query) {
+				end = len(query)
+			}
+			colOffset := utf8.RuneCountInString(query[:se.Span.Start])
+			caretLen := utf8.RuneCountInString(query[se.Span.Start:end])
 			if caretLen < 1 {
 				caretLen = 1
 			}
-			if se.Span.Start+caretLen > len(query)+1 {
-				caretLen = 1
-			}
-			fmt.Fprintf(w, "  %s%s\n", strings.Repeat(" ", se.Span.Start), strings.Repeat("^", caretLen))
+			fmt.Fprintf(w, "  %s%s\n", strings.Repeat(" ", colOffset), strings.Repeat("^", caretLen))
 		}
 		return
 	}
 	fmt.Fprintf(w, "Pattern error: %v\n", err)
+}
+
+func formatHeadwordsCSV(headwords []lookup.HeadwordSense) string {
+	if len(headwords) == 0 {
+		return ""
+	}
+	parts := make([]string, len(headwords))
+	for i, hw := range headwords {
+		if q := strings.TrimSpace(hw.Qualifier); q != "" {
+			parts[i] = hw.Headword + " (" + q + ")"
+		} else {
+			parts[i] = hw.Headword
+		}
+	}
+	return strings.Join(parts, " / ")
+}
+
+func writeDefinitionCSVHeader(cw *csv.Writer) error {
+	return cw.Write([]string{"word", "dict", "type", "headwords", "text"})
+}
+
+func writeDefinitionCSVRows(cw *csv.Writer, res *lookup.Result) error {
+	if len(res.Entries) == 0 {
+		return cw.Write([]string{res.Word, "", "none", "", ""})
+	}
+	for _, entry := range res.Entries {
+		kind := "definition"
+		if entry.IsAliasRef {
+			kind = "cross-reference"
+		} else if entry.IsMention {
+			kind = "mention"
+		}
+		if err := cw.Write([]string{res.Word, entry.DictName, kind, formatHeadwordsCSV(entry.Headwords), entry.Text}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeDefinitionResult(w io.Writer, res *lookup.Result, format OutputFormat) error {

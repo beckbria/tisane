@@ -3,11 +3,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"tisane"
@@ -17,10 +22,16 @@ import (
 var version = tisane.Version
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	os.Exit(runContext(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	return runContext(context.Background(), args, stdout, stderr)
+}
+
+func runContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("tisane-extract", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -76,7 +87,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
+		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
 		return 2
@@ -91,8 +102,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "tisane-extract: cannot specify both --simple and --metadata")
 		return 2
 	}
+	if minLen < 1 || minLen > tsd.MaxWordLengthLimit || maxLen < 1 || maxLen > tsd.MaxWordLengthLimit || minLen > maxLen {
+		fmt.Fprintf(stderr, "tisane-extract: invalid length bounds (expected 1 <= min-len (%d) <= max-len (%d) <= %d)\n", minLen, maxLen, tsd.MaxWordLengthLimit)
+		return 2
+	}
 
 	pos := fs.Args()
+	if badFlag := findMisplacedFlag(args, pos); badFlag != "" {
+		fmt.Fprintf(stderr, "tisane-extract: unexpected flag %q after positional argument (place flags first, or use '--' before filenames starting with '-')\n", badFlag)
+		return 2
+	}
 	if inputPath == "" {
 		if len(pos) == 0 {
 			fs.Usage()
@@ -107,6 +126,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(pos) > 0 {
 		fmt.Fprintf(stderr, "tisane-extract: unexpected extra arguments: %v\n", pos)
+		return 2
+	}
+
+	if err := checkExtractCollisions(inputPath, outputPath, saveMap); err != nil {
+		fmt.Fprintf(stderr, "tisane-extract: %v\n", err)
 		return 2
 	}
 
@@ -149,6 +173,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if ctx.Err() != nil {
+		return 130
+	}
+
 	start := time.Now()
 	dict, err := tsd.Open(inputPath)
 	if err != nil {
@@ -156,14 +184,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer dict.Close()
-
-	if saveMap != "" {
-		tsmBytes := dict.AlphabetMap().MarshalTSM()
-		if err := os.WriteFile(saveMap, tsmBytes, 0o644); err != nil {
-			fmt.Fprintf(stderr, "tisane-extract: failed to write alphabet map %s: %v\n", saveMap, err)
-			return 1
-		}
-	}
 
 	var stats *tsd.ExportStats
 	if outputPath == "" || outputPath == "-" {
@@ -174,6 +194,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "tisane-extract: %v\n", err)
 		return 1
+	}
+
+	if saveMap != "" {
+		tsmBytes := dict.AlphabetMap().MarshalTSM()
+		if err := writeMapAtomic(saveMap, tsmBytes); err != nil {
+			fmt.Fprintf(stderr, "tisane-extract: failed to write alphabet map %s: %v\n", saveMap, err)
+			return 1
+		}
 	}
 
 	if outputPath != "" && outputPath != "-" && !quiet {
@@ -188,4 +216,88 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	return 0
+}
+
+func findMisplacedFlag(args, pos []string) string {
+	if len(pos) == 0 {
+		return ""
+	}
+	parsed := len(args) - len(pos)
+	if parsed > 0 && args[parsed-1] == "--" {
+		return ""
+	}
+	for _, p := range pos {
+		if len(p) > 1 && strings.HasPrefix(p, "-") {
+			return p
+		}
+	}
+	return ""
+}
+
+func sameOrCleanEqual(a, b string) bool {
+	if a == "" || b == "" || a == "-" || b == "-" {
+		return false
+	}
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ia, errA := os.Stat(a)
+	ib, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(ia, ib)
+}
+
+func checkExtractCollisions(inputPath, outputPath, saveMap string) error {
+	if sameOrCleanEqual(outputPath, inputPath) {
+		return fmt.Errorf("output path %q cannot overwrite input dictionary %q", outputPath, inputPath)
+	}
+	if sameOrCleanEqual(saveMap, inputPath) {
+		return fmt.Errorf("--save-map path %q cannot overwrite input dictionary %q", saveMap, inputPath)
+	}
+	if sameOrCleanEqual(outputPath, saveMap) {
+		return fmt.Errorf("output path %q and --save-map %q cannot be the same file", outputPath, saveMap)
+	}
+	return nil
+}
+
+func writeMapAtomic(path string, data []byte) error {
+	if info, err := os.Lstat(path); err == nil && (info.Mode()&os.ModeCharDevice) != 0 {
+		return os.WriteFile(path, data, 0o644)
+	}
+	dir := filepath.Dir(path)
+	if dir == "" {
+		dir = "."
+	}
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	f, err := os.CreateTemp(dir, ".tisane-map-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := f.Name()
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	_ = f.Chmod(0o644)
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	keepTmp = true
+	return nil
 }

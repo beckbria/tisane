@@ -9,11 +9,13 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -24,6 +26,8 @@ import (
 	"tisane/pkg/search"
 	"tisane/pkg/tsd"
 )
+
+const maxStdinLineBytes = 1 << 20 // 1 MiB max pattern/word line on stdin
 
 var cliVersion = tisane.Version
 
@@ -96,7 +100,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	// adding any dictionaries found there.
 	if len(opts.DictSpecs) == 0 {
 		discovered, _ := profile.DiscoverDictionaries(profile.DefaultSearchDirs(cfg)...)
-		dictPaths = mergeDiscoveredDictionaries(cfg, dictPaths, discovered)
+		dictPaths = mergeDiscoveredDictionaries(dictPaths, discovered)
 	}
 
 	if len(dictPaths) == 0 && !opts.Interactive {
@@ -110,6 +114,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			_ = d.Close()
 		}
 	}()
+	openedPaths := make(map[string]bool, len(dictPaths))
+	var openedInfos []os.FileInfo
 	for _, p := range dictPaths {
 		d, oErr := tsd.Open(p)
 		if oErr != nil {
@@ -117,28 +123,56 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return 1
 		}
 		dicts = append(dicts, d)
+		if abs, aErr := filepath.Abs(p); aErr == nil {
+			openedPaths[filepath.Clean(abs)] = true
+		} else {
+			openedPaths[filepath.Clean(p)] = true
+		}
+		if info, sErr := os.Stat(p); sErr == nil {
+			openedInfos = append(openedInfos, info)
+		}
 	}
 
 	// Also open any non-active profile dictionaries that carry definitions so --define and HasDefinition
-	// can consult all configured reference dictionaries!
+	// can consult all configured reference dictionaries without opening duplicate handles.
 	var extraDefDicts []*tsd.Dictionary
 	defer func() {
 		for _, d := range extraDefDicts {
 			_ = d.Close()
 		}
 	}()
-	openedPaths := make(map[string]bool, len(dictPaths))
-	for _, p := range dictPaths {
-		openedPaths[p] = true
-	}
 	for _, dc := range cfg.Dictionaries {
-		if dc.Path != "" && !openedPaths[dc.Path] {
-			if d, oErr := tsd.Open(dc.Path); oErr == nil {
-				if d.HasDefinitions() {
-					extraDefDicts = append(extraDefDicts, d)
-				} else {
-					_ = d.Close()
-				}
+		if dc.Path == "" {
+			continue
+		}
+		absDC := filepath.Clean(dc.Path)
+		if abs, aErr := filepath.Abs(dc.Path); aErr == nil {
+			absDC = filepath.Clean(abs)
+		}
+		if openedPaths[absDC] {
+			continue
+		}
+		info, sErr := os.Stat(dc.Path)
+		if sErr != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		dup := false
+		for _, oi := range openedInfos {
+			if os.SameFile(info, oi) {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		if d, oErr := tsd.Open(dc.Path); oErr == nil {
+			if d.HasDefinitions() {
+				extraDefDicts = append(extraDefDicts, d)
+				openedPaths[absDC] = true
+				openedInfos = append(openedInfos, info)
+			} else {
+				_ = d.Close()
 			}
 		}
 	}
@@ -152,11 +186,18 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if opts.DefineMode {
 		words := opts.DefineWords
 		if len(words) == 0 {
-			// Read words from stdin if none given on command line
-			sc := bufio.NewScanner(stdin)
-			for sc.Scan() {
-				if w := strings.TrimSpace(sc.Text()); w != "" {
+			br := bufio.NewReader(stdin)
+			for {
+				rawLine, rErr := readBoundedLine(br, maxStdinLineBytes)
+				if rErr != nil && !errors.Is(rErr, io.EOF) {
+					fmt.Fprintf(stderr, "tisane-cli: %v\n", rErr)
+					return 1
+				}
+				if w := strings.TrimSpace(rawLine); w != "" {
 					words = append(words, w)
+				}
+				if errors.Is(rErr, io.EOF) {
+					break
 				}
 			}
 		}
@@ -165,9 +206,23 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return 2
 		}
 		allLookupDicts := append(append([]*tsd.Dictionary(nil), dicts...), extraDefDicts...)
+		var jsonResults []*lookup.Result
+		var defCSV *csv.Writer
+		if opts.Format == FormatCSV {
+			defCSV = csv.NewWriter(stdout)
+			if err := writeDefinitionCSVHeader(defCSV); err != nil {
+				fmt.Fprintf(stderr, "tisane-cli: %v\n", err)
+				return 1
+			}
+		}
 		for idx, w := range words {
+			if ctx.Err() != nil {
+				return 130
+			}
 			if idx > 0 && opts.Format == FormatText {
-				fmt.Fprintln(stdout)
+				if _, err := fmt.Fprintln(stdout); err != nil {
+					return 1
+				}
 			}
 			res, lErr := lookup.Lookup(ctx, w, allLookupDicts, lookup.Options{
 				CaseInsensitiveFallback: true,
@@ -175,10 +230,41 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 				WebProviders:            cfg.WebProviders,
 			})
 			if lErr != nil {
+				if errors.Is(lErr, context.Canceled) || errors.Is(lErr, context.DeadlineExceeded) {
+					return 130
+				}
 				fmt.Fprintf(stderr, "tisane-cli: %v\n", lErr)
 				return 1
 			}
-			if err := writeDefinitionResult(stdout, res, opts.Format); err != nil {
+			switch opts.Format {
+			case FormatJSON:
+				jsonResults = append(jsonResults, res)
+			case FormatCSV:
+				if err := writeDefinitionCSVRows(defCSV, res); err != nil {
+					fmt.Fprintf(stderr, "tisane-cli: %v\n", err)
+					return 1
+				}
+			default:
+				if err := writeDefinitionResult(stdout, res, opts.Format); err != nil {
+					fmt.Fprintf(stderr, "tisane-cli: %v\n", err)
+					return 1
+				}
+			}
+		}
+		if opts.Format == FormatJSON {
+			enc := json.NewEncoder(stdout)
+			enc.SetIndent("", "  ")
+			var encodeTarget any = jsonResults
+			if len(jsonResults) == 1 {
+				encodeTarget = jsonResults[0]
+			}
+			if err := enc.Encode(encodeTarget); err != nil {
+				fmt.Fprintf(stderr, "tisane-cli: %v\n", err)
+				return 1
+			}
+		} else if defCSV != nil {
+			defCSV.Flush()
+			if err := defCSV.Error(); err != nil {
 				fmt.Fprintf(stderr, "tisane-cli: %v\n", err)
 				return 1
 			}
@@ -189,29 +275,45 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	// Mode 3: Command-line patterns or TEACON Batch Stdin Mode
 	eng := search.NewEngine()
 	exitCode := 0
+	writeFailed := false
+	interrupted := false
 
 	var jsonAggregate []jsonMatchRecord
+	var jsonCountAggregate []jsonCountRecord
 	var csvWriter *csv.Writer
 	multiPattern := len(opts.Patterns) != 1 // Stdin or >=2 CLI patterns
 
 	if opts.Format == FormatCSV {
 		csvWriter = csv.NewWriter(stdout)
-		if err := writeCSVHeader(csvWriter, multiPattern); err != nil {
-			fmt.Fprintf(stderr, "tisane-cli: %v\n", err)
+		var hdrErr error
+		if opts.CountOnly {
+			if multiPattern {
+				hdrErr = csvWriter.Write([]string{"pattern", "count"})
+			} else {
+				hdrErr = csvWriter.Write([]string{"count"})
+			}
+		} else {
+			hdrErr = writeCSVHeader(csvWriter, multiPattern)
+		}
+		if hdrErr != nil {
+			fmt.Fprintf(stderr, "tisane-cli: %v\n", hdrErr)
 			return 1
 		}
 	}
 
 	executeOnePattern := func(pat string) {
 		if opts.Format == FormatText && !opts.Quiet && !opts.CountOnly {
-			// Exact TEACON pattern header echo: single leading space + pattern!
-			fmt.Fprintf(stdout, " %s\n", pat)
+			if _, err := fmt.Fprintf(stdout, " %s\n", pat); err != nil {
+				writeFailed = true
+				exitCode = 1
+				return
+			}
 		}
 
 		req := buildSearchRequest(pat, dicts, extraDefDicts, &opts)
 		start := time.Now()
 
-		// Stream immediately when SortDict + non-aggregated output for instant latency!
+		// Stream immediately when SortDict + non-aggregated output for instant latency.
 		canStream := opts.Sort == search.SortDict &&
 			opts.Format != FormatJSON &&
 			req.DedupeMode != search.DedupeMergeSources &&
@@ -222,7 +324,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			var scanned uint64
 			for batch, sErr := range eng.SearchStream(ctx, req) {
 				if sErr != nil {
-					if sErr == context.Canceled {
+					if errors.Is(sErr, context.Canceled) || errors.Is(sErr, context.DeadlineExceeded) {
+						interrupted = true
 						return
 					}
 					formatPatternError(stderr, pat, sErr, opts.Quiet)
@@ -232,21 +335,32 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 				scanned = batch.Progress.WordsScanned
 				for _, m := range batch.Matches {
 					count++
+					var wErr error
 					switch opts.Format {
 					case FormatText:
-						fmt.Fprintln(stdout, formatTextMatchLine(m, dicts, &opts))
+						_, wErr = fmt.Fprintln(stdout, formatTextMatchLine(m, dicts, &opts))
 					case FormatJSONL:
-						_ = writeJSONLMatch(stdout, pat, multiPattern, m, dicts, &opts)
+						wErr = writeJSONLMatch(stdout, pat, multiPattern, m, dicts, &opts)
 					case FormatCSV:
-						_ = writeCSVMatch(csvWriter, pat, multiPattern, m, &opts)
+						wErr = writeCSVMatch(csvWriter, pat, multiPattern, m, &opts)
+					}
+					if wErr != nil {
+						writeFailed = true
+						exitCode = 1
+						return
 					}
 				}
 			}
 			if csvWriter != nil {
 				csvWriter.Flush()
+				if err := csvWriter.Error(); err != nil {
+					writeFailed = true
+					exitCode = 1
+					return
+				}
 			}
 			if opts.ShowStats && opts.Format == FormatText {
-				fmt.Fprintf(stdout, " [%d matches, %d scanned in %s]\n",
+				_, _ = fmt.Fprintf(stdout, " [%d matches, %d scanned in %s]\n",
 					count, scanned, time.Since(start).Round(time.Microsecond))
 			}
 			return
@@ -254,7 +368,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 		sum, sErr := eng.Search(ctx, req)
 		if sErr != nil {
-			if sErr == context.Canceled {
+			if errors.Is(sErr, context.Canceled) || errors.Is(sErr, context.DeadlineExceeded) {
+				interrupted = true
 				return
 			}
 			formatPatternError(stderr, pat, sErr, opts.Quiet)
@@ -262,31 +377,79 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return
 		}
 
-		if opts.CountOnly && opts.Format == FormatText {
-			if multiPattern && !opts.Quiet {
-				fmt.Fprintf(stdout, " %s\n", pat)
+		if opts.CountOnly {
+			n := len(sum.Matches)
+			switch opts.Format {
+			case FormatText:
+				if multiPattern && !opts.Quiet {
+					_, _ = fmt.Fprintf(stdout, " %s\n", pat)
+				}
+				if _, err := fmt.Fprintln(stdout, n); err != nil {
+					writeFailed = true
+					exitCode = 1
+				}
+			case FormatJSON:
+				rec := jsonCountRecord{Count: n}
+				if multiPattern {
+					rec.Pattern = pat
+				}
+				jsonCountAggregate = append(jsonCountAggregate, rec)
+			case FormatJSONL:
+				rec := jsonCountRecord{Count: n}
+				if multiPattern {
+					rec.Pattern = pat
+				}
+				data, _ := json.Marshal(rec)
+				data = append(data, '\n')
+				if _, err := stdout.Write(data); err != nil {
+					writeFailed = true
+					exitCode = 1
+				}
+			case FormatCSV:
+				var err error
+				if multiPattern {
+					err = csvWriter.Write([]string{pat, strconv.Itoa(n)})
+				} else {
+					err = csvWriter.Write([]string{strconv.Itoa(n)})
+				}
+				if err != nil {
+					writeFailed = true
+					exitCode = 1
+				} else {
+					csvWriter.Flush()
+				}
 			}
-			fmt.Fprintln(stdout, len(sum.Matches))
 			return
 		}
 
 		for _, m := range sum.Matches {
+			var wErr error
 			switch opts.Format {
 			case FormatText:
-				fmt.Fprintln(stdout, formatTextMatchLine(m, dicts, &opts))
+				_, wErr = fmt.Fprintln(stdout, formatTextMatchLine(m, dicts, &opts))
 			case FormatJSON:
 				jsonAggregate = append(jsonAggregate, toJSONRecord(pat, multiPattern, m, dicts, &opts))
 			case FormatJSONL:
-				_ = writeJSONLMatch(stdout, pat, multiPattern, m, dicts, &opts)
+				wErr = writeJSONLMatch(stdout, pat, multiPattern, m, dicts, &opts)
 			case FormatCSV:
-				_ = writeCSVMatch(csvWriter, pat, multiPattern, m, &opts)
+				wErr = writeCSVMatch(csvWriter, pat, multiPattern, m, &opts)
+			}
+			if wErr != nil {
+				writeFailed = true
+				exitCode = 1
+				return
 			}
 		}
 		if csvWriter != nil {
 			csvWriter.Flush()
+			if err := csvWriter.Error(); err != nil {
+				writeFailed = true
+				exitCode = 1
+				return
+			}
 		}
 		if opts.ShowStats && opts.Format == FormatText {
-			fmt.Fprintf(stdout, " [%d matches, %d scanned in %s]\n",
+			_, _ = fmt.Fprintf(stdout, " [%d matches, %d scanned in %s]\n",
 				len(sum.Matches), sum.WordsScanned, time.Since(start).Round(time.Microsecond))
 		}
 	}
@@ -294,51 +457,81 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if len(opts.Patterns) > 0 {
 		for _, pat := range opts.Patterns {
 			if ctx.Err() != nil {
+				interrupted = true
 				break
 			}
 			executeOnePattern(pat)
+			if interrupted || writeFailed {
+				break
+			}
 		}
 	} else {
-		// Batch Stdin Mode (exact TEACON semantics: lines starting with ' ' or '\t' are comments!)
+		// Batch Stdin Mode (exact TEACON semantics: lines starting with ' ' or '\t' are comments)
 		br := bufio.NewReader(stdin)
 		for {
 			if ctx.Err() != nil {
+				interrupted = true
 				break
 			}
-			rawLine, rErr := br.ReadString('\n')
-			if rErr != nil && len(rawLine) == 0 {
+			line, rErr := readBoundedLine(br, maxStdinLineBytes)
+			if rErr != nil && !errors.Is(rErr, io.EOF) {
+				fmt.Fprintf(stderr, "tisane-cli: %v\n", rErr)
+				return 1
+			}
+			if errors.Is(rErr, io.EOF) && line == "" {
 				break
 			}
-			line := strings.TrimRight(rawLine, "\r\n")
 			if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
 				if opts.Format == FormatText && !opts.Quiet {
-					fmt.Fprintln(stdout, line)
+					if _, err := fmt.Fprintln(stdout, line); err != nil {
+						return 1
+					}
 				}
-				if rErr == io.EOF {
+				if errors.Is(rErr, io.EOF) {
 					break
 				}
 				continue
 			}
 			if line == "" {
-				if rErr == io.EOF {
+				if errors.Is(rErr, io.EOF) {
 					break
 				}
 				continue
 			}
 			executeOnePattern(line)
-			if rErr == io.EOF {
+			if interrupted || writeFailed || errors.Is(rErr, io.EOF) {
 				break
 			}
 		}
 	}
 
+	if interrupted || ctx.Err() != nil {
+		return 130
+	}
+	if writeFailed {
+		return 1
+	}
+
 	if opts.Format == FormatJSON {
-		if jsonAggregate == nil {
-			jsonAggregate = []jsonMatchRecord{}
-		}
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(jsonAggregate); err != nil {
+		var payload any
+		if opts.CountOnly {
+			if jsonCountAggregate == nil {
+				jsonCountAggregate = []jsonCountRecord{}
+			}
+			if !multiPattern && len(jsonCountAggregate) == 1 {
+				payload = jsonCountAggregate[0]
+			} else {
+				payload = jsonCountAggregate
+			}
+		} else {
+			if jsonAggregate == nil {
+				jsonAggregate = []jsonMatchRecord{}
+			}
+			payload = jsonAggregate
+		}
+		if err := enc.Encode(payload); err != nil {
 			fmt.Fprintf(stderr, "tisane-cli: %v\n", err)
 			return 1
 		}
@@ -354,7 +547,24 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	return exitCode
 }
 
-func mergeDiscoveredDictionaries(cfg *profile.Config, activePaths []string, discovered []string) []string {
+func readBoundedLine(br *bufio.Reader, maxBytes int) (string, error) {
+	var buf []byte
+	for {
+		frag, isPrefix, err := br.ReadLine()
+		buf = append(buf, frag...)
+		if len(buf) > maxBytes {
+			return "", fmt.Errorf("input line exceeds maximum length (%d bytes)", maxBytes)
+		}
+		if err != nil {
+			return string(buf), err
+		}
+		if !isPrefix {
+			return string(buf), nil
+		}
+	}
+}
+
+func mergeDiscoveredDictionaries(activePaths []string, discovered []string) []string {
 	var knownInfos []os.FileInfo
 	seenPaths := make(map[string]bool)
 
@@ -372,11 +582,6 @@ func mergeDiscoveredDictionaries(cfg *profile.Config, activePaths []string, disc
 		}
 	}
 
-	if cfg != nil {
-		for _, dc := range cfg.Dictionaries {
-			recordKnown(dc.Path)
-		}
-	}
 	for _, p := range activePaths {
 		recordKnown(p)
 	}
@@ -393,7 +598,7 @@ func mergeDiscoveredDictionaries(cfg *profile.Config, activePaths []string, disc
 			continue
 		}
 		info, err := os.Stat(p)
-		if err != nil || info.IsDir() {
+		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
 		dup := false
@@ -409,12 +614,6 @@ func mergeDiscoveredDictionaries(cfg *profile.Config, activePaths []string, disc
 		seenPaths[abs] = true
 		knownInfos = append(knownInfos, info)
 		out = append(out, p)
-		if cfg != nil {
-			cfg.Dictionaries = append(cfg.Dictionaries, profile.DictConfig{
-				Path:    abs,
-				Enabled: true,
-			})
-		}
 	}
 	return out
 }

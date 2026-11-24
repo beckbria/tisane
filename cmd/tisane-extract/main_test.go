@@ -106,3 +106,30 @@ func TestTisaneExtractCLI(t *testing.T) {
 		}
 	})
 }
+
+func TestTisaneExtractValidationAndCollisionGuards(t *testing.T) {
+	dir := t.TempDir()
+	tsdBytes, _, err := tsd.BuildBytes([]byte("alpha\nbeta\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dictPath := filepath.Join(dir, "sample.tsd")
+	if err := os.WriteFile(dictPath, tsdBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errBuf bytes.Buffer
+	if code := run([]string{dictPath, "-q"}, &out, &errBuf); code != 2 {
+		t.Fatalf("expected exit 2 for misplaced -q flag, got %d", code)
+	}
+	if code := run([]string{"--min-len", "15", "--max-len", "3", dictPath}, &out, &errBuf); code != 2 {
+		t.Fatalf("expected exit 2 for min-len > max-len, got %d", code)
+	}
+	if code := run([]string{dictPath, dictPath}, &out, &errBuf); code != 2 {
+		t.Fatalf("expected exit 2 for output == input collision, got %d", code)
+	}
+	sameTarget := filepath.Join(dir, "same.out")
+	if code := run([]string{"--save-map", sameTarget, dictPath, sameTarget}, &out, &errBuf); code != 2 {
+		t.Fatalf("expected exit 2 for output == save-map collision, got %d", code)
+	}
+}
