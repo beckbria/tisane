@@ -1,12 +1,16 @@
 @import "tailwindcss";
 
-/* Clean dark scrollbars for virtualized dictionary panes and definitions */
+/* High-contrast thin scrollbars that adapt automatically to Dark and Light themes */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #334155 #0f172a;
+  scrollbar-color: var(--color-slate-600) var(--color-slate-900);
 }
 
 :root {
+  color-scheme: dark;
+  /* Ensure >= 3.75:1 WCAG 1.4.11 non-text contrast for form borders and scrollbars */
+  --color-slate-600: #64748b;
+
   --tisane-font-results-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --tisane-font-results-size: 13px;
   --tisane-font-definitions-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -21,10 +25,54 @@
   --tisane-font-toolbar-size: 12px;
 }
 
+/* WCAG 2.1 AA/AAA Light theme token mapping */
+[data-theme="light"] {
+  color-scheme: light;
+  --color-slate-950: #ffffff;
+  --color-slate-900: #f1f5f9;
+  --color-slate-800: #e2e8f0;
+  --color-slate-700: #cbd5e1;
+  --color-slate-600: #64748b;
+  --color-slate-500: #475569;
+  --color-slate-400: #475569;
+  --color-slate-300: #334155;
+  --color-slate-200: #1e293b;
+  --color-slate-100: #0f172a;
+  --color-slate-50: #020617;
+
+  --color-amber-400: #b45309;
+  --color-amber-300: #92400e;
+  --color-amber-200: #78350f;
+  --color-amber-100: #78350f;
+
+  --color-emerald-400: #047857;
+  --color-emerald-300: #065f46;
+  --color-emerald-200: #065f46;
+  --color-emerald-100: #064e3b;
+
+  --color-rose-400: #be123c;
+  --color-rose-300: #9f1239;
+  --color-rose-200: #881337;
+
+  --color-sky-300: #075985;
+  --color-purple-300: #6b21a8;
+}
+
+/* Consistent high-visibility keyboard focus indicator (WCAG 2.4.7 / 1.4.11) */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible,
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--color-amber-400);
+  outline-offset: 2px;
+}
+
 /* Styled RTF-to-HTML definition typography */
 .tisane-def {
   line-height: 1.65;
-  color: #e2e8f0;
+  color: var(--color-slate-200);
   font-family: var(--tisane-font-definitions-family);
   font-size: var(--tisane-font-definitions-size);
 }
@@ -37,23 +85,46 @@
   margin-bottom: 0;
 }
 
+.tisane-def .tsd-indent {
+  padding-left: 1.25rem;
+}
+
 .tisane-def b,
 .tisane-def strong {
-  color: #f8fafc;
+  color: var(--color-slate-100);
   font-weight: 600;
 }
 
 .tisane-def i,
 .tisane-def em {
-  color: #cbd5e1;
+  color: var(--color-slate-300);
 }
 
 .tisane-def a {
-  color: #fbbf24;
+  color: var(--color-amber-400);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .tisane-def a:hover {
-  color: #fde68a;
+  color: var(--color-amber-300);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (forced-colors: active) {
+  [role="option"][aria-selected="true"],
+  button[aria-pressed="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }

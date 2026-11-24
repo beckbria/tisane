@@ -1,6 +1,8 @@
 import { getBackend } from '../bindings';
 import { buildFontCssVars, DEFAULT_FONTS, normalizeFontConfig } from '../fonts';
-import type { Config, ConfigPatch, EntryCategory } from '../types';
+import type { Config, ConfigPatch, EntryCategory, ThemeMode } from '../types';
+
+export const BOOT_CACHE_KEY = 'tisane:boot';
 
 export const DEFAULT_SIDEBAR_WIDTH = 272;
 export const MIN_SIDEBAR_WIDTH = 180;
@@ -26,6 +28,82 @@ export function clampDefinitionHeight(h: unknown): number {
   return Math.max(MIN_DEFINITION_HEIGHT, Math.min(MAX_DEFINITION_HEIGHT, Math.round(h)));
 }
 
+export function normalizeTheme(raw: unknown): ThemeMode {
+  if (typeof raw !== 'string') return 'dark';
+  const v = raw.trim().toLowerCase();
+  if (v === 'light') return 'light';
+  if (v === 'system' || v === 'auto') return 'system';
+  return 'dark';
+}
+
+export function resolveEffectiveTheme(theme: ThemeMode): 'dark' | 'light' {
+  if (theme === 'light') return 'light';
+  if (theme === 'system') {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-color-scheme: light)').matches
+    ) {
+      return 'light';
+    }
+    return 'dark';
+  }
+  return 'dark';
+}
+
+export function applyDocumentTheme(theme: ThemeMode): 'dark' | 'light' {
+  const effective = resolveEffectiveTheme(theme);
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.dataset.theme = effective;
+    document.documentElement.style.colorScheme = effective;
+  }
+  return effective;
+}
+
+interface BootCachePayload {
+  theme?: ThemeMode;
+  uiZoom?: number;
+}
+
+function readBootCache(): BootCachePayload {
+  if (typeof window === 'undefined' || !window.localStorage) return {};
+  try {
+    const raw = window.localStorage.getItem(BOOT_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return {
+      theme: normalizeTheme(parsed.theme),
+      uiZoom: typeof parsed.uiZoom === 'number' ? parsed.uiZoom : undefined
+    };
+  } catch {
+    return {};
+  }
+}
+
+function writeBootCache(payload: BootCachePayload): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const existing = readBootCache();
+    const merged: BootCachePayload = {
+      ...existing,
+      ...payload
+    };
+    window.localStorage.setItem(BOOT_CACHE_KEY, JSON.stringify(merged));
+  } catch {
+    // Ignore storage quota or security errors
+  }
+}
+
+function clearBootCache(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.removeItem(BOOT_CACHE_KEY);
+  } catch {
+    // Ignore
+  }
+}
+
 export const DEFAULT_CONFIG: Config = {
   dictDirs: [],
   dictionaries: [],
@@ -45,6 +123,7 @@ export const DEFAULT_CONFIG: Config = {
   sidebarCollapsed: false,
   definitionHeight: DEFAULT_DEFINITION_HEIGHT,
   definitionCollapsed: false,
+  theme: 'dark',
   autoWebFallback: false,
   defaultWebProvider: 'onelook',
   webProviders: [
@@ -84,19 +163,55 @@ export function normalizeConfig(raw: Partial<Config> | null | undefined): Config
       typeof raw.definitionCollapsed === 'boolean'
         ? raw.definitionCollapsed
         : DEFAULT_CONFIG.definitionCollapsed,
+    theme: normalizeTheme(raw.theme),
     fonts: normalizeFontConfig(raw.fonts)
   };
 }
 
+function buildInitialConfig(): Config {
+  const cached = readBootCache();
+  return normalizeConfig({
+    ...DEFAULT_CONFIG,
+    theme: cached.theme ?? DEFAULT_CONFIG.theme
+  });
+}
+
 export class ConfigStore {
-  value: Config = $state(normalizeConfig(DEFAULT_CONFIG));
+  value: Config = $state(buildInitialConfig());
   readonly rootFontVars = $derived(buildFontCssVars(this.value.fonts));
+
+  constructor() {
+    applyDocumentTheme(this.value.theme);
+  }
+
+  private syncBootAndDocument(): void {
+    applyDocumentTheme(this.value.theme);
+    writeBootCache({ theme: this.value.theme });
+  }
+
+  subscribeSystemTheme(): () => void {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return () => {};
+    }
+    const mql = window.matchMedia('(prefers-color-scheme: light)');
+    const onChange = () => {
+      if (this.value.theme === 'system') {
+        applyDocumentTheme('system');
+      }
+    };
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', onChange);
+      return () => mql.removeEventListener('change', onChange);
+    }
+    return () => {};
+  }
 
   async load(): Promise<void> {
     try {
       const loadedCfg = await getBackend().getConfig();
       if (loadedCfg) {
         this.value = normalizeConfig(loadedCfg);
+        this.syncBootAndDocument();
       }
     } catch {
       // Fallback defaults already set
@@ -106,10 +221,12 @@ export class ConfigStore {
   async applyPatch(patch: ConfigPatch): Promise<void> {
     // Optimistically update local config for crisp UI responsiveness.
     this.value = normalizeConfig({ ...this.value, ...patch });
+    this.syncBootAndDocument();
     try {
       const updated = await getBackend().updateConfig(patch);
       if (updated) {
         this.value = normalizeConfig(updated);
+        this.syncBootAndDocument();
       }
     } catch {
       // Keep optimistic state if headless
@@ -138,14 +255,17 @@ export class ConfigStore {
   }
 
   async reset(resetDictionaries: boolean): Promise<void> {
+    clearBootCache();
     this.value = normalizeConfig({
       ...DEFAULT_CONFIG,
       dictionaries: resetDictionaries ? [] : this.value.dictionaries
     });
+    applyDocumentTheme(this.value.theme);
     try {
       const updated = await getBackend().resetConfig(resetDictionaries);
       if (updated) {
         this.value = normalizeConfig(updated);
+        this.syncBootAndDocument();
       }
     } catch {
       // Keep optimistic state if headless

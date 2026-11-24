@@ -206,7 +206,7 @@
           disabled={isBuilding}
           onclick={onClose}
           aria-label="Close dictionary builder"
-          class="text-xs text-slate-400 hover:text-white disabled:opacity-40"
+          class="text-xs text-slate-400 hover:text-slate-100 disabled:opacity-40"
         >
           ✕
         </button>
@@ -231,19 +231,19 @@
                 oninput={(e) => applyInputPath((e.currentTarget as HTMLInputElement).value)}
                 placeholder="/path/to/wordlist.txt"
                 disabled={isBuilding}
-                class="flex-1 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="flex-1 rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-400 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
               <button
                 type="button"
                 data-testid="builder-browse-input-btn"
                 disabled={isBuilding}
                 onclick={handleBrowseWordList}
-                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700 disabled:opacity-50"
+                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-600 transition hover:bg-slate-700 disabled:opacity-50"
               >
                 Browse…
               </button>
             </div>
-            <p class="text-[11px] text-slate-500">
+            <p class="text-[11px] text-slate-400">
               Same schema as <code class="text-slate-300">tisane-build</code>: one word per line, or
               <code class="text-slate-300">word+annotation:alias;hidden|definition</code>.
             </p>
@@ -266,14 +266,14 @@
                 }}
                 placeholder="/path/to/output.tsd"
                 disabled={isBuilding}
-                class="flex-1 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="flex-1 rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-400 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
               <button
                 type="button"
                 data-testid="builder-browse-output-btn"
                 disabled={isBuilding}
                 onclick={handleBrowseOutput}
-                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700 disabled:opacity-50"
+                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-600 transition hover:bg-slate-700 disabled:opacity-50"
               >
                 Save As…
               </button>
@@ -290,7 +290,7 @@
               <label for="builder-description" class="text-slate-300">Description</label>
               <span
                 data-testid="builder-description-bytes"
-                class="font-mono text-[11px] {descriptionBytes > 999 ? 'text-amber-400' : 'text-slate-500'}"
+                class="font-mono text-[11px] {descriptionBytes > 999 ? 'text-amber-400' : 'text-slate-400'}"
               >
                 {descriptionBytes} / 999 bytes{descriptionBytes > 999 ? ' (will be truncated)' : ''}
               </span>
@@ -302,7 +302,7 @@
               bind:value={description}
               disabled={isBuilding}
               placeholder="Optional description stored in the dictionary header…"
-              class="w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+              class="w-full resize-y rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-400 focus:border-amber-400 focus:outline-none disabled:opacity-60"
             ></textarea>
           </div>
 
@@ -316,7 +316,7 @@
                 max={100}
                 bind:value={minLen}
                 disabled={isBuilding}
-                class="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="w-full rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
             </label>
             <label class="space-y-1">
@@ -328,7 +328,7 @@
                 max={100}
                 bind:value={maxLen}
                 disabled={isBuilding}
-                class="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="w-full rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
             </label>
           </div>
@@ -355,7 +355,7 @@
                 data-testid="builder-encoding"
                 bind:value={encoding}
                 disabled={isBuilding}
-                class="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="w-full rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               >
                 <option value="auto">Auto-detect (UTF-8 / Windows-1252)</option>
                 <option value="utf8">UTF-8</option>
@@ -372,9 +372,9 @@
                 max={100}
                 bind:value={maxFTSPercent}
                 disabled={isBuilding}
-                class="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="w-full rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
-              <span class="block text-[10px] text-slate-500">
+              <span class="block text-[10px] text-slate-400">
                 0 disables FTS occurrence lists; default 10%
               </span>
             </label>
@@ -382,7 +382,7 @@
 
           <div class="space-y-1">
             <label for="builder-map-path" class="block text-slate-300">
-              Alphabet Map File (.tsm) <span class="text-slate-500">(optional)</span>
+              Alphabet Map File (.tsm) <span class="text-slate-400">(optional)</span>
             </label>
             <div class="flex items-center gap-2">
               <input
@@ -392,14 +392,14 @@
                 bind:value={mapPath}
                 disabled={isBuilding}
                 placeholder="Built-in Default.TSM"
-                class="flex-1 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="flex-1 rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-400 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
               <button
                 type="button"
                 data-testid="builder-browse-map-btn"
                 disabled={isBuilding}
                 onclick={handleBrowseMap}
-                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-slate-700 transition hover:bg-slate-700 disabled:opacity-50"
+                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-slate-600 transition hover:bg-slate-700 disabled:opacity-50"
               >
                 Browse…
               </button>
@@ -409,7 +409,7 @@
                   data-testid="builder-clear-map-btn"
                   disabled={isBuilding}
                   onclick={() => (mapPath = '')}
-                  class="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  class="shrink-0 rounded-lg border border-slate-600 px-2.5 py-1.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
                 >
                   Clear
                 </button>
@@ -512,7 +512,7 @@
           type="button"
           disabled={isBuilding}
           onclick={onClose}
-          class="rounded-lg border border-slate-700 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+          class="rounded-lg border border-slate-600 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
         >
           {buildResult ? 'Done' : 'Cancel'}
         </button>
@@ -520,7 +520,7 @@
           type="submit"
           data-testid="builder-submit-btn"
           disabled={!canBuild}
-          class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+          class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-neutral-950 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isBuilding ? 'Building…' : 'Build Dictionary'}
         </button>

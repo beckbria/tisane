@@ -106,7 +106,7 @@
       <h2 class="truncate text-xs font-semibold tracking-wider text-slate-300 uppercase">
         Dictionaries
       </h2>
-      <p class="truncate text-[11px] text-slate-500">
+      <p class="truncate text-[11px] text-slate-400">
         {activeCount} of {dictionaries.length} active · priority order
       </p>
     </div>
@@ -260,11 +260,11 @@
               ? 'border-amber-400 bg-amber-500/10'
               : dict.enabled
                 ? 'border-slate-800 bg-slate-950/75 text-slate-100'
-                : 'border-transparent bg-slate-900/40 text-slate-400 opacity-75 hover:bg-slate-900'}"
+                : 'border-slate-800/60 bg-slate-900/50 text-slate-400 hover:bg-slate-900'}"
           >
             <!-- Drag Handle -->
             <span
-              class="cursor-grab text-slate-500 hover:text-slate-300"
+              class="cursor-grab text-slate-400 hover:text-slate-200"
               title="Drag to reorder priority"
             >
               ≡
@@ -295,13 +295,13 @@
             </div>
 
             <!-- Explicit Up / Down + Remove Controls -->
-            <div class="flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
+            <div class="flex items-center gap-0.5">
               <button
                 type="button"
                 disabled={idx === 0}
                 data-testid={`dict-up-${idx}`}
                 onclick={() => moveByOffset(idx, -1)}
-                class="rounded px-1 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800 disabled:opacity-25"
+                class="rounded px-1 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800 disabled:opacity-35"
                 title="Move dictionary higher in priority"
                 aria-label={`Move ${dict.name} up`}
               >
@@ -312,7 +312,7 @@
                 disabled={idx === dictionaries.length - 1}
                 data-testid={`dict-down-${idx}`}
                 onclick={() => moveByOffset(idx, 1)}
-                class="rounded px-1 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800 disabled:opacity-25"
+                class="rounded px-1 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800 disabled:opacity-35"
                 title="Move dictionary lower in priority"
                 aria-label={`Move ${dict.name} down`}
               >

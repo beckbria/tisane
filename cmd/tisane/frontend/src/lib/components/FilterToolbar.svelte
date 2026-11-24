@@ -179,7 +179,7 @@
         aria-label="Minimum word length"
         data-testid="min-length-input"
         onchange={(e) => updateMin( Number((e.currentTarget as HTMLInputElement).value) )}
-        class="w-13 rounded border border-slate-700/80 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+        class="w-13 rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
       />
       <button
         type="button"
@@ -187,7 +187,7 @@
         data-testid="exact-length-pin"
         class="rounded px-1.5 py-0.5 font-mono text-[11px] transition {exactPin
           ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40'
-          : 'text-slate-500 hover:text-slate-300'}"
+          : 'text-slate-400 hover:text-slate-200'}"
         title={exactPin ? 'Pinned to exact length (click to unpin)' : 'Pin Min = Max for exact word length'}
       >
         {exactPin ? '=' : '–'}
@@ -200,7 +200,7 @@
         aria-label="Maximum word length"
         data-testid="max-length-input"
         onchange={(e) => updateMax( Number((e.currentTarget as HTMLInputElement).value) )}
-        class="w-13 rounded border border-slate-700/80 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+        class="w-13 rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
       />
       {#if minLength !== 1 || maxLength !== 100}
         <button
@@ -231,7 +231,7 @@
           title={cb.title}
           class="rounded px-2 py-0.5 font-mono text-[11px] font-medium transition {active
             ? 'bg-slate-800 text-amber-300 ring-1 ring-amber-500/40'
-            : 'bg-slate-950/60 text-slate-500 line-through hover:text-slate-300'}"
+            : 'bg-slate-950/60 text-slate-400 line-through ring-1 ring-slate-600/60 hover:text-slate-200'}"
         >
           {cb.code}
         </button>
@@ -262,7 +262,7 @@
         value={sortMode}
         data-testid="sort-select"
         onchange={(e) => onSortChange((e.currentTarget as HTMLSelectElement).value as SortMode)}
-        class="rounded border border-slate-700/80 bg-slate-950 px-2 py-0.5 text-xs text-slate-200 focus:border-amber-400 focus:outline-none"
+        class="rounded border border-slate-600 bg-slate-950 px-2 py-0.5 text-xs text-slate-200 focus:border-amber-400 focus:outline-none"
       >
         <option value="dict">Dictionary Order</option>
         <option value="smart">Smart Balance</option>
@@ -275,7 +275,7 @@
 
     <!-- Layout Switch: Separate Tiled Panes (Default) vs Unified Merged List -->
     <div
-      class="inline-flex rounded-md bg-slate-950 p-0.5 ring-1 ring-slate-800"
+      class="inline-flex rounded-md bg-slate-950 p-0.5 ring-1 ring-slate-600"
       role="group"
       aria-label="Results layout mode"
     >
@@ -285,7 +285,7 @@
         onclick={() => onLayoutChange('tiled')}
         title="Separate tiled pane per active dictionary (Ctrl+1)"
         class="rounded px-2 py-0.5 text-[11px] font-medium transition {layoutMode === 'tiled'
-          ? 'bg-amber-500 text-slate-950'
+          ? 'bg-amber-500 text-neutral-950'
           : 'text-slate-400 hover:text-slate-200'}"
       >
         ⊞ Tiled
@@ -296,7 +296,7 @@
         onclick={() => onLayoutChange('unified')}
         title="Unified merged list across dictionaries (Ctrl+2)"
         class="rounded px-2 py-0.5 text-[11px] font-medium transition {layoutMode === 'unified'
-          ? 'bg-amber-500 text-slate-950'
+          ? 'bg-amber-500 text-neutral-950'
           : 'text-slate-400 hover:text-slate-200'}"
       >
         ≡ Unified

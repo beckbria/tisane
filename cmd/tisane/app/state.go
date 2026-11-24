@@ -271,6 +271,7 @@ func (s *State) cloneConfigLocked() profile.Config {
 	cfgCopy.RecentQueries = append([]string{}, s.cfg.RecentQueries...)
 	cfgCopy.SidebarWidth = profile.NormalizeSidebarWidth(s.cfg.SidebarWidth)
 	cfgCopy.DefinitionHeight = profile.NormalizeDefinitionHeight(s.cfg.DefinitionHeight)
+	cfgCopy.Theme = profile.NormalizeTheme(s.cfg.Theme)
 	cfgCopy.Fonts = profile.NormalizeFontConfig(s.cfg.Fonts)
 	return cfgCopy
 }

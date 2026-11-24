@@ -25,6 +25,7 @@ type ConfigPatch struct {
 	SidebarCollapsed        *bool                `json:"sidebarCollapsed,omitempty"`
 	DefinitionHeight        *int                 `json:"definitionHeight,omitempty"`
 	DefinitionCollapsed     *bool                `json:"definitionCollapsed,omitempty"`
+	Theme                   *string              `json:"theme,omitempty"`
 	AutoWebFallback         *bool                `json:"autoWebFallback,omitempty"`
 	DefaultWebProvider      *string              `json:"defaultWebProvider,omitempty"`
 	WebProviders            []lookup.WebProvider `json:"webProviders,omitempty"`
@@ -123,6 +124,9 @@ func (ps *ProfileService) UpdateConfig(patch ConfigPatch) (profile.Config, error
 	}
 	if patch.DefinitionCollapsed != nil {
 		cfg.DefinitionCollapsed = *patch.DefinitionCollapsed
+	}
+	if patch.Theme != nil {
+		cfg.Theme = profile.NormalizeTheme(*patch.Theme)
 	}
 	if patch.AutoWebFallback != nil {
 		cfg.AutoWebFallback = *patch.AutoWebFallback

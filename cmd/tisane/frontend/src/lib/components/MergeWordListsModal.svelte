@@ -186,7 +186,7 @@
           disabled={isMerging}
           onclick={onClose}
           aria-label="Close word list merge tool"
-          class="text-xs text-slate-400 hover:text-white disabled:opacity-40"
+          class="text-xs text-slate-400 hover:text-slate-100 disabled:opacity-40"
         >
           ✕
         </button>
@@ -211,14 +211,14 @@
                 oninput={(e) => applyPrimaryPath((e.currentTarget as HTMLInputElement).value)}
                 placeholder="/path/to/primary.txt"
                 disabled={isMerging}
-                class="flex-1 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="flex-1 rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-400 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
               <button
                 type="button"
                 data-testid="merge-browse-primary-btn"
                 disabled={isMerging}
                 onclick={handleBrowsePrimary}
-                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700 disabled:opacity-50"
+                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-600 transition hover:bg-slate-700 disabled:opacity-50"
               >
                 Browse…
               </button>
@@ -241,14 +241,14 @@
                 }}
                 placeholder="/path/to/secondary.txt"
                 disabled={isMerging}
-                class="flex-1 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="flex-1 rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-400 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
               <button
                 type="button"
                 data-testid="merge-browse-secondary-btn"
                 disabled={isMerging}
                 onclick={handleBrowseSecondary}
-                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700 disabled:opacity-50"
+                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-600 transition hover:bg-slate-700 disabled:opacity-50"
               >
                 Browse…
               </button>
@@ -272,14 +272,14 @@
                 }}
                 placeholder="/path/to/merged.txt"
                 disabled={isMerging}
-                class="flex-1 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="flex-1 rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 placeholder-slate-400 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
               <button
                 type="button"
                 data-testid="merge-browse-output-btn"
                 disabled={isMerging}
                 onclick={handleBrowseOutput}
-                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-700 disabled:opacity-50"
+                class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-600 transition hover:bg-slate-700 disabled:opacity-50"
               >
                 Save As…
               </button>
@@ -308,13 +308,13 @@
                 data-testid="merge-conversion"
                 bind:value={conversion}
                 disabled={isMerging}
-                class="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="w-full rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               >
                 {#each CONVERSION_OPTIONS as opt (opt.value)}
                   <option value={opt.value}>{opt.label}</option>
                 {/each}
               </select>
-              <span class="block text-[10px] text-slate-500">
+              <span class="block text-[10px] text-slate-400">
                 {CONVERSION_OPTIONS.find((o) => o.value === conversion)?.hint}
               </span>
             </label>
@@ -325,7 +325,7 @@
                 data-testid="merge-encoding"
                 bind:value={encoding}
                 disabled={isMerging}
-                class="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                class="w-full rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               >
                 <option value="auto">Auto-detect (UTF-8 / Windows-1252)</option>
                 <option value="utf8">UTF-8</option>
@@ -339,7 +339,7 @@
         <section class="space-y-2.5 border-t border-slate-800 pt-4">
           <div>
             <h3 class="font-semibold tracking-wider text-slate-300 uppercase">Merge Operation</h3>
-            <p class="text-[11px] text-slate-500">
+            <p class="text-[11px] text-slate-400">
               Applied after conversion to the deduplicated entries of both lists.
             </p>
           </div>
@@ -421,7 +421,7 @@
           type="button"
           disabled={isMerging}
           onclick={onClose}
-          class="rounded-lg border border-slate-700 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+          class="rounded-lg border border-slate-600 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
         >
           {mergeResult ? 'Done' : 'Cancel'}
         </button>
@@ -429,7 +429,7 @@
           type="submit"
           data-testid="merge-submit-btn"
           disabled={!canMerge}
-          class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+          class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-neutral-950 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isMerging ? 'Merging…' : 'Merge Word Lists'}
         </button>

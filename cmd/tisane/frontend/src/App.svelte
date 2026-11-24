@@ -421,6 +421,7 @@
     const unsubs: (() => void)[] = [
       searchStore.subscribe(),
       dictStore.subscribe(),
+      cfgStore.subscribeSystemTheme(),
       backend.onEvent('ui:open-settings', () => {
         showSettings = true;
       }),
@@ -456,6 +457,11 @@
       }),
       backend.onEvent('ui:toggle-definitions', () => {
         toggleDefinitionCollapsed();
+      }),
+      backend.onEvent('ui:set-theme', (nextTheme) => {
+        if (nextTheme === 'dark' || nextTheme === 'light' || nextTheme === 'system') {
+          void applyConfigPatch({ theme: nextTheme }, false);
+        }
       })
     ];
 
@@ -569,7 +575,7 @@
         onmousedown={handleSidebarResizeStart}
         ondblclick={handleSidebarResizeReset}
         onkeydown={handleSidebarResizeKeydown}
-        class="group relative z-20 -ml-1 w-2 shrink-0 cursor-col-resize select-none focus:outline-none"
+        class="group relative z-20 -ml-1 w-2 shrink-0 cursor-col-resize select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
       >
         <div
           class="mx-auto h-full w-0.5 transition-colors {isResizingSidebar
@@ -584,7 +590,7 @@
       <div class="min-h-0 flex-1 overflow-hidden p-2.5" data-testid="results-workspace">
         {#if cfgStore.value.layoutMode === 'tiled'}
           {#if displayedTiledDicts.length === 0}
-            <div class="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-800 text-xs text-slate-500">
+            <div class="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-700 text-xs text-slate-400">
               <span>Enable at least one dictionary in the left sidebar to search.</span>
               {#if cfgStore.value.sidebarCollapsed}
                 <button
@@ -658,7 +664,7 @@
           onmousedown={handleDefinitionResizeStart}
           ondblclick={handleDefinitionResizeReset}
           onkeydown={handleDefinitionResizeKeydown}
-          class="group relative z-20 -mt-1 -mb-1 flex h-2 shrink-0 cursor-row-resize items-center select-none focus:outline-none"
+          class="group relative z-20 -mt-1 -mb-1 flex h-2 shrink-0 cursor-row-resize items-center select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         >
           <div
             class="h-0.5 w-full transition-colors {isResizingDefinition
@@ -740,7 +746,7 @@
 
     <div
       style="font-family: var(--tisane-font-status-family); font-size: var(--tisane-font-status-size);"
-      class="flex items-center gap-3 text-slate-500"
+      class="flex items-center gap-3 text-slate-400"
     >
       <span>@={cfgStore.value.atMacro}</span>
       <span>#={cfgStore.value.hashMacro}</span>

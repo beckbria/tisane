@@ -30,6 +30,7 @@ export interface ValidationResult {
 
 export type SearchMode = 'word' | 'fts';
 export type LayoutMode = 'tiled' | 'unified';
+export type ThemeMode = 'dark' | 'light' | 'system';
 export type SortMode = 'dict' | 'alpha' | 'alpha-desc' | 'len' | 'len-desc' | 'smart';
 export type EntryCategory = 'lowercase' | 'capitalized' | 'punctuated' | 'phrase';
 
@@ -188,6 +189,7 @@ export interface Config {
   sidebarCollapsed: boolean;
   definitionHeight: number;
   definitionCollapsed: boolean;
+  theme: ThemeMode;
   autoWebFallback: boolean;
   defaultWebProvider: string;
   webProviders: WebProvider[];
@@ -212,6 +214,7 @@ export interface ConfigPatch {
   sidebarCollapsed?: boolean;
   definitionHeight?: number;
   definitionCollapsed?: boolean;
+  theme?: ThemeMode;
   autoWebFallback?: boolean;
   defaultWebProvider?: string;
   webProviders?: WebProvider[];

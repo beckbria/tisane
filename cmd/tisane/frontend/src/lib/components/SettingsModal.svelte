@@ -5,7 +5,7 @@
     formatFontSummary,
     normalizeFontConfig
   } from '../fonts';
-  import type { Config, ConfigPatch, FontConfig, WebProvider } from '../types';
+  import type { Config, ConfigPatch, FontConfig, ThemeMode, WebProvider } from '../types';
   import FontSettingsModal from './FontSettingsModal.svelte';
 
   interface Props {
@@ -20,6 +20,7 @@
 
   let atMacro = $state('');
   let hashMacro = $state('');
+  let theme: ThemeMode = $state('dark');
   let autoWebFallback = $state(false);
   let defaultWebProvider = $state('onelook');
   let providers: WebProvider[] = $state([]);
@@ -48,6 +49,7 @@
     if (open) {
       atMacro = config.atMacro;
       hashMacro = config.hashMacro;
+      theme = config.theme ?? 'dark';
       autoWebFallback = config.autoWebFallback;
       defaultWebProvider = config.defaultWebProvider;
       providers = (config.webProviders ?? []).map((p) => ({ ...p }));
@@ -91,6 +93,17 @@
     }
   }
 
+  const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
+    { value: 'dark', label: 'Dark' },
+    { value: 'light', label: 'Light' },
+    { value: 'system', label: 'System' }
+  ];
+
+  function handleSelectTheme(nextTheme: ThemeMode) {
+    theme = nextTheme;
+    onSave({ theme: nextTheme });
+  }
+
   function handleSaveFonts(nextFonts: FontConfig) {
     fonts = normalizeFontConfig(nextFonts);
     onSave({ fonts });
@@ -116,6 +129,7 @@
     onSave({
       atMacro,
       hashMacro,
+      theme,
       autoWebFallback,
       defaultWebProvider,
       webProviders: providers,
@@ -142,7 +156,8 @@
         <button
           type="button"
           onclick={onClose}
-          class="text-xs text-slate-400 hover:text-white"
+          aria-label="Close preferences"
+          class="text-xs text-slate-400 hover:text-slate-100"
         >
           ✕
         </button>
@@ -150,14 +165,14 @@
 
       <div class="space-y-5 overflow-y-auto px-5 py-4 text-xs">
         <!-- Appearance & Typography -->
-        <section class="space-y-2.5">
-          <div class="flex items-center justify-between gap-2">
+        <section class="space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 class="font-semibold tracking-wider text-slate-300 uppercase">
                 Appearance & Typography
               </h3>
               <p class="text-[11px] text-slate-400">
-                Customize fonts and font sizes for results, definitions, pattern bar, sidebar, and status bar
+                Choose a color theme and customize workspace fonts and sizes
               </p>
             </div>
             <button
@@ -168,6 +183,29 @@
             >
               Customize Fonts…
             </button>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+            <span class="font-medium text-slate-200">Color Theme</span>
+            <div
+              class="inline-flex rounded-lg bg-slate-900 p-0.5 ring-1 ring-slate-600"
+              role="group"
+              aria-label="Color theme"
+            >
+              {#each THEME_OPTIONS as opt (opt.value)}
+                <button
+                  type="button"
+                  data-testid={`theme-${opt.value}-btn`}
+                  aria-pressed={theme === opt.value}
+                  onclick={() => handleSelectTheme(opt.value)}
+                  class="rounded-md px-3 py-1 text-xs font-medium transition {theme === opt.value
+                    ? 'bg-amber-500 text-neutral-950 shadow-xs'
+                    : 'text-slate-300 hover:text-slate-100'}"
+                >
+                  {opt.label}
+                </button>
+              {/each}
+            </div>
           </div>
 
           <div
@@ -217,7 +255,7 @@
               <input
                 type="text"
                 bind:value={atMacro}
-                class="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+                class="w-full rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
               />
             </label>
             <label class="space-y-1">
@@ -225,7 +263,7 @@
               <input
                 type="text"
                 bind:value={hashMacro}
-                class="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+                class="w-full rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
               />
             </label>
           </div>
@@ -239,7 +277,7 @@
             <input
               type="checkbox"
               bind:checked={autoWebFallback}
-              class="h-3.5 w-3.5 rounded accent-amber-500"
+              class="h-3.5 w-3.5 rounded border-slate-600 accent-amber-500"
             />
             <span>Double-clicking a word with no local definition opens Default Web Search automatically</span>
           </label>
@@ -248,7 +286,7 @@
             <span class="text-slate-400">Default Web Provider</span>
             <select
               bind:value={defaultWebProvider}
-              class="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+              class="w-full rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
             >
               {#each providers as p}
                 <option value={p.id}>{p.name} ({p.urlTemplate})</option>
@@ -264,13 +302,13 @@
                   type="text"
                   bind:value={p.name}
                   aria-label="Provider name"
-                  class="w-32 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-200"
+                  class="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-xs text-slate-200 focus:border-amber-400 focus:outline-none"
                 />
                 <input
                   type="text"
                   bind:value={p.urlTemplate}
                   aria-label="Provider URL template"
-                  class="flex-1 rounded border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-[11px] text-slate-300"
+                  class="flex-1 rounded border border-slate-600 bg-slate-950 px-2 py-1 font-mono text-[11px] text-slate-300 focus:border-amber-400 focus:outline-none"
                 />
                 <button
                   type="button"
@@ -285,18 +323,18 @@
             {/each}
 
             <!-- Add Custom Provider -->
-            <div class="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-slate-800 p-2">
+            <div class="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-slate-600 p-2">
               <input
                 type="text"
                 bind:value={newName}
                 placeholder="Name (e.g. Chambers)"
-                class="w-32 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200"
+                class="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-xs text-slate-200 placeholder-slate-400 focus:border-amber-400 focus:outline-none"
               />
               <input
                 type="text"
                 bind:value={newTemplate}
                 placeholder={'https://example.com/search?q={entry}'}
-                class="flex-1 rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-[11px] text-slate-200"
+                class="flex-1 rounded border border-slate-600 bg-slate-950 px-2 py-1 font-mono text-[11px] text-slate-200 placeholder-slate-400 focus:border-amber-400 focus:outline-none"
               />
               <button
                 type="button"
@@ -323,7 +361,7 @@
             resetIncludeDicts = false;
             showResetConfirm = true;
           }}
-          class="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-300"
+          class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 transition hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-300"
         >
           Reset All Settings to Defaults
         </button>
@@ -332,14 +370,14 @@
           <button
             type="button"
             onclick={onClose}
-            class="rounded-lg border border-slate-700 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+            class="rounded-lg border border-slate-600 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
           >
             Cancel
           </button>
           <button
             type="submit"
             data-testid="save-settings-btn"
-            class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400"
+            class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-neutral-950 hover:brightness-105"
           >
             Save Settings
           </button>
@@ -365,7 +403,7 @@
             type="button"
             onclick={() => (showResetConfirm = false)}
             aria-label="Close confirmation dialog"
-            class="text-xs text-slate-400 hover:text-white"
+            class="text-xs text-slate-400 hover:text-slate-100"
           >
             ✕
           </button>
@@ -373,17 +411,17 @@
 
         <div class="space-y-3.5 px-5 py-4 text-xs text-slate-300">
           <p>
-            This will clear all persisted settings (macros, filters, sort &amp; layout modes, custom fonts, web providers, and recent queries) and restore Tisane's factory defaults.
+            This will clear all persisted settings (macros, filters, sort &amp; layout modes, theme, custom fonts, web providers, and recent queries) and restore Tisane's factory defaults.
           </p>
 
           <label
-            class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-slate-200 transition hover:border-slate-700"
+            class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-600 bg-slate-950/70 p-3 text-slate-200 transition hover:border-slate-500"
           >
             <input
               type="checkbox"
               bind:checked={resetIncludeDicts}
               data-testid="reset-dicts-checkbox"
-              class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded accent-amber-500"
+              class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-600 accent-amber-500"
             />
             <div class="space-y-0.5">
               <span class="block font-medium text-slate-100">
@@ -401,7 +439,7 @@
             type="button"
             data-testid="cancel-reset-settings-btn"
             onclick={() => (showResetConfirm = false)}
-            class="rounded-lg border border-slate-700 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+            class="rounded-lg border border-slate-600 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
           >
             Cancel
           </button>
@@ -409,7 +447,7 @@
             type="button"
             data-testid="confirm-reset-settings-btn"
             onclick={handleConfirmReset}
-            class="rounded-lg bg-rose-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-rose-500"
+            class="rounded-lg bg-rose-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
           >
             Reset to Defaults
           </button>

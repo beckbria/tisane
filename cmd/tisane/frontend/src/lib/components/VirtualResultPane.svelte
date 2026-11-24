@@ -114,7 +114,7 @@
     <div class="min-w-0">
       <h3 class="truncate font-semibold text-slate-200">{title}</h3>
       {#if subtitle}
-        <p class="truncate text-[10px] text-slate-500">{subtitle}</p>
+        <p class="truncate text-[10px] text-slate-400">{subtitle}</p>
       {/if}
     </div>
     <span
@@ -134,10 +134,10 @@
     role="listbox"
     aria-label={`${title} matches`}
     onkeydown={handleKeydown}
-    class="relative flex-1 overflow-y-auto focus:outline-none"
+    class="relative flex-1 overflow-y-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
   >
     {#if items.length === 0}
-      <div class="flex h-full items-center justify-center p-4 text-center text-xs text-slate-500">
+      <div class="flex h-full items-center justify-center p-4 text-center text-xs text-slate-400">
         {emptyMessage}
       </div>
     {:else}
@@ -163,9 +163,9 @@
                 onDoubleClick(match);
               }}
               style="position: absolute; top: 0; left: 0; width: 100%; height: {vRow.size}px; transform: translateY({vRow.start}px); font-family: var(--tisane-font-results-family); font-size: var(--tisane-font-results-size);"
-              class="flex items-center justify-between gap-2 border-b border-slate-900/70 px-3 text-left transition-colors {isSelected
-                ? 'bg-amber-500/20 text-amber-100'
-                : 'text-slate-200 hover:bg-slate-900/90'}"
+              class="flex items-center justify-between gap-2 border-b border-slate-900/70 border-l-2 px-3 text-left transition-colors {isSelected
+                ? 'border-l-amber-400 bg-amber-500/20 text-amber-100'
+                : 'border-l-transparent text-slate-200 hover:bg-slate-900/90'}"
             >
               <div class="flex min-w-0 items-center gap-1.5">
                 <span class="truncate font-medium">{match.word}</span>
@@ -204,7 +204,7 @@
                     📖
                   </span>
                 {:else}
-                  <span class="w-3.5 text-center font-mono text-[10px] text-slate-600">{match.length}</span>
+                  <span class="w-3.5 text-center font-mono text-[10px] text-slate-400">{match.length}</span>
                 {/if}
               </div>
             </button>

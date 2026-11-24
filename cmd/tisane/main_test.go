@@ -120,6 +120,16 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 		t.Fatalf("expected embedded '/icon.png' response body to start with PNG signature")
 	}
 
+	bootReq := httptest.NewRequest(http.MethodGet, "/boot.js", nil)
+	bootRec := httptest.NewRecorder()
+	assetHandler.ServeHTTP(bootRec, bootReq)
+	if bootRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK serving embedded '/boot.js', got %d", bootRec.Code)
+	}
+	if !strings.Contains(bootRec.Body.String(), "tisane:boot") {
+		t.Fatalf("unexpected embedded '/boot.js' body: %s", bootRec.Body.String())
+	}
+
 	if tisane.Version == "" {
 		t.Fatal("expected non-empty tisane.Version")
 	}

@@ -70,6 +70,7 @@ function createMockHarness() {
     sidebarCollapsed: false,
     definitionHeight: 256,
     definitionCollapsed: false,
+    theme: 'dark',
     autoWebFallback: false,
     defaultWebProvider: 'onelook',
     webProviders: [
@@ -291,6 +292,7 @@ function createMockHarness() {
         sidebarCollapsed: false,
         definitionHeight: 256,
         definitionCollapsed: false,
+        theme: 'dark',
         autoWebFallback: false,
         defaultWebProvider: 'onelook',
         webProviders: [
@@ -324,6 +326,9 @@ function createMockHarness() {
 describe('Tisane Svelte 5 Desktop UI', () => {
   beforeEach(() => {
     setBackendForTesting(null);
+    window.localStorage.clear();
+    delete document.documentElement.dataset.theme;
+    document.documentElement.style.colorScheme = '';
   });
 
   it('defaults to 2 separate tiled panes per dictionary, switches to unified view, and handles RTF definitions + Web Search fallback', async () => {
@@ -507,6 +512,7 @@ describe('Tisane Svelte 5 Desktop UI', () => {
       sidebarCollapsed: false,
       definitionHeight: 0,
       definitionCollapsed: false,
+      theme: 'dark',
       autoWebFallback: false,
       defaultWebProvider: 'onelook',
       webProviders: null as unknown as Config['webProviders'],
@@ -1353,5 +1359,60 @@ describe('Tisane Svelte 5 Desktop UI', () => {
         w._wails.environment = prevEnv;
       }
     }
+  });
+
+  it('switches between Dark, Light, and System themes, mirrors theme in boot cache, and styles .tsd-indent', async () => {
+    // Seed boot cache to verify synchronous pre-paint initialization before async getConfig resolves
+    window.localStorage.setItem('tisane:boot', JSON.stringify({ theme: 'light' }));
+
+    const h = createMockHarness();
+    let resolveInitialConfig!: (cfg: Config) => void;
+    (h.backend.getConfig as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () =>
+        new Promise<Config>((resolve) => {
+          resolveInitialConfig = resolve;
+        })
+    );
+    setBackendForTesting(h.backend);
+
+    render(App);
+    // Boot cache applied light theme immediately before getConfig resolved
+    expect(document.documentElement.dataset.theme).toBe('light');
+
+    // Now resolve canonical profile (which has theme='dark') -> overrides boot cache
+    const baseCfg = await h.backend.updateConfig({});
+    resolveInitialConfig({ ...baseCfg, theme: 'dark' });
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
+    expect(JSON.parse(window.localStorage.getItem('tisane:boot') || '{}').theme).toBe('dark');
+
+    // Switch to Light theme via Settings modal
+    await fireEvent.click(screen.getByTestId('open-settings-btn'));
+    const lightBtn = screen.getByTestId('theme-light-btn');
+    await fireEvent.click(lightBtn);
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe('light');
+      expect(document.documentElement.style.colorScheme).toBe('light');
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ theme: 'light' });
+      expect(JSON.parse(window.localStorage.getItem('tisane:boot') || '{}').theme).toBe('light');
+    });
+
+    // Switch via native View -> Theme menu event
+    h.emit('ui:set-theme', 'system');
+    await waitFor(() => {
+      expect(h.backend.updateConfig).toHaveBeenCalledWith({ theme: 'system' });
+      expect(JSON.parse(window.localStorage.getItem('tisane:boot') || '{}').theme).toBe('system');
+    });
+
+    // Resetting all settings clears boot cache and restores dark theme
+    await fireEvent.click(screen.getByTestId('reset-all-settings-btn'));
+    await fireEvent.click(screen.getByTestId('confirm-reset-settings-btn'));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
+
+    // Verify app.css defines RTF .tsd-indent rule and [data-theme="light"] tokens
+    const cssSource = readFileSync(resolve(__dirname, 'app.css'), 'utf8');
+    expect(cssSource).toContain('.tisane-def .tsd-indent');
+    expect(cssSource).toContain('[data-theme="light"]');
+    expect(cssSource).toContain('prefers-reduced-motion: reduce');
   });
 });

@@ -29,6 +29,7 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 	cfg.MinLength = 3
 	cfg.MaxLength = 15
 	cfg.SortMode = "smart"
+	cfg.Theme = "light"
 	cfg.DictDirs = []string{tmp, dictsDir}
 	cfg.Dictionaries = []profile.DictConfig{
 		{Path: filepath.Join(dictsDir, "english-wordnet-2025-plus.tsd"), Name: "WordNet", Enabled: true},
@@ -53,7 +54,7 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if loaded.AtMacro != cfg.AtMacro || loaded.MinLength != 3 || loaded.MaxLength != 15 || loaded.SortMode != "smart" || loaded.LayoutMode != "tiled" {
+	if loaded.AtMacro != cfg.AtMacro || loaded.MinLength != 3 || loaded.MaxLength != 15 || loaded.SortMode != "smart" || loaded.LayoutMode != "tiled" || loaded.Theme != "light" {
 		t.Fatalf("scalar round-trip mismatch: %+v", loaded)
 	}
 	if loaded.Fonts != cfg.Fonts {
@@ -353,5 +354,21 @@ func TestRecordRecentQuery(t *testing.T) {
 	cfg.RecordRecentQuery("fourth", 3)
 	if !slices.Equal(cfg.RecentQueries, []string{"fourth", "first", "third"}) {
 		t.Fatalf("RecentQueries = %v, want [fourth first third]", cfg.RecentQueries)
+	}
+}
+
+func TestNormalizeTheme(t *testing.T) {
+	cases := map[string]string{
+		"":        "dark",
+		"dark":    "dark",
+		" LIGHT ": "light",
+		"system":  "system",
+		"auto":    "system",
+		"bogus":   "dark",
+	}
+	for in, want := range cases {
+		if got := profile.NormalizeTheme(in); got != want {
+			t.Errorf("NormalizeTheme(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

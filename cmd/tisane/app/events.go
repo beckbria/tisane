@@ -20,4 +20,5 @@ const (
 	EventUIToggleCheatsheet  = "ui:toggle-cheatsheet"
 	EventUIToggleSidebar     = "ui:toggle-sidebar"
 	EventUIToggleDefinitions = "ui:toggle-definitions"
+	EventUISetTheme          = "ui:set-theme"
 )

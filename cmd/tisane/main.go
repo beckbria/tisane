@@ -260,6 +260,19 @@ func buildAppMenu(
 		OnClick(func(*application.Context) {
 			wailsApp.Event.Emit(app.EventUIOpenFontSettings, nil)
 		})
+	themeMenu := viewMenu.AddSubmenu("Theme")
+	themeMenu.Add("Dark").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit(app.EventUISetTheme, "dark")
+		})
+	themeMenu.Add("Light").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit(app.EventUISetTheme, "light")
+		})
+	themeMenu.Add("System").
+		OnClick(func(*application.Context) {
+			wailsApp.Event.Emit(app.EventUISetTheme, "system")
+		})
 
 	helpMenu := menu.AddSubmenu("Help")
 	helpMenu.Add("About Tisane").
@@ -277,7 +290,7 @@ func main() {
 		log.Fatalf("tisane: failed to initialize state: %v", err)
 	}
 
-	dictSvc, _, searchSvc, _, _, services := newServices(state)
+	dictSvc, _, searchSvc, _, profileSvc, services := newServices(state)
 
 	wailsApp := application.New(application.Options{
 		Name:        "Tisane",
@@ -296,6 +309,11 @@ func main() {
 		},
 	})
 
+	bgColour := application.NewRGB(2, 6, 23)
+	if profileSvc.GetConfig().Theme == "light" {
+		bgColour = application.NewRGB(255, 255, 255)
+	}
+
 	mainWin := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
 		Title:            "Tisane",
@@ -303,7 +321,7 @@ func main() {
 		Height:           840,
 		MinWidth:         920,
 		MinHeight:        600,
-		BackgroundColour: application.NewRGB(2, 6, 23),
+		BackgroundColour: bgColour,
 		URL:              "/",
 		Linux: application.LinuxWindow{
 			Icon: build.AppIcon,

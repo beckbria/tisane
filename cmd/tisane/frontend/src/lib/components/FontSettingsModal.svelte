@@ -139,22 +139,22 @@
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <div class="flex items-center rounded-lg border border-slate-700/80 bg-slate-950 p-0.5 text-[11px]">
+          <div class="flex items-center rounded-lg border border-slate-600 bg-slate-950 p-0.5 text-[11px]">
             <button
               type="button"
               data-testid="scale-all-down-btn"
               onclick={() => scaleAll(-1)}
-              class="rounded px-2 py-0.5 text-slate-300 hover:bg-slate-800 hover:text-white"
+              class="rounded px-2 py-0.5 text-slate-300 hover:bg-slate-800 hover:text-slate-100"
               title="Decrease all font sizes by 1px"
             >
               A−
             </button>
-            <span class="px-1 text-slate-600">|</span>
+            <span class="px-1 text-slate-400">|</span>
             <button
               type="button"
               data-testid="scale-all-up-btn"
               onclick={() => scaleAll(1)}
-              class="rounded px-2 py-0.5 text-slate-300 hover:bg-slate-800 hover:text-white"
+              class="rounded px-2 py-0.5 text-slate-300 hover:bg-slate-800 hover:text-slate-100"
               title="Increase all font sizes by 1px"
             >
               A+
@@ -164,7 +164,7 @@
             type="button"
             onclick={onClose}
             aria-label="Close font settings"
-            class="ml-1 text-xs text-slate-400 hover:text-white"
+            class="ml-1 text-xs text-slate-400 hover:text-slate-100"
           >
             ✕
           </button>
@@ -215,7 +215,7 @@
                       value={customMode[item.key] ? '__custom__' : current.family}
                       onchange={(e) =>
                         handlePresetSelect(item.key, (e.currentTarget as HTMLSelectElement).value)}
-                      class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+                      class="rounded border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
                     >
                       {#each FONT_PRESETS as preset}
                         <option value={preset.value}>{preset.label}</option>
@@ -249,7 +249,7 @@
                       data-testid={`font-size-dec-${item.key}`}
                       disabled={current.size <= item.minSize}
                       onclick={() => updateSize(item.key, current.size - 1, item.minSize, item.maxSize)}
-                      class="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-30"
+                      class="rounded border border-slate-600 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-35"
                       aria-label={`Decrease ${item.label} size`}
                     >
                       −
@@ -285,14 +285,14 @@
                           item.minSize,
                           item.maxSize
                         )}
-                      class="w-13 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-center font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+                      class="w-13 rounded border border-slate-600 bg-slate-900 px-1.5 py-0.5 text-center font-mono text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
                     />
                     <button
                       type="button"
                       data-testid={`font-size-inc-${item.key}`}
                       disabled={current.size >= item.maxSize}
                       onclick={() => updateSize(item.key, current.size + 1, item.minSize, item.maxSize)}
-                      class="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-30"
+                      class="rounded border border-slate-600 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-35"
                       aria-label={`Increase ${item.label} size`}
                     >
                       +
@@ -320,7 +320,7 @@
           type="button"
           data-testid="reset-fonts-btn"
           onclick={resetAll}
-          class="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+          class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-slate-100"
         >
           Reset All to Defaults
         </button>
@@ -330,14 +330,14 @@
             type="button"
             data-testid="cancel-font-settings-btn"
             onclick={onClose}
-            class="rounded-lg border border-slate-700 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+            class="rounded-lg border border-slate-600 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
           >
             Cancel
           </button>
           <button
             type="submit"
             data-testid="save-font-settings-btn"
-            class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400"
+            class="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-neutral-950 hover:brightness-105"
           >
             Apply Fonts
           </button>

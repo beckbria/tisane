@@ -41,7 +41,7 @@
         onclick={onClose}
         aria-label="Close About dialog"
         data-testid="close-about-btn"
-        class="absolute top-3.5 right-4 text-xs text-slate-400 hover:text-white"
+        class="absolute top-3.5 right-4 text-xs text-slate-400 hover:text-slate-100"
       >
         ✕
       </button>

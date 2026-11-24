@@ -16,6 +16,7 @@ import type {
   SearchMode,
   SearchProgressEvent,
   SearchRequest,
+  ThemeMode,
   ValidateRequest,
   ValidationResult
 } from './types';
@@ -39,6 +40,7 @@ export interface WailsEventMap {
   'ui:toggle-cheatsheet': null;
   'ui:toggle-sidebar': null;
   'ui:toggle-definitions': null;
+  'ui:set-theme': ThemeMode;
 }
 
 export interface TisaneBackend {

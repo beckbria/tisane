@@ -104,7 +104,7 @@
           </span>
         {/if}
       {:else}
-        <span class="text-xs text-slate-500">Definitions & Web Lookup</span>
+        <span class="text-xs text-slate-400">Definitions & Web Lookup</span>
       {/if}
     </div>
 
@@ -115,14 +115,14 @@
           checked={includeMentions}
           data-testid="include-mentions-toggle"
           onchange={(e) => onToggleIncludeMentions((e.currentTarget as HTMLInputElement).checked)}
-          class="h-3.5 w-3.5 rounded accent-amber-500"
+          class="h-3.5 w-3.5 rounded border-slate-600 accent-amber-500"
         />
         <span>Include mentions</span>
       </label>
 
       {#if selectedWord && lookupResult && (lookupResult.webLinks ?? []).length > 0}
         <div class="hidden items-center gap-1 sm:flex">
-          <span class="text-[11px] text-slate-500">Web:</span>
+          <span class="text-[11px] text-slate-400">Web:</span>
           {#each lookupResult.webLinks.slice(0, 4) as wl}
             <button
               type="button"
@@ -172,7 +172,7 @@
   <!-- Definition Body -->
   <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
     {#if !selectedWord}
-      <div class="flex h-full items-center justify-center text-xs text-slate-500">
+      <div class="flex h-full items-center justify-center text-xs text-slate-400">
         Select any matched word above to view local definitions or launch a web search. Double-click any word inside a definition to cross-lookup.
       </div>
     {:else if isLoading}
@@ -199,7 +199,7 @@
                 {#if entry.headwords && entry.headwords.length > 0}
                   <span class="font-semibold text-slate-100">
                     {#each entry.headwords as hw, idx}
-                      {#if idx > 0}<span class="text-slate-600"> · </span>{/if}
+                      {#if idx > 0}<span class="text-slate-400"> · </span>{/if}
                       {hw.headword}{#if hw.qualifier}
                         <em class="ml-1 font-sans text-[11px] font-normal text-slate-400">({hw.qualifier})</em>
                       {/if}
@@ -241,7 +241,7 @@
           <strong class="font-mono text-amber-300">“{selectedWord}”</strong>
           in your loaded dictionaries.
         </p>
-        <p class="mt-0.5 text-[11px] text-slate-500">
+        <p class="mt-0.5 text-[11px] text-slate-400">
           Look it up online with one click:
         </p>
         {#if lookupResult && (lookupResult.webLinks ?? []).length > 0}

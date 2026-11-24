@@ -40,6 +40,9 @@ const (
 	// MaxDefinitionHeight is the maximum expanded pixel height of the definition pane.
 	MaxDefinitionHeight = 640
 
+	// DefaultTheme is the default UI color theme ("dark", "light", or "system").
+	DefaultTheme = "dark"
+
 	// DefaultMaxRecentQueries is the default cap on Config.RecentQueries.
 	DefaultMaxRecentQueries = 50
 
@@ -160,6 +163,7 @@ type Config struct {
 	SidebarCollapsed        bool                 `json:"sidebarCollapsed"`    // whether the dictionary sidebar is collapsed
 	DefinitionHeight        int                  `json:"definitionHeight"`    // expanded pixel height of the definition pane
 	DefinitionCollapsed     bool                 `json:"definitionCollapsed"` // whether the definition pane is collapsed
+	Theme                   string               `json:"theme"`               // "dark" (default), "light", or "system"
 	AutoWebFallback         bool                 `json:"autoWebFallback"`
 	DefaultWebProvider      string               `json:"defaultWebProvider"`
 	WebProviders            []lookup.WebProvider `json:"webProviders"`
@@ -193,6 +197,18 @@ func NormalizeLayoutMode(s string) string {
 		return "unified"
 	}
 	return "tiled"
+}
+
+// NormalizeTheme canonicalizes a UI theme preference to "dark", "light", or "system".
+func NormalizeTheme(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "light":
+		return "light"
+	case "system", "auto":
+		return "system"
+	default:
+		return DefaultTheme
+	}
 }
 
 // NormalizeEntryFilter canonicalizes and deduplicates entry category names,
@@ -298,6 +314,7 @@ func DefaultConfig() *Config {
 		SidebarCollapsed:        false,
 		DefinitionHeight:        DefaultDefinitionHeight,
 		DefinitionCollapsed:     false,
+		Theme:                   DefaultTheme,
 		AutoWebFallback:         false,
 		DefaultWebProvider:      "onelook",
 		WebProviders:            lookup.DefaultWebProviders(),

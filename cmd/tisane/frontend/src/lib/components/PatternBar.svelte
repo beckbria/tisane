@@ -107,7 +107,7 @@
 
     <!-- Search Mode Segmented Switch -->
     <div
-      class="inline-flex rounded-lg bg-slate-950 p-0.5 ring-1 ring-slate-800"
+      class="inline-flex rounded-lg bg-slate-950 p-0.5 ring-1 ring-slate-600"
       role="group"
       aria-label="Search mode"
     >
@@ -115,7 +115,7 @@
         type="button"
         data-testid="mode-word-btn"
         class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors {mode === 'word'
-          ? 'bg-amber-500 text-slate-950 shadow-xs'
+          ? 'bg-amber-500 text-neutral-950 shadow-xs'
           : 'text-slate-400 hover:text-slate-200'}"
         onclick={() => onModeChange('word')}
         title="Search dictionary headwords and phrases (Ctrl+W)"
@@ -126,7 +126,7 @@
         type="button"
         data-testid="mode-fts-btn"
         class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors {mode === 'fts'
-          ? 'bg-amber-500 text-slate-950 shadow-xs'
+          ? 'bg-amber-500 text-neutral-950 shadow-xs'
           : 'text-slate-400 hover:text-slate-200'}"
         onclick={() => onModeChange('fts')}
         title="Full-text search inside dictionary definitions (Ctrl+F)"
@@ -139,7 +139,7 @@
     <div class="relative min-w-[260px] flex-1">
       <div class="flex items-center rounded-lg bg-slate-950 ring-1 transition-shadow {validation && !validation.valid && query.trim() !== ''
         ? 'ring-rose-500/70 focus-within:ring-2 focus-within:ring-rose-400'
-        : 'ring-slate-700/80 focus-within:ring-2 focus-within:ring-amber-400/80'}">
+        : 'ring-slate-600 focus-within:ring-2 focus-within:ring-amber-400'}">
         <input
           bind:this={inputEl}
           type="text"
@@ -154,7 +154,7 @@
           spellcheck="false"
           autocomplete="off"
           style="font-family: var(--tisane-font-pattern-family); font-size: var(--tisane-font-pattern-size);"
-          class="w-full bg-transparent px-3 py-1.5 text-slate-100 placeholder-slate-500 focus:outline-none"
+          class="w-full bg-transparent px-3 py-1.5 text-slate-100 placeholder-slate-400 focus:outline-none"
         />
 
         {#if query}
@@ -164,7 +164,7 @@
               onQueryChange('');
               inputEl?.focus();
             }}
-            class="px-1.5 text-slate-500 hover:text-slate-300"
+            class="px-1.5 text-slate-400 hover:text-slate-200"
             title="Clear pattern"
             aria-label="Clear pattern"
           >
@@ -176,7 +176,7 @@
           <button
             type="button"
             onclick={() => (showHistory = !showHistory)}
-            class="border-l border-slate-800 px-2 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+            class="border-l border-slate-700 px-2 py-1.5 text-xs text-slate-400 hover:text-slate-200"
             title="Recent queries (Alt+Down)"
             aria-label="Recent queries"
           >
@@ -213,7 +213,7 @@
 
     <!-- Enumeration Shorthand Input (Word mode) -->
     {#if mode === 'word'}
-      <div class="flex items-center gap-1.5 rounded-lg bg-slate-950 px-2.5 py-1 ring-1 ring-slate-800" title="Optional word/hyphen enumeration constraint (e.g. 4,3 or 3-5)">
+      <div class="flex items-center gap-1.5 rounded-lg bg-slate-950 px-2.5 py-1 ring-1 ring-slate-600 focus-within:ring-2 focus-within:ring-amber-400" title="Optional word/hyphen enumeration constraint (e.g. 4,3 or 3-5)">
         <span class="text-[11px] font-medium text-slate-400 select-none">Enum</span>
         <input
           type="text"
@@ -229,7 +229,7 @@
           aria-label="Enumeration"
           data-testid="enum-input"
           style="font-family: var(--tisane-font-pattern-family); font-size: var(--tisane-font-pattern-size);"
-          class="w-20 bg-transparent text-slate-100 placeholder-slate-600 focus:outline-none"
+          class="w-20 bg-transparent text-slate-100 placeholder-slate-400 focus:outline-none"
         />
       </div>
     {/if}
@@ -240,7 +240,7 @@
         type="button"
         data-testid="cancel-search-btn"
         onclick={onCancel}
-        class="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-rose-500"
+        class="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-rose-700"
       >
         <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-white"></span>
         Stop
@@ -251,7 +251,7 @@
         data-testid="run-search-btn"
         onclick={onSubmit}
         disabled={!query.trim() || (validation !== null && !validation.valid)}
-        class="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-xs transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+        class="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-neutral-950 shadow-xs transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
       >
         Search
       </button>
@@ -262,7 +262,7 @@
       type="button"
       onclick={onToggleCheatsheet}
       data-testid="syntax-help-btn"
-      class="rounded-lg border border-slate-700/80 bg-slate-800/70 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white"
+      class="rounded-lg border border-slate-600 bg-slate-800/70 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-slate-100"
       title="Pattern syntax reference (F1)"
     >
       ? Syntax
@@ -272,7 +272,7 @@
       type="button"
       onclick={onOpenSettings}
       data-testid="open-settings-btn"
-      class="rounded-lg border border-slate-700/80 bg-slate-800/70 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white"
+      class="rounded-lg border border-slate-600 bg-slate-800/70 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-slate-100"
       title="Macros & Web Search Settings (Ctrl+,)"
     >
       ⚙ Settings
@@ -324,7 +324,7 @@
         <button
           type="button"
           onclick={onToggleCheatsheet}
-          class="text-xs text-slate-400 hover:text-white"
+          class="text-xs text-slate-400 hover:text-slate-100"
         >
           Close ✕
         </button>
