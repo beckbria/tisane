@@ -11,7 +11,7 @@ Tisane is a high-speed crossword, cryptic, anagram, and dictionary pattern-match
 ## Keeping Documentation Up to Date
 
 - **Maintain `AGENTS.md`**: Keep this file accurate as the codebase evolves. Whenever you encounter a build, test, cross-compilation, or runtime problem, add the steps to avoid or resolve it here to help future development.
-- **Maintain `README.md`**: Update `README.md` whenever you make changes to project structure, dependencies, prerequisites, build commands, or user-facing CLI/UI behavior.
+- **Maintain `README.md` and `DEVELOPMENT.md`**: Update `README.md` whenever you make changes to user-facing CLI/UI behavior or installation, and update `DEVELOPMENT.md` whenever you make changes to project structure, dependencies, prerequisites, build commands, or test workflows.
 
 ---
 
