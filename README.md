@@ -12,7 +12,7 @@ Installing Tisane is done by downloading the latest release from the [releases p
 
 ### Dictionaries
 
-A limited number of publicly available dictionaries are included in the releases. If you own a copy of TEA, dictionaries that came with it (found in `C:\Program Files (x86)\Crossword Man\TEA Crossword Helper 2.11\Dictionaries\`) can be used with Tisane. Some other dictionaries can be found in the [tisane-dictionaries repository](https://github.com/beckbria/tisane-dictionaries).
+A limited number of publicly available dictionaries are included in the releases. If you own a copy of [TEA](#comparison-to-tea), dictionaries that came with it (found in `C:\Program Files (x86)\Crossword Man\TEA Crossword Helper 2.11\Dictionaries\`) can be used with Tisane. Some other dictionaries can be found in the [tisane-dictionaries repository](https://github.com/beckbria/tisane-dictionaries).
 
 On first launch, Tisane automatically scans `TISANE_DICT_PATH`, the directory the executable is running from, the working directory, and the `dictionaries` subdirectory for `.tsd` files, and saves your profile to `~/.config/tisane/config.toml` (Linux/macOS) or `%AppData%\tisane\config.toml` (Windows). You can point Tisane at additional dictionary directories via `TISANE_DICT_PATH` (e.g., `TISANE_DICT_PATH="/path/to/Dictionaries:/another/folder" ./tisane`) or override the config file path with `TISANE_CONFIG=/path/to/config.toml`.
 
