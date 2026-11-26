@@ -14,10 +14,18 @@ function resolveAppVersion(): string {
   return readFileSync(versionPath, 'utf8').trim();
 }
 
+function resolveDictionaryCredits(): string {
+  const fromEnv = process.env.TISANE_DICTIONARY_CREDITS_FILE?.trim();
+  const creditsPath =
+    fromEnv || fileURLToPath(new URL('../../../dictionaries/CREDITS.md', import.meta.url));
+  return readFileSync(creditsPath, 'utf8');
+}
+
 export default defineConfig({
   plugins: [svelte(), svelteTesting(), tailwindcss()],
   define: {
-    __APP_VERSION__: JSON.stringify(resolveAppVersion())
+    __APP_VERSION__: JSON.stringify(resolveAppVersion()),
+    __DICTIONARY_CREDITS__: JSON.stringify(resolveDictionaryCredits())
   },
   build: {
     outDir: 'dist',

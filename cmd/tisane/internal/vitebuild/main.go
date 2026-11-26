@@ -20,14 +20,34 @@ import (
 func main() {
 	fs := flag.NewFlagSet("vitebuild", flag.ContinueOnError)
 	nodeFlag := fs.String("node", "", "Optional path to hermetic node executable")
+	creditsFlag := fs.String("credits", "", "Optional path to dictionary CREDITS.md file")
 	if err := fs.Parse(os.Args[1:]); err != nil || fs.NArg() != 2 {
-		fmt.Fprintf(os.Stderr, "usage: %s [-node <node-bin>] <package.json> <out-dist-dir>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s [-node <node-bin>] [-credits <credits-md>] <package.json> <out-dist-dir>\n", os.Args[0])
 		os.Exit(2)
 	}
-	if err := run(*nodeFlag, fs.Arg(0), fs.Arg(1)); err != nil {
+	if err := run(*nodeFlag, *creditsFlag, fs.Arg(0), fs.Arg(1)); err != nil {
 		fmt.Fprintf(os.Stderr, "vitebuild: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func resolveCreditsFile(creditsFlag string) (string, error) {
+	trimmed := strings.TrimSpace(creditsFlag)
+	if trimmed == "" {
+		return "", nil
+	}
+	absCredits, err := filepath.Abs(filepath.FromSlash(trimmed))
+	if err != nil {
+		return "", fmt.Errorf("resolve -credits path %q: %w", creditsFlag, err)
+	}
+	info, err := os.Stat(absCredits)
+	if err != nil {
+		return "", fmt.Errorf("dictionary credits file %q not found: %w", absCredits, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("dictionary credits path %q is a directory", absCredits)
+	}
+	return absCredits, nil
 }
 
 func resolveNodeAndNPM(nodeFlag string) (nodeBin string, nodeDir string, err error) {
@@ -68,7 +88,7 @@ func resolveNPM(nodeDir string) (string, error) {
 	return npmBin, nil
 }
 
-func run(nodeFlag, pkgJSONArg, outDistArg string) error {
+func run(nodeFlag, creditsFlag, pkgJSONArg, outDistArg string) error {
 	absPkgJSON, err := filepath.Abs(filepath.FromSlash(pkgJSONArg))
 	if err != nil {
 		return fmt.Errorf("resolve package.json path: %w", err)
@@ -78,6 +98,10 @@ func run(nodeFlag, pkgJSONArg, outDistArg string) error {
 		return fmt.Errorf("resolve output directory path: %w", err)
 	}
 	nodeBin, nodeDir, err := resolveNodeAndNPM(nodeFlag)
+	if err != nil {
+		return err
+	}
+	creditsFile, err := resolveCreditsFile(creditsFlag)
 	if err != nil {
 		return err
 	}
@@ -124,7 +148,7 @@ func run(nodeFlag, pkgJSONArg, outDistArg string) error {
 		}
 	}
 
-	if err := viteBuild(nodeBin, nodeDir, tmpDir); err != nil {
+	if err := viteBuild(nodeBin, nodeDir, creditsFile, tmpDir); err != nil {
 		if !usedLink {
 			return fmt.Errorf("vite build failed: %w", err)
 		}
@@ -137,7 +161,7 @@ func run(nodeFlag, pkgJSONArg, outDistArg string) error {
 		if err := npmCI(nodeDir, tmpDir); err != nil {
 			return fmt.Errorf("npm ci fallback failed: %w", err)
 		}
-		if err := viteBuild(nodeBin, nodeDir, tmpDir); err != nil {
+		if err := viteBuild(nodeBin, nodeDir, creditsFile, tmpDir); err != nil {
 			return fmt.Errorf("vite build failed: %w", err)
 		}
 	}
@@ -157,22 +181,22 @@ func npmCI(nodeDir, dir string) error {
 	if err != nil {
 		return err
 	}
-	return runCmd(nodeDir, dir, npmBin, "ci", "--no-audit", "--no-fund")
+	return runCmd(nodeDir, "", dir, npmBin, "ci", "--no-audit", "--no-fund")
 }
 
-func viteBuild(nodeBin, nodeDir, dir string) error {
+func viteBuild(nodeBin, nodeDir, creditsFile, dir string) error {
 	viteJS := filepath.Join(dir, "node_modules", "vite", "bin", "vite.js")
 	if _, err := os.Stat(viteJS); err == nil {
-		return runCmd(nodeDir, dir, nodeBin, viteJS, "build")
+		return runCmd(nodeDir, creditsFile, dir, nodeBin, viteJS, "build")
 	}
 	npmBin, err := resolveNPM(nodeDir)
 	if err != nil {
 		return err
 	}
-	return runCmd(nodeDir, dir, npmBin, "run", "build")
+	return runCmd(nodeDir, creditsFile, dir, npmBin, "run", "build")
 }
 
-func runCmd(nodeDir, dir, name string, args ...string) error {
+func runCmd(nodeDir, creditsFile, dir, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
@@ -185,6 +209,9 @@ func runCmd(nodeDir, dir, name string, args ...string) error {
 		"npm_config_update_notifier=false",
 		"TISANE_VERSION="+tisane.Version,
 	)
+	if creditsFile != "" {
+		env = append(env, "TISANE_DICTIONARY_CREDITS_FILE="+creditsFile)
+	}
 	cmd.Env = env
 	return cmd.Run()
 }

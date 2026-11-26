@@ -80,3 +80,30 @@ func TestLinkDir(t *testing.T) {
 		t.Fatalf("target marker was removed when unlinking: %v", err)
 	}
 }
+
+func TestResolveCreditsFile(t *testing.T) {
+	if got, err := resolveCreditsFile(""); err != nil || got != "" {
+		t.Fatalf("empty flag: got (%q, %v), want (\"\", nil)", got, err)
+	}
+
+	dir := t.TempDir()
+	credits := filepath.Join(dir, "CREDITS.md")
+	if err := os.WriteFile(credits, []byte("# Credits\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := resolveCreditsFile(credits)
+	if err != nil {
+		t.Fatalf("resolveCreditsFile(file): %v", err)
+	}
+	if got != credits {
+		t.Fatalf("resolveCreditsFile(file): got %q, want %q", got, credits)
+	}
+
+	if _, err := resolveCreditsFile(dir); err == nil {
+		t.Fatalf("expected error for directory path")
+	}
+	if _, err := resolveCreditsFile(filepath.Join(dir, "missing.md")); err == nil {
+		t.Fatalf("expected error for missing file")
+	}
+}

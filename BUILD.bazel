@@ -7,7 +7,10 @@ load(":release.bzl", "release_archive", "windows_installer")
 # gazelle:build_file_name BUILD.bazel
 gazelle(name = "gazelle")
 
-exports_files(["VERSION"])
+exports_files([
+    "VERSION",
+    "dictionaries/CREDITS.md",
+])
 
 go_library(
     name = "version",

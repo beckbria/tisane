@@ -674,6 +674,50 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(screen.queryByTestId('about-modal')).not.toBeInTheDocument();
   });
 
+  it('opens the Dictionary Licenses dialog from the About dialog with CREDITS.md contents and clickable links', async () => {
+    const h = createMockHarness();
+    setBackendForTesting(h.backend);
+
+    render(App);
+    await waitFor(() => expect(screen.getByTestId('tiled-pane-0')).toBeInTheDocument());
+
+    await fireEvent.click(screen.getByTestId('app-logo'));
+    expect(screen.getByTestId('about-modal')).toBeInTheDocument();
+    expect(screen.queryByTestId('dictionary-licenses-modal')).not.toBeInTheDocument();
+
+    // Open Dictionary Licenses from About dialog
+    await fireEvent.click(screen.getByTestId('about-licenses-btn'));
+
+    const licensesModal = screen.getByTestId('dictionary-licenses-modal');
+    expect(licensesModal).toBeInTheDocument();
+
+    const content = screen.getByTestId('dictionary-licenses-content');
+    expect(content).toHaveTextContent('Dictionary credits and licenses');
+    expect(content).toHaveTextContent('Core English');
+    expect(content).toHaveTextContent('English Wordnet 2025 Plus');
+    expect(content).toHaveTextContent('Unedited English');
+    expect(content).toHaveTextContent('Wikipedia English 2026');
+
+    // Clicking a license link routes through openExternalURL
+    const ccByLink = screen.getByRole('link', {
+      name: 'Creative Commons Attribution (CC-BY) 4.0 License'
+    });
+    await fireEvent.click(ccByLink);
+    expect(h.externalURLs).toEqual(['https://creativecommons.org/licenses/by/4.0/']);
+
+    // Pressing Escape closes only the stacked Dictionary Licenses dialog, keeping About open
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('dictionary-licenses-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('about-modal')).toBeInTheDocument();
+
+    // Reopen and close via the footer Close button
+    await fireEvent.click(screen.getByTestId('about-licenses-btn'));
+    expect(screen.getByTestId('dictionary-licenses-modal')).toBeInTheDocument();
+    await fireEvent.click(screen.getByTestId('close-licenses-footer-btn'));
+    expect(screen.queryByTestId('dictionary-licenses-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('about-modal')).toBeInTheDocument();
+  });
+
   it('opens a dropdown from the + Add button with Add dictionary and Add all from directory options', async () => {
     const h = createMockHarness();
     setBackendForTesting(h.backend);
