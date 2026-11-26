@@ -1,0 +1,33 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "wikipedia_lib",
+    srcs = [
+        "downloader.go",
+        "main.go",
+        "parser.go",
+        "pipeline.go",
+        "sorter.go",
+    ],
+    importpath = "tisane/tools/wikipedia",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/tsd",
+        "//pkg/wordlist",
+    ],
+)
+
+# Tagged manual so `bazel build //...` never builds or runs dictionary generators automatically.
+go_binary(
+    name = "wikipedia",
+    embed = [":wikipedia_lib"],
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "wikipedia_test",
+    srcs = ["main_test.go"],
+    embed = [":wikipedia_lib"],
+    deps = ["//pkg/tsd"],
+)
