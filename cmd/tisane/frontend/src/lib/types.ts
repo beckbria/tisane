@@ -172,6 +172,7 @@ export interface FontConfig {
 export type FontElementKey = keyof FontConfig;
 
 export interface Config {
+  configVersion?: string;
   dictDirs: string[];
   dictionaries: DictConfig[];
   atMacro: string;

@@ -9,9 +9,9 @@ import (
 )
 
 func TestCLIBuildAndInfo(t *testing.T) {
-	wordnetPath := filepath.Join("..", "..", "dictionaries", "english-wordnet-2025-plus.tsd")
+	wordnetPath := filepath.Join("..", "..", "dictionaries", "English Wordnet 2025 Plus.tsd")
 	if _, err := os.Stat(wordnetPath); os.IsNotExist(err) {
-		t.Skip("dictionaries/english-wordnet-2025-plus.tsd not present")
+		t.Skip("dictionaries/English Wordnet 2025 Plus.tsd not present")
 	}
 
 	tmpDir := t.TempDir()

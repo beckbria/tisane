@@ -442,8 +442,55 @@ func TestCLIHardeningConfigIsolationDefineJSONAndSignals(t *testing.T) {
 	}
 }
 
+func TestCLIMigratesObsoleteWordNetWithoutDuplicateResults(t *testing.T) {
+	tmpDir := t.TempDir()
+	dictsDir := filepath.Join(tmpDir, "dictionaries")
+	if err := os.MkdirAll(dictsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(profile.EnvDictPath, dictsDir)
+	t.Setenv(profile.EnvConfigPath, filepath.Join(tmpDir, "config.toml"))
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
+	t.Chdir(tmpDir)
+
+	origExe := profile.ExecutablePathFunc
+	profile.ExecutablePathFunc = func() (string, error) {
+		return filepath.Join(tmpDir, "tisane-cli"), nil
+	}
+	defer func() {
+		profile.ExecutablePathFunc = origExe
+	}()
+
+	raw, _, err := tsd.BuildBytes([]byte("quartz\n"), tsd.DefaultBuildOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(dictsDir, "english-wordnet-2025-plus.tsd")
+	newPath := filepath.Join(dictsDir, "English Wordnet 2025 Plus.tsd")
+	if err := os.WriteFile(oldPath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	// Pass --no-dedupe so duplicate open dictionaries would produce 2 hits if migration hadn't cleaned up oldPath.
+	code := run(context.Background(), []string{"--no-dedupe", "-q", "quartz"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("tisane-cli exited %d: %s", code, stderr.String())
+	}
+	lines := strings.Fields(stdout.String())
+	if len(lines) != 1 || lines[0] != "quartz" {
+		t.Fatalf("expected exactly 1 match after obsolete-file cleanup, got %v (stderr=%s)", lines, stderr.String())
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("expected obsolete %q deleted, stat err = %v", oldPath, err)
+	}
+}
+
 func BenchmarkSearchWordNet(b *testing.B) {
-	wordnetPath := filepath.Join("..", "..", "dictionaries", "english-wordnet-2025-plus.tsd")
+	wordnetPath := filepath.Join("..", "..", "dictionaries", "English Wordnet 2025 Plus.tsd")
 	d, err := tsd.Open(wordnetPath)
 	if err != nil {
 		b.Fatal(err)
@@ -471,7 +518,7 @@ func BenchmarkSearchWordNet(b *testing.B) {
 }
 
 func BenchmarkFixedTemplateWordNet(b *testing.B) {
-	wordnetPath := filepath.Join("..", "..", "dictionaries", "english-wordnet-2025-plus.tsd")
+	wordnetPath := filepath.Join("..", "..", "dictionaries", "English Wordnet 2025 Plus.tsd")
 	d, err := tsd.Open(wordnetPath)
 	if err != nil {
 		b.Fatal(err)

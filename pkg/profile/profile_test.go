@@ -33,7 +33,7 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 	cfg.UIZoom = 125
 	cfg.DictDirs = []string{tmp, dictsDir}
 	cfg.Dictionaries = []profile.DictConfig{
-		{Path: filepath.Join(dictsDir, "english-wordnet-2025-plus.tsd"), Name: "WordNet", Enabled: true},
+		{Path: filepath.Join(dictsDir, "English Wordnet 2025 Plus.tsd"), Name: "WordNet", Enabled: true},
 		{Path: filepath.Join(tmp, "custom.tsd"), Name: "Custom", Enabled: false},
 	}
 	cfg.RecentQueries = []string{".....*;aadmort", `c@t & !#at`}
@@ -65,16 +65,16 @@ func TestProfileSaveLoadRoundTripAndResolution(t *testing.T) {
 		t.Fatalf("slice/table round-trip mismatch: %+v", loaded)
 	}
 
-	if _, err := os.Stat(filepath.Join(dictsDir, "english-wordnet-2025-plus.tsd")); err == nil {
+	if _, err := os.Stat(filepath.Join(dictsDir, "English Wordnet 2025 Plus.tsd")); err == nil {
 		// Default resolution returns Enabled dictionaries in priority order.
 		defPaths, err := profile.ResolveDictionaryPaths(nil, loaded)
-		if err != nil || len(defPaths) != 1 || filepath.Base(defPaths[0]) != "english-wordnet-2025-plus.tsd" {
+		if err != nil || len(defPaths) != 1 || filepath.Base(defPaths[0]) != "English Wordnet 2025 Plus.tsd" {
 			t.Fatalf("default ResolveDictionaryPaths = %v, %v", defPaths, err)
 		}
 
 		// Legacy ';'-separated spec resolving profile alias + directory stem case-insensitively.
 		resolved, err := profile.ResolveDictionaryPaths([]string{"wordnet"}, loaded)
-		if err != nil || len(resolved) != 1 || filepath.Base(resolved[0]) != "english-wordnet-2025-plus.tsd" {
+		if err != nil || len(resolved) != 1 || filepath.Base(resolved[0]) != "English Wordnet 2025 Plus.tsd" {
 			t.Fatalf("ResolveDictionaryPaths: %v, %v", resolved, err)
 		}
 	}

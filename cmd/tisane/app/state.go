@@ -108,6 +108,12 @@ type State struct {
 // NewState initializes desktop application state from cfgPath (or DefaultConfigPath if empty),
 // auto-discovering .tsd dictionaries only on genuine first run (missing or corrupt config.toml).
 func NewState(cfgPath string, bridge HostBridge) (*State, error) {
+	return NewStateWithOptions(cfgPath, bridge, false)
+}
+
+// NewStateWithOptions initializes desktop application state with an explicit initial host-I/O
+// restriction policy (used by "-tags server" builds before any startup migrations execute).
+func NewStateWithOptions(cfgPath string, bridge HostBridge, restrictHostIO bool) (*State, error) {
 	if bridge == nil {
 		bridge = NoopBridge{}
 	}
@@ -121,7 +127,7 @@ func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 	if cfgPath != "" {
 		cfg, err = profile.Load(cfgPath)
 		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
+			if !errors.Is(err, os.ErrNotExist) && !restrictHostIO {
 				backupCorruptConfig(cfgPath)
 			}
 			cfg = profile.DefaultConfig()
@@ -137,7 +143,7 @@ func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 		} else {
 			cfg, err = profile.Load(cfgPath)
 			if err != nil {
-				if !errors.Is(err, os.ErrNotExist) {
+				if !errors.Is(err, os.ErrNotExist) && !restrictHostIO {
 					backupCorruptConfig(cfgPath)
 				}
 				cfg = profile.DefaultConfig()
@@ -147,14 +153,32 @@ func NewState(cfgPath string, bridge HostBridge) (*State, error) {
 	}
 
 	s := &State{
-		cfg:     cfg,
-		cfgPath: cfgPath,
-		bridge:  bridge,
+		cfg:            cfg,
+		cfgPath:        cfgPath,
+		bridge:         bridge,
+		restrictHostIO: restrictHostIO,
 	}
 
+	migEnv := profile.DefaultMigrationEnv(cfg, !restrictHostIO)
 	if isFirstRun {
-		_ = s.runFirstRunLocked(true)
+		// Treat on-disk directories as potentially upgraded from an older archive without a prior config.toml
+		// so obsolete bundled files are cleaned up before first-run discovery scans search dirs.
+		cfg.ConfigVersion = ""
+		_, _ = profile.Migrate(cfg, migEnv, profile.Version)
+		if !restrictHostIO {
+			_ = s.runFirstRunLocked(true)
+		} else {
+			discovered, _ := profile.DiscoverDictionaries(profile.DefaultSearchDirs(s.cfg)...)
+			for _, p := range discovered {
+				_, _ = s.openAndAppendLocked(p, "", true)
+			}
+			s.syncConfigDictionariesLocked()
+		}
 	} else {
+		migRes, _ := profile.Migrate(cfg, migEnv, profile.Version)
+		if migRes.Changed() && !restrictHostIO {
+			_ = s.saveConfigLocked()
+		}
 		for _, dc := range cfg.Dictionaries {
 			if _, openErr := s.openAndAppendLocked(dc.Path, dc.Name, dc.Enabled); openErr != nil {
 				s.unavailableDicts = append(s.unavailableDicts, dc)
@@ -370,7 +394,7 @@ func (s *State) syncConfigDictionariesLocked() {
 }
 
 func (s *State) saveConfigLocked() error {
-	if s.cfgPath == "" {
+	if s.cfgPath == "" || s.restrictHostIO {
 		return nil
 	}
 	return profile.Save(s.cfgPath, s.cfg)

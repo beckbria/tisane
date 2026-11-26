@@ -44,8 +44,10 @@ To build the Windows installer (`bazel build //:windows-release`), **NSIS** (`ma
 | `pkg/pattern` | Macro expander, boolean expression parser, live span validator, calibration-sorted compiler, and backtracking VM |
 | `pkg/search` | Concurrent multi-dictionary word & indexed/sequential Full-Text Search (FTS) engine with 6 sort modes |
 | `pkg/lookup` | Sanitized `.tsd` RTF-to-HTML / plain-text converter and `{entry}` web lookup URL builder |
-| `pkg/profile` | Portable configuration (`~/.config/tisane/config.toml`) and `.tsd` dictionary discovery |
+| `pkg/profile` | Portable configuration (`~/.config/tisane/config.toml`), SemVer upgrade migrations (`migrate.go`), and `.tsd` dictionary discovery |
 | `pkg/wordlist` | Streaming word list ASCII transliteration and set-operation merger |
+| `tools/wikipedia` | Manually invoked Wikipedia article title `.tsd` dictionary generator (tagged `manual` in Bazel; not part of normal builds/releases) |
+| `tools/wordnet` | Manually invoked Open English WordNet `.tsd` dictionary generator (tagged `manual` in Bazel; not part of normal builds/releases) |
 
 ---
 
@@ -166,6 +168,109 @@ bazel build //:linux-release //:windows-release //:windows-release-zip
 
 # Run all Go unit and integration tests via Bazel
 bazel test //...
+```
+
+## Versioned State & Bundled-File Migrations
+
+Tisane includes a zero-dependency migration framework in `pkg/profile/migrate.go` (complemented by `obsolete_files` in `windows_installer`) to evolve user configuration (`config.toml`) and clean up renamed or retired bundled files across releases.
+
+### Capabilities
+
+- **SemVer watermark (`config_version`)**: `config.toml` records `config_version = "<semver>"` matching root `VERSION`.
+  - Pre-`0.7.2` configs without `config_version` parse as `""` (`0.0.0`) so all applicable migrations run on upgrade.
+  - When `cfg.ConfigVersion == tisane.Version`, `profile.Migrate` returns immediately with zero filesystem syscalls or allocations.
+  - Multi-version jumps execute matching `MigrationStep`s (`cfg.ConfigVersion < step.Version <= AppVersion`) in ascending SemVer order.
+  - **Downgrade safety**: Opening a newer `config.toml` with an older Tisane binary skips migrations and preserves the higher `config_version`.
+- **Shared GUI & CLI startup hooks**: Both `tisane` (`app.NewStateWithOptions`) and `tisane-cli` invoke `profile.Migrate` before resolving or discovering dictionaries—including on first-run in-place archive upgrades where no `config.toml` existed yet (while avoiding creating a `config.toml` on stateless CLI runs unless a migration modified state).
+- **Headless server-mode safety**: In `-tags server` builds without `TISANE_SERVER_ALLOW_HOST_IO=1`, migrations run with `AllowFileDelete: false` and skip writing to `config.toml` on disk.
+- **Bundled dictionary rename helper (`profile.ApplyDictionaryRename`)**:
+  - Rewrites matching `[[dictionaries]]` entries in place, preserving priority order, `enabled` state, and any user-customized display name (while updating auto-derived stem names).
+  - Deduplicates `[[dictionaries]]` if both old and new entries exist, and heals broken paths if an installer already removed the old file.
+  - Safely deletes leftover copies of the old file across configured paths and search directories only when the replacement exists as a distinct regular file (`!os.SameFile`), using `os.Rename` for case-only renames on case-insensitive filesystems and ignoring permission errors on read-only system directories (`%ProgramFiles%`, `/usr/share`).
+- **Windows NSIS `obsolete_files` cleanup**: Because `tisane.exe` runs unelevated and cannot delete files inside `%ProgramFiles%\Tisane` on `/ALLUSERS` installs, `windows_installer` accepts `obsolete_files` to emit `Delete "$INSTDIR\..."` in both the upgrade installer and `uninstall.exe` (rejecting case-insensitive collisions with active staged files at build time).
+
+### Example 1: Renaming a Bundled Dictionary
+
+When renaming a file in `dictionaries/` (for example, `english-wordnet-2025-plus.tsd` → `English Wordnet 2025 Plus.tsd` in `0.7.2`):
+
+1. **Bump `VERSION`** (e.g. `0.7.2`) and register a `MigrationStep` in `pkg/profile/migrate.go`:
+   ```go
+   {
+   	Version: "0.7.2",
+   	ID:      "rename-english-wordnet-2025-plus",
+   	Apply: func(cfg *Config, env MigrationEnv) (bool, error) {
+   		return ApplyDictionaryRename(cfg, env, RenameBundledDictionaryRule{
+   			OldFilename: "english-wordnet-2025-plus.tsd",
+   			NewFilename: "English Wordnet 2025 Plus.tsd",
+   		})
+   	},
+   },
+   ```
+2. **Add the retired relative path to `obsolete_files`** on `windows_installer` in root `BUILD.bazel`:
+   ```python
+   windows_installer(
+       name = "windows-release",
+       ...
+       obsolete_files = [
+           "dictionaries/english-wordnet-2025-plus.tsd",
+       ],
+   )
+   ```
+
+### Example 2: Migrating `config.toml` Preferences or Web Providers
+
+For changes to user settings (such as updating an external dictionary's broken URL template while leaving user-customized URLs intact), register a custom `Apply` function in `pkg/profile/migrate.go`:
+
+```go
+{
+	Version: "0.8.0",
+	ID:      "update-legacy-onelook-url",
+	Apply: func(cfg *Config, env MigrationEnv) (bool, error) {
+		const (
+			oldTpl = "http://www.onelook.com/?w={entry}"
+			newTpl = "https://www.onelook.com/?w={entry}"
+		)
+		changed := false
+		for i := range cfg.WebProviders {
+			if cfg.WebProviders[i].ID == "onelook" && cfg.WebProviders[i].URLTemplate == oldTpl {
+				cfg.WebProviders[i].URLTemplate = newTpl
+				changed = true
+			}
+		}
+		return changed, nil
+	},
+},
+```
+
+### Example 3: Testing Migrations in Isolation
+
+Use `profile.MigrateWithSteps` and `t.TempDir()` in `pkg/profile/migrate_test.go` to test custom steps deterministically without touching user directories:
+
+```go
+func TestCustomMigrationStep(t *testing.T) {
+	dir := t.TempDir()
+	cfg := profile.DefaultConfig()
+	cfg.ConfigVersion = "0.7.2" // simulate upgrading from 0.7.2 -> 0.8.0
+
+	steps := []profile.MigrationStep{
+		{
+			Version: "0.8.0",
+			ID:      "example-step",
+			Apply: func(c *profile.Config, env profile.MigrationEnv) (bool, error) {
+				c.ShowBalances = true
+				return true, nil
+			},
+		},
+	}
+
+	res, err := profile.MigrateWithSteps(cfg, profile.MigrationEnv{
+		SearchDirs:      []string{dir},
+		AllowFileDelete: true,
+	}, "0.8.0", steps)
+	if err != nil || !res.StateChanged || cfg.ConfigVersion != "0.8.0" {
+		t.Fatalf("unexpected migration result: %+v, err=%v", res, err)
+	}
+}
 ```
 
 ## Running Tests & Verification

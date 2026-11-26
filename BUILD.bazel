@@ -178,6 +178,9 @@ windows_installer(
     binaries = [":windows"],
     dictionaries = [":dictionaries"],
     icon = "//build:appicon.png",
+    obsolete_files = [
+        "dictionaries/english-wordnet-2025-plus.tsd",
+    ],
     private_dictionaries = [":private_dictionaries"],
     script = "//build:windows/installer.nsi",
     visibility = ["//visibility:public"],

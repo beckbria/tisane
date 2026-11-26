@@ -168,6 +168,7 @@ func NormalizeFontConfig(fc FontConfig) FontConfig {
 
 // Config holds user preferences shared by the Tisane desktop app and tisane-cli.
 type Config struct {
+	ConfigVersion           string               `json:"configVersion,omitempty"`
 	DictDirs                []string             `json:"dictDirs"`
 	Dictionaries            []DictConfig         `json:"dictionaries"`
 	AtMacro                 string               `json:"atMacro"`
@@ -320,6 +321,7 @@ func (c *Config) RecordRecentQuery(query string, maxItems int) {
 // Note that LayoutMode defaults to "tiled" (separate tiled panes per dictionary).
 func DefaultConfig() *Config {
 	return &Config{
+		ConfigVersion:           Version,
 		DictDirs:                []string{},
 		Dictionaries:            []DictConfig{},
 		AtMacro:                 pattern.DefaultAtMacro,

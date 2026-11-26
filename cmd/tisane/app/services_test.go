@@ -298,6 +298,8 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 }
 
 func TestFirstRunDiscoversExecutableDirAndDictionariesSubdir(t *testing.T) {
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
 	exeDir := t.TempDir()
 	dictsSubdir := filepath.Join(exeDir, "dictionaries")
 	if err := os.MkdirAll(dictsSubdir, 0o755); err != nil {
@@ -331,6 +333,8 @@ func TestFirstRunDiscoversExecutableDirAndDictionariesSubdir(t *testing.T) {
 	}()
 
 	// Run from an unrelated empty working directory so discovery must use the executable directory.
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
 	t.Chdir(t.TempDir())
 
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")
@@ -404,6 +408,8 @@ func TestResetConfigPreservesOrResetsDictionaries(t *testing.T) {
 		profile.ExecutablePathFunc = origExeFunc
 	}()
 
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
 	t.Chdir(t.TempDir())
 
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")
@@ -1248,4 +1254,100 @@ func TestStartupPreservesMissingDictsSearchOrderingAndTransactionalConfig(t *tes
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for SearchID 10 completion")
 	}
+}
+
+func TestStartupMigratesRenamedDictionaryAndRespectsServerRestriction(t *testing.T) {
+	t.Setenv(profile.EnvDictPath, "")
+	t.Setenv("BUILD_WORKING_DIRECTORY", "")
+
+	buildDictAt := func(t *testing.T, p string) {
+		t.Helper()
+		raw, _, err := tsd.BuildBytes([]byte("alpha\nbravo\n"), tsd.DefaultBuildOptions())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("desktop_upgrade_migrates_config_and_removes_old_file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dictsDir := filepath.Join(tmpDir, "dictionaries")
+		if err := os.MkdirAll(dictsDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		oldPath := filepath.Join(dictsDir, "english-wordnet-2025-plus.tsd")
+		newPath := filepath.Join(dictsDir, "English Wordnet 2025 Plus.tsd")
+		buildDictAt(t, oldPath)
+		buildDictAt(t, newPath)
+
+		cfgPath := filepath.Join(tmpDir, "config.toml")
+		// Simulate a pre-0.7.2 config.toml without config_version.
+		legacyTOML := "layout_mode = \"tiled\"\n\n[[dictionaries]]\npath = " +
+			"\"" + strings.ReplaceAll(oldPath, "\\", "\\\\") + "\"\n" +
+			"name = \"english-wordnet-2025-plus\"\nenabled = true\n"
+		if err := os.WriteFile(cfgPath, []byte(legacyTOML), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		state, err := app.NewState(cfgPath, newMockBridge())
+		if err != nil {
+			t.Fatalf("NewState: %v", err)
+		}
+		defer state.Close()
+
+		infos := app.NewDictionaryService(state).ListDictionaries()
+		if len(infos) != 1 || infos[0].Name != "English Wordnet 2025 Plus" || filepath.Base(infos[0].Path) != "English Wordnet 2025 Plus.tsd" {
+			t.Fatalf("expected single migrated dictionary, got %+v", infos)
+		}
+		if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+			t.Fatalf("expected obsolete file %q deleted, stat err = %v", oldPath, err)
+		}
+
+		savedCfg, err := profile.Load(cfgPath)
+		if err != nil {
+			t.Fatalf("profile.Load: %v", err)
+		}
+		if savedCfg.ConfigVersion != profile.Version || len(savedCfg.Dictionaries) != 1 || savedCfg.Dictionaries[0].Name != "English Wordnet 2025 Plus" {
+			t.Fatalf("expected persisted migrated config, got %+v", savedCfg)
+		}
+	})
+
+	t.Run("server_mode_restrict_host_io_does_not_delete_or_write_files", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dictsDir := filepath.Join(tmpDir, "dictionaries")
+		if err := os.MkdirAll(dictsDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		oldPath := filepath.Join(dictsDir, "english-wordnet-2025-plus.tsd")
+		newPath := filepath.Join(dictsDir, "English Wordnet 2025 Plus.tsd")
+		buildDictAt(t, oldPath)
+		buildDictAt(t, newPath)
+
+		cfgPath := filepath.Join(tmpDir, "config.toml")
+		legacyTOML := "layout_mode = \"tiled\"\n\n[[dictionaries]]\npath = " +
+			"\"" + strings.ReplaceAll(oldPath, "\\", "\\\\") + "\"\n" +
+			"name = \"english-wordnet-2025-plus\"\nenabled = true\n"
+		if err := os.WriteFile(cfgPath, []byte(legacyTOML), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		state, err := app.NewStateWithOptions(cfgPath, newMockBridge(), true)
+		if err != nil {
+			t.Fatalf("NewStateWithOptions: %v", err)
+		}
+		defer state.Close()
+
+		if _, err := os.Stat(oldPath); err != nil {
+			t.Fatalf("expected old file untouched in restricted server mode: %v", err)
+		}
+		diskBytes, err := os.ReadFile(cfgPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(diskBytes) != legacyTOML {
+			t.Fatalf("expected config.toml untouched on disk in restricted server mode, got:\n%s", string(diskBytes))
+		}
+	})
 }

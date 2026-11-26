@@ -26,8 +26,13 @@ func MarshalTOML(cfg *Config) []byte {
 	} else {
 		minLen, maxLen = NormalizeLengthBounds(minLen, maxLen)
 	}
+	cfgVer := strings.TrimSpace(cfg.ConfigVersion)
+	if cfgVer == "" {
+		cfgVer = Version
+	}
 	var sb strings.Builder
 	sb.WriteString("# Tisane Configuration\n\n")
+	fmt.Fprintf(&sb, "config_version = %s\n", quoteTOMLString(cfgVer))
 	fmt.Fprintf(&sb, "at_macro = %s\n", quoteTOMLString(cfg.AtMacro))
 	fmt.Fprintf(&sb, "hash_macro = %s\n", quoteTOMLString(cfg.HashMacro))
 	fmt.Fprintf(&sb, "min_length = %d\n", minLen)
@@ -142,6 +147,9 @@ func ParseTOML(data []byte) (*Config, error) {
 	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
 
 	cfg := DefaultConfig()
+	// Leave ConfigVersion empty until explicitly seen in TOML so pre-0.7.2 configs
+	// without config_version are recognized as unmigrated ("0.0.0").
+	cfg.ConfigVersion = ""
 	sawWebProviders := false
 	var parsedWeb []lookup.WebProvider
 
@@ -380,6 +388,12 @@ func applyFontKey(fc *FontConfig, key, val string, lineNum int) error {
 
 func applyTopKey(cfg *Config, key, val string, lineNum int) error {
 	switch key {
+	case "config_version":
+		s, err := parseTOMLString(val)
+		if err != nil {
+			return fmt.Errorf("config.toml:%d: %w", lineNum, err)
+		}
+		cfg.ConfigVersion = strings.TrimSpace(s)
 	case "at_macro":
 		s, err := parseTOMLString(val)
 		if err != nil {

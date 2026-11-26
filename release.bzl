@@ -110,6 +110,9 @@ def _windows_installer_impl(ctx):
         args.add("-file", d.path + "=" + rel)
         dict_files.append(d)
 
+    for rel in ctx.attr.obsolete_files:
+        args.add("-obsolete", rel)
+
     ctx.actions.run(
         executable = ctx.executable._builder,
         arguments = [args],
@@ -139,6 +142,9 @@ windows_installer = rule(
         "icon": attr.label(
             allow_single_file = [".png"],
             mandatory = True,
+        ),
+        "obsolete_files": attr.string_list(
+            default = [],
         ),
         "out": attr.output(
             mandatory = True,

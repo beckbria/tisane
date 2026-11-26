@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "profile",
     srcs = [
+        "migrate.go",
         "profile.go",
         "toml.go",
     ],
@@ -19,7 +20,10 @@ go_library(
 
 go_test(
     name = "profile_test",
-    srcs = ["profile_test.go"],
+    srcs = [
+        "migrate_test.go",
+        "profile_test.go",
+    ],
     data = ["//:dictionaries"],
     deps = [
         ":profile",

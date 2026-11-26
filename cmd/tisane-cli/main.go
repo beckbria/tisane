@@ -52,9 +52,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	var (
-		cfg     *profile.Config
-		cfgPath string
-		err     error
+		cfg           *profile.Config
+		cfgPath       string
+		configExisted bool
+		err           error
 	)
 	if customCfgPath != "" {
 		cfgPath = customCfgPath
@@ -63,11 +64,17 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			fmt.Fprintf(stderr, "tisane-cli: failed to load config %q: %v\n", customCfgPath, err)
 			return 2
 		}
+		configExisted = true
 	} else {
 		cfg, cfgPath, err = profile.LoadOrDefault()
 		if err != nil {
 			fmt.Fprintf(stderr, "tisane-cli: failed to parse %q: %v\n", cfgPath, err)
 			return 2
+		}
+		if cfgPath != "" {
+			if info, sErr := os.Stat(cfgPath); sErr == nil && info.Mode().IsRegular() {
+				configExisted = true
+			}
 		}
 	}
 
@@ -88,6 +95,15 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if opts.MinLen > opts.MaxLen {
 		fmt.Fprintf(stderr, "tisane-cli: minimum length (%d) cannot exceed maximum length (%d)\n", opts.MinLen, opts.MaxLen)
 		return 2
+	}
+
+	// Run versioned profile & obsolete-file migrations before resolving or discovering dictionaries.
+	if !configExisted {
+		cfg.ConfigVersion = ""
+	}
+	migRes, _ := profile.Migrate(cfg, profile.DefaultMigrationEnv(cfg, true), cliVersion)
+	if cfgPath != "" && ((configExisted && migRes.Changed()) || migRes.StateChanged) {
+		_ = profile.Save(cfgPath, cfg)
 	}
 
 	dictPaths, err := profile.ResolveDictionaryPaths(opts.DictSpecs, cfg)

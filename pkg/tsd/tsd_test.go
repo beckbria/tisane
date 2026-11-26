@@ -354,7 +354,7 @@ func TestDecodeAllRepositoryDictionaries(t *testing.T) {
 func TestConcurrentDictionaryAccess(t *testing.T) {
 	requireDictionariesDir(t)
 
-	d, err := tsd.Open(filepath.Join(dictionariesDir, "english-wordnet-2025-plus.tsd"))
+	d, err := tsd.Open(filepath.Join(dictionariesDir, "English Wordnet 2025 Plus.tsd"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

@@ -68,8 +68,10 @@ func TestGenerateInstallAndUninstallNSH(t *testing.T) {
 	}
 
 	stageDir := filepath.Join("tmp", "stage")
-	installNSH := generateInstallNSH(stageDir, entries)
+	obsolete := []string{"dictionaries/english-wordnet-2025-plus.tsd"}
+	installNSH := generateInstallNSH(stageDir, entries, obsolete)
 	for _, want := range []string{
+		`Delete "$INSTDIR\dictionaries\english-wordnet-2025-plus.tsd"`,
 		`SetOutPath "$INSTDIR"`,
 		`File "/oname=tisane.exe" "` + filepath.Join(stageDir, "stage_0002.bin") + `"`,
 		`SetOutPath "$INSTDIR\dictionaries"`,
@@ -82,11 +84,12 @@ func TestGenerateInstallAndUninstallNSH(t *testing.T) {
 		}
 	}
 
-	uninstallNSH := generateUninstallNSH(entries)
+	uninstallNSH := generateUninstallNSH(entries, obsolete)
 	for _, want := range []string{
 		`Delete "$INSTDIR\tisane.exe"`,
 		`Delete "$INSTDIR\dictionaries\b.tsd"`,
 		`Delete "$INSTDIR\dictionaries\sub\a$$1.tsd"`,
+		`Delete "$INSTDIR\dictionaries\english-wordnet-2025-plus.tsd"`,
 		`RMDir "$INSTDIR\dictionaries\sub"`,
 		`RMDir "$INSTDIR\dictionaries"`,
 	} {
@@ -99,6 +102,32 @@ func TestGenerateInstallAndUninstallNSH(t *testing.T) {
 	parentIdx := strings.Index(uninstallNSH, `RMDir "$INSTDIR\dictionaries"`)
 	if subIdx == -1 || parentIdx == -1 || subIdx >= parentIdx {
 		t.Errorf("expected deepest directory RMDir before parent:\n%s", uninstallNSH)
+	}
+}
+
+func TestParseObsoletePaths(t *testing.T) {
+	entries := []stagedEntry{
+		{dstPath: "dictionaries/English Wordnet 2025 Plus.tsd"},
+		{dstPath: "tisane.exe"},
+	}
+
+	got, err := parseObsoletePaths([]string{
+		"dictionaries/english-wordnet-2025-plus.tsd",
+		"dictionaries\\ENGLISH-WORDNET-2025-PLUS.TSD",
+	}, entries)
+	if err != nil {
+		t.Fatalf("parseObsoletePaths unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0] != "dictionaries/english-wordnet-2025-plus.tsd" {
+		t.Fatalf("parseObsoletePaths = %v, want [dictionaries/english-wordnet-2025-plus.tsd]", got)
+	}
+
+	// Reject case-insensitive collision with an active staged entry.
+	if _, err := parseObsoletePaths([]string{"dictionaries/english wordnet 2025 plus.tsd"}, entries); err == nil {
+		t.Error("expected error when -obsolete collides case-insensitively with active staged file")
+	}
+	if _, err := parseObsoletePaths([]string{"../outside.tsd"}, entries); err == nil {
+		t.Error("expected error for path traversal in -obsolete")
 	}
 }
 

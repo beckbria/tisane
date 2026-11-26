@@ -63,8 +63,10 @@ Tisane is a high-speed crossword, cryptic, anagram, and dictionary pattern-match
 | `pkg/pattern/` | Macro expander, boolean expression parser, span validator, compiler, and backtracking VM |
 | `pkg/search/` | Concurrent multi-dictionary word & Full-Text Search (FTS) engine with sorting and filtering |
 | `pkg/lookup/` | Sanitized RTF-to-HTML/plain-text converter and `{entry}` web lookup URL builder |
-| `pkg/profile/` | Portable TOML config (`config.toml`), dictionary discovery, and canonical `profile.Version` |
+| `pkg/profile/` | Portable TOML config (`config.toml`), SemVer state/file migrations (`migrate.go`), dictionary discovery, and canonical `profile.Version` |
 | `pkg/wordlist/` | Word list ASCII conversion and merge operations (`or`, `and`, `exclude`) |
+| `tools/wikipedia/` | Manually invoked Wikipedia article title dictionary generator (`manual` Bazel binary; integrates `pkg/wordlist` and `pkg/tsd`) |
+| `tools/wordnet/` | Manually invoked Open English WordNet dictionary generator (`manual` Bazel binary; integrates `pkg/wordlist` and `pkg/tsd`) |
 
 ---
 
@@ -130,6 +132,13 @@ The repository root [`VERSION`](VERSION) file is the single source of truth for 
 - **Go**: Root `version.go` (`package tisane`, Bazel target `//:version`) embeds `VERSION` via `//go:embed VERSION` and exposes `tisane.Version`. `pkg/profile.Version`, all CLI binaries (`tisane-cli`, `tisane-build`, `tisane-extract`, `tisane-merge`), `cmd/tisane`, `winrsrc`, and `wininstaller` all derive from `tisane.Version`.
 - **Frontend (Vite / Svelte / TypeScript)**: `cmd/tisane/frontend/vite.config.ts` injects `__APP_VERSION__` from `TISANE_VERSION` (passed by `cmd/tisane/internal/vitebuild` during Bazel builds) or by reading `../../../VERSION` directly during local `npm` / `vitest` runs.
 - When bumping the version, edit **only `VERSION`** (and rebuild `cmd/tisane/frontend/dist` via `npm run build` if verifying an embedded `go build` desktop binary).
+
+### Versioned State & Bundled-File Migrations
+- `config.toml` records `config_version = "<semver>"` (configs from `<= 0.7.1` without `config_version` parse as `""` / `"0.0.0"`).
+- On startup, both `tisane` (`app.NewStateWithOptions`) and `tisane-cli` run `profile.Migrate` (`pkg/profile/migrate.go`), executing registered `MigrationStep`s with `cfg.ConfigVersion < step.Version <= AppVersion` in ascending SemVer order while respecting `-tags server` host-I/O restrictions and downgrade safety.
+- Whenever renaming or retiring a bundled file under `dictionaries/`:
+  1. Register a `MigrationStep` (e.g., via `profile.ApplyDictionaryRename`) in `pkg/profile/migrate.go` stamped with the new `VERSION` so user `config.toml` paths/names and writable install folders upgrade cleanly.
+  2. Add the retired relative path to `obsolete_files` on `windows_installer` in root `BUILD.bazel` so elevated `/ALLUSERS` (`%ProgramFiles%\Tisane`) upgrades and uninstalls also remove it.
 
 ---
 
