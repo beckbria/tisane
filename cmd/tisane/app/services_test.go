@@ -1350,4 +1350,57 @@ func TestStartupMigratesRenamedDictionaryAndRespectsServerRestriction(t *testing
 			t.Fatalf("expected config.toml untouched on disk in restricted server mode, got:\n%s", string(diskBytes))
 		}
 	})
+
+	t.Run("desktop_upgrade_from_072_adds_new_bundled_dictionaries", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dictsDir := filepath.Join(tmpDir, "dictionaries")
+		if err := os.MkdirAll(dictsDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		wordNetPath := filepath.Join(dictsDir, "English Wordnet 2025 Plus.tsd")
+		corePath := filepath.Join(dictsDir, "Core English.tsd")
+		uneditedPath := filepath.Join(dictsDir, "Unedited English.tsd")
+		wikiPath := filepath.Join(dictsDir, "Wikipedia English 2026.tsd")
+		for _, p := range []string{wordNetPath, corePath, uneditedPath, wikiPath} {
+			buildDictAt(t, p)
+		}
+
+		cfgPath := filepath.Join(tmpDir, "config.toml")
+		v072TOML := "config_version = \"0.7.2\"\nlayout_mode = \"tiled\"\n\n[[dictionaries]]\npath = " +
+			"\"" + strings.ReplaceAll(wordNetPath, "\\", "\\\\") + "\"\n" +
+			"name = \"English Wordnet 2025 Plus\"\nenabled = true\n"
+		if err := os.WriteFile(cfgPath, []byte(v072TOML), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		state, err := app.NewState(cfgPath, newMockBridge())
+		if err != nil {
+			t.Fatalf("NewState: %v", err)
+		}
+		defer state.Close()
+
+		infos := app.NewDictionaryService(state).ListDictionaries()
+		wantNames := []string{
+			"English Wordnet 2025 Plus",
+			"Core English",
+			"Unedited English",
+			"Wikipedia English 2026",
+		}
+		if len(infos) != len(wantNames) {
+			t.Fatalf("expected %d dictionaries after upgrade, got %+v", len(wantNames), infos)
+		}
+		for i, want := range wantNames {
+			if infos[i].Name != want || !infos[i].Enabled {
+				t.Fatalf("dict[%d] = %+v, want Name=%q Enabled=true", i, infos[i], want)
+			}
+		}
+
+		savedCfg, err := profile.Load(cfgPath)
+		if err != nil {
+			t.Fatalf("profile.Load: %v", err)
+		}
+		if savedCfg.ConfigVersion != profile.Version || len(savedCfg.Dictionaries) != len(wantNames) {
+			t.Fatalf("expected persisted upgraded config with %d dicts, got %+v", len(wantNames), savedCfg)
+		}
+	})
 }

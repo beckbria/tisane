@@ -98,10 +98,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	// Run versioned profile & obsolete-file migrations before resolving or discovering dictionaries.
+	migEnv := profile.DefaultMigrationEnv(cfg, true)
 	if !configExisted {
+		migEnv.FirstRun = true
 		cfg.ConfigVersion = ""
 	}
-	migRes, _ := profile.Migrate(cfg, profile.DefaultMigrationEnv(cfg, true), cliVersion)
+	migRes, _ := profile.Migrate(cfg, migEnv, cliVersion)
 	if cfgPath != "" && ((configExisted && migRes.Changed()) || migRes.StateChanged) {
 		_ = profile.Save(cfgPath, cfg)
 	}

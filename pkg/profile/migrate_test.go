@@ -289,3 +289,121 @@ func TestMigrateSafetyInvariantsAndOrdering(t *testing.T) {
 		}
 	})
 }
+
+func TestMigrateAddBundledDictionaries075(t *testing.T) {
+	writeDummy := func(t *testing.T, p string) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte("TSD1"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("upgrade_from_pre_072_renames_wordnet_and_adds_new_bundled_dicts", func(t *testing.T) {
+		dir := t.TempDir()
+		oldWordNet := filepath.Join(dir, "english-wordnet-2025-plus.tsd")
+		newWordNet := filepath.Join(dir, "English Wordnet 2025 Plus.tsd")
+		corePath := filepath.Join(dir, "Core English.tsd")
+		uneditedPath := filepath.Join(dir, "Unedited English.tsd")
+		wikiPath := filepath.Join(dir, "Wikipedia English 2026.tsd")
+		for _, p := range []string{oldWordNet, newWordNet, corePath, uneditedPath, wikiPath} {
+			writeDummy(t, p)
+		}
+
+		cfg := profile.DefaultConfig()
+		cfg.ConfigVersion = "0.7.1"
+		cfg.Dictionaries = []profile.DictConfig{
+			{Path: oldWordNet, Name: "english-wordnet-2025-plus", Enabled: true},
+		}
+
+		env := profile.MigrationEnv{SearchDirs: []string{dir}, AllowFileDelete: true}
+		res, err := profile.Migrate(cfg, env, "0.7.5")
+		if err != nil {
+			t.Fatalf("Migrate: %v", err)
+		}
+		if !res.StateChanged || !res.VersionUpdated || cfg.ConfigVersion != "0.7.5" {
+			t.Fatalf("unexpected migration result: %+v, ConfigVersion=%q", res, cfg.ConfigVersion)
+		}
+
+		want := []profile.DictConfig{
+			{Path: newWordNet, Name: "English Wordnet 2025 Plus", Enabled: true},
+			{Path: corePath, Name: "Core English", Enabled: true},
+			{Path: uneditedPath, Name: "Unedited English", Enabled: true},
+			{Path: wikiPath, Name: "Wikipedia English 2026", Enabled: true},
+		}
+		if !slices.Equal(cfg.Dictionaries, want) {
+			t.Fatalf("migrated dictionaries mismatch:\ngot:  %+v\nwant: %+v", cfg.Dictionaries, want)
+		}
+
+		// Subsequent startup at 0.7.5 is an idempotent no-op.
+		res2, err := profile.Migrate(cfg, env, "0.7.5")
+		if err != nil || res2.Changed() {
+			t.Fatalf("expected idempotent no-op on second run, got %+v, %v", res2, err)
+		}
+	})
+
+	t.Run("upgrade_from_072_deduplicates_existing_core_and_skips_missing_files", func(t *testing.T) {
+		dir := t.TempDir()
+		wordNetPath := filepath.Join(dir, "English Wordnet 2025 Plus.tsd")
+		corePath := filepath.Join(dir, "Core English.tsd")
+		uneditedPath := filepath.Join(dir, "Unedited English.tsd")
+		// Intentionally omit Wikipedia English 2026.tsd to verify missing files are skipped.
+		for _, p := range []string{wordNetPath, corePath, uneditedPath} {
+			writeDummy(t, p)
+		}
+
+		cfg := profile.DefaultConfig()
+		cfg.ConfigVersion = "0.7.2"
+		cfg.Dictionaries = []profile.DictConfig{
+			{Path: wordNetPath, Name: "English Wordnet 2025 Plus", Enabled: true},
+			{Path: corePath, Name: "My Core", Enabled: false},
+		}
+
+		// Empty SearchDirs verifies fallback to existing cfg.Dictionaries parent directories.
+		res, err := profile.Migrate(cfg, profile.MigrationEnv{}, "0.7.5")
+		if err != nil {
+			t.Fatalf("Migrate: %v", err)
+		}
+		if !res.StateChanged || cfg.ConfigVersion != "0.7.5" {
+			t.Fatalf("expected StateChanged and ConfigVersion=0.7.5, got %+v (%q)", res, cfg.ConfigVersion)
+		}
+
+		want := []profile.DictConfig{
+			{Path: wordNetPath, Name: "English Wordnet 2025 Plus", Enabled: true},
+			{Path: corePath, Name: "My Core", Enabled: false},
+			{Path: uneditedPath, Name: "Unedited English", Enabled: true},
+		}
+		if !slices.Equal(cfg.Dictionaries, want) {
+			t.Fatalf("migrated dictionaries mismatch:\ngot:  %+v\nwant: %+v", cfg.Dictionaries, want)
+		}
+	})
+
+	t.Run("first_run_skips_adding_dicts_while_still_cleaning_obsolete_files", func(t *testing.T) {
+		dir := t.TempDir()
+		oldWordNet := filepath.Join(dir, "english-wordnet-2025-plus.tsd")
+		newWordNet := filepath.Join(dir, "English Wordnet 2025 Plus.tsd")
+		corePath := filepath.Join(dir, "Core English.tsd")
+		for _, p := range []string{oldWordNet, newWordNet, corePath} {
+			writeDummy(t, p)
+		}
+
+		cfg := profile.DefaultConfig()
+		cfg.ConfigVersion = ""
+		res, err := profile.Migrate(cfg, profile.MigrationEnv{
+			SearchDirs:      []string{dir},
+			AllowFileDelete: true,
+			FirstRun:        true,
+		}, "0.7.5")
+		if err != nil {
+			t.Fatalf("Migrate(FirstRun): %v", err)
+		}
+		if len(cfg.Dictionaries) != 0 {
+			t.Fatalf("expected FirstRun to leave cfg.Dictionaries empty, got %+v", cfg.Dictionaries)
+		}
+		if !res.StateChanged {
+			t.Fatalf("expected obsolete file cleanup to report StateChanged=true")
+		}
+		if _, err := os.Stat(oldWordNet); !os.IsNotExist(err) {
+			t.Fatalf("expected obsolete %q deleted on FirstRun, stat err = %v", oldWordNet, err)
+		}
+	})
+}

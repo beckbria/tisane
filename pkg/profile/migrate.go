@@ -16,6 +16,10 @@ import (
 type MigrationEnv struct {
 	SearchDirs      []string
 	AllowFileDelete bool
+	// FirstRun indicates no prior config.toml existed; file-cleanup migrations still run,
+	// while additive config migrations are skipped so first-run discovery or stateless CLI runs
+	// are not partially pre-populated.
+	FirstRun bool
 }
 
 // DefaultMigrationEnv constructs a MigrationEnv using DefaultSearchDirs(cfg).
@@ -51,6 +55,13 @@ type RenameBundledDictionaryRule struct {
 	NewFilename string
 }
 
+// AddBundledDictionaryRule describes a newly bundled .tsd dictionary to register on upgrade.
+type AddBundledDictionaryRule struct {
+	Filename string
+	Name     string
+	Enabled  bool
+}
+
 var defaultMigrations = []MigrationStep{
 	{
 		Version: "0.7.2",
@@ -60,6 +71,17 @@ var defaultMigrations = []MigrationStep{
 				OldFilename: "english-wordnet-2025-plus.tsd",
 				NewFilename: "English Wordnet 2025 Plus.tsd",
 			})
+		},
+	},
+	{
+		Version: "0.7.5",
+		ID:      "add-bundled-english-dictionaries-2026",
+		Apply: func(cfg *Config, env MigrationEnv) (bool, error) {
+			return ApplyBundledDictionaryAdd(cfg, env,
+				AddBundledDictionaryRule{Filename: "Core English.tsd", Enabled: true},
+				AddBundledDictionaryRule{Filename: "Unedited English.tsd", Enabled: true},
+				AddBundledDictionaryRule{Filename: "Wikipedia English 2026.tsd", Enabled: true},
+			)
 		},
 	},
 }
@@ -255,6 +277,88 @@ func ApplyDictionaryRename(cfg *Config, env MigrationEnv, rule RenameBundledDict
 				}
 			}
 		}
+	}
+
+	return changed, nil
+}
+
+// ApplyBundledDictionaryAdd locates each rule's .tsd file in env.SearchDirs (falling back to
+// directories already referenced by cfg.Dictionaries) and appends it to cfg.Dictionaries if not
+// already configured. On first-run migrations (env.FirstRun), it is a no-op.
+func ApplyBundledDictionaryAdd(cfg *Config, env MigrationEnv, rules ...AddBundledDictionaryRule) (bool, error) {
+	if cfg == nil || env.FirstRun || len(rules) == 0 {
+		return false, nil
+	}
+
+	searchDirs := make([]string, 0, len(env.SearchDirs)+len(cfg.Dictionaries))
+	seenDirs := make(map[string]bool, len(env.SearchDirs)+len(cfg.Dictionaries))
+	addSearchDir := func(raw string) {
+		dir := strings.TrimSpace(raw)
+		if dir == "" {
+			return
+		}
+		clean := filepath.Clean(dir)
+		if !seenDirs[clean] {
+			seenDirs[clean] = true
+			searchDirs = append(searchDirs, dir)
+		}
+	}
+	for _, dir := range env.SearchDirs {
+		addSearchDir(dir)
+	}
+	for _, dc := range cfg.Dictionaries {
+		if strings.TrimSpace(dc.Path) != "" {
+			addSearchDir(filepath.Dir(dc.Path))
+		}
+	}
+
+	changed := false
+	for _, rule := range rules {
+		filename := strings.TrimSpace(rule.Filename)
+		if filename == "" {
+			return changed, fmt.Errorf("bundled dictionary add rule requires a non-empty filename")
+		}
+
+		alreadyConfigured := false
+		for _, dc := range cfg.Dictionaries {
+			if dc.Path != "" && strings.EqualFold(filepath.Base(dc.Path), filename) {
+				alreadyConfigured = true
+				break
+			}
+		}
+		if alreadyConfigured {
+			continue
+		}
+
+		found := findInSearchDirs(searchDirs, filename)
+		if found == "" {
+			continue
+		}
+		absFound, err := filepath.Abs(found)
+		if err != nil {
+			absFound = filepath.Clean(found)
+		}
+
+		for _, dc := range cfg.Dictionaries {
+			if dictPathsSameTarget(dc.Path, absFound) {
+				alreadyConfigured = true
+				break
+			}
+		}
+		if alreadyConfigured {
+			continue
+		}
+
+		name := strings.TrimSpace(rule.Name)
+		if name == "" {
+			name = trimTSDExt(filepath.Base(absFound))
+		}
+		cfg.Dictionaries = append(cfg.Dictionaries, DictConfig{
+			Path:    absFound,
+			Name:    name,
+			Enabled: rule.Enabled,
+		})
+		changed = true
 	}
 
 	return changed, nil

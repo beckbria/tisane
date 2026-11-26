@@ -183,10 +183,9 @@ Tisane includes a zero-dependency migration framework in `pkg/profile/migrate.go
   - **Downgrade safety**: Opening a newer `config.toml` with an older Tisane binary skips migrations and preserves the higher `config_version`.
 - **Shared GUI & CLI startup hooks**: Both `tisane` (`app.NewStateWithOptions`) and `tisane-cli` invoke `profile.Migrate` before resolving or discovering dictionaries—including on first-run in-place archive upgrades where no `config.toml` existed yet (while avoiding creating a `config.toml` on stateless CLI runs unless a migration modified state).
 - **Headless server-mode safety**: In `-tags server` builds without `TISANE_SERVER_ALLOW_HOST_IO=1`, migrations run with `AllowFileDelete: false` and skip writing to `config.toml` on disk.
-- **Bundled dictionary rename helper (`profile.ApplyDictionaryRename`)**:
-  - Rewrites matching `[[dictionaries]]` entries in place, preserving priority order, `enabled` state, and any user-customized display name (while updating auto-derived stem names).
-  - Deduplicates `[[dictionaries]]` if both old and new entries exist, and heals broken paths if an installer already removed the old file.
-  - Safely deletes leftover copies of the old file across configured paths and search directories only when the replacement exists as a distinct regular file (`!os.SameFile`), using `os.Rename` for case-only renames on case-insensitive filesystems and ignoring permission errors on read-only system directories (`%ProgramFiles%`, `/usr/share`).
+- **Bundled dictionary rename & add helpers (`profile.ApplyDictionaryRename`, `profile.ApplyBundledDictionaryAdd`)**:
+  - `ApplyDictionaryRename` rewrites matching `[[dictionaries]]` entries in place, preserving priority order, `enabled` state, and any user-customized display name (while updating auto-derived stem names), deduplicates dual entries, heals broken paths after installer cleanup, and safely deletes leftover copies of the old file only when the replacement exists as a distinct regular file (`!os.SameFile`).
+  - `ApplyBundledDictionaryAdd` locates newly bundled `.tsd` files across search directories (falling back to directories already referenced by `cfg.Dictionaries`) and appends them to `[[dictionaries]]` if not already configured (skipping first-run / stateless CLI invocations via `MigrationEnv.FirstRun`).
 - **Windows NSIS `obsolete_files` cleanup**: Because `tisane.exe` runs unelevated and cannot delete files inside `%ProgramFiles%\Tisane` on `/ALLUSERS` installs, `windows_installer` accepts `obsolete_files` to emit `Delete "$INSTDIR\..."` in both the upgrade installer and `uninstall.exe` (rejecting case-insensitive collisions with active staged files at build time).
 
 ### Example 1: Renaming a Bundled Dictionary

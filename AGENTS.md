@@ -136,9 +136,9 @@ The repository root [`VERSION`](VERSION) file is the single source of truth for 
 ### Versioned State & Bundled-File Migrations
 - `config.toml` records `config_version = "<semver>"` (configs from `<= 0.7.1` without `config_version` parse as `""` / `"0.0.0"`).
 - On startup, both `tisane` (`app.NewStateWithOptions`) and `tisane-cli` run `profile.Migrate` (`pkg/profile/migrate.go`), executing registered `MigrationStep`s with `cfg.ConfigVersion < step.Version <= AppVersion` in ascending SemVer order while respecting `-tags server` host-I/O restrictions and downgrade safety.
-- Whenever renaming or retiring a bundled file under `dictionaries/`:
-  1. Register a `MigrationStep` (e.g., via `profile.ApplyDictionaryRename`) in `pkg/profile/migrate.go` stamped with the new `VERSION` so user `config.toml` paths/names and writable install folders upgrade cleanly.
-  2. Add the retired relative path to `obsolete_files` on `windows_installer` in root `BUILD.bazel` so elevated `/ALLUSERS` (`%ProgramFiles%\Tisane`) upgrades and uninstalls also remove it.
+- Whenever adding, renaming, or retiring a bundled file under `dictionaries/`:
+  1. Register a `MigrationStep` (e.g., via `profile.ApplyDictionaryRename` or `profile.ApplyBundledDictionaryAdd`) in `pkg/profile/migrate.go` stamped with the new `VERSION` so user `config.toml` paths/names and writable install folders upgrade cleanly.
+  2. For renamed or retired files, add the retired relative path to `obsolete_files` on `windows_installer` in root `BUILD.bazel` so elevated `/ALLUSERS` (`%ProgramFiles%\Tisane`) upgrades and uninstalls also remove it.
 
 ---
 

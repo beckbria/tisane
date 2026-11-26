@@ -163,6 +163,7 @@ func NewStateWithOptions(cfgPath string, bridge HostBridge, restrictHostIO bool)
 	if isFirstRun {
 		// Treat on-disk directories as potentially upgraded from an older archive without a prior config.toml
 		// so obsolete bundled files are cleaned up before first-run discovery scans search dirs.
+		migEnv.FirstRun = true
 		cfg.ConfigVersion = ""
 		_, _ = profile.Migrate(cfg, migEnv, profile.Version)
 		if !restrictHostIO {
