@@ -1,0 +1,1 @@
+Dictionary files (TSD files) in this directory come from diverse sources. Unless specified otherwise in this file, each dictionary file is used under the terms and licenses referenced in its section in CREDITS.md.  These files are NOT covered by any other license applied to the Tisane repository.

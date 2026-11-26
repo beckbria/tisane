@@ -1,0 +1,2 @@
+dictionaries/Unedited[[:space:]]English.tsd filter=lfs diff=lfs merge=lfs -text
+dictionaries/Wikipedia[[:space:]]English[[:space:]]2026.tsd filter=lfs diff=lfs merge=lfs -text

@@ -11,7 +11,7 @@ Originally distributed with [TEA Crossword Helper 2.11](https://www.crosswordman
 # English Wordnet 2025 Plus
 
 Open English Wordnet project (https://en-word-net)
-Used under the terms of the Creative Commons Attribution (CC-BY) 4.0 License.
+Used under the terms of the [Creative Commons Attribution (CC-BY) 4.0 License](https://creativecommons.org/licenses/by/4.0/).
 
 # Unedited English
 
@@ -21,3 +21,7 @@ Parts deriving from WordNet 3.0 Copyright 2006 by Princeton University.  All rig
 
 Originally distributed with [TEA Crossword Helper 2.11](https://www.crosswordman.com/). Used with permission.
 
+# Wikipedia English 2026
+
+Generated from English Wikipedia article titles 2026-11-25 (https://dumps.wikimedia.org/other/pagetitles/20261125/)
+Used under the terms of the [Creative Commons Attribution-ShareAlike (CC-BY-SA) 4.0 International License](https://creativecommons.org/licenses/by-sa/4.0/)
