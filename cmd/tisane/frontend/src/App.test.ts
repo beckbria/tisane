@@ -732,6 +732,8 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(licensesModal).toBeInTheDocument();
 
     const content = screen.getByTestId('dictionary-licenses-content');
+    expect(content).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
+    expect(content).toHaveAttribute('tabindex', '0');
     expect(content).toHaveTextContent('Dictionary credits and licenses');
     expect(content).toHaveTextContent('Core English');
     expect(content).toHaveTextContent('English Wordnet 2025 Plus');

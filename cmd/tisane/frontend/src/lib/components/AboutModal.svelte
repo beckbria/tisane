@@ -122,7 +122,7 @@
       <div
         class="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
       >
-        <div class="flex items-center justify-between border-b border-slate-800 px-5 py-3.5">
+        <div class="flex shrink-0 items-center justify-between border-b border-slate-800 px-5 py-3.5">
           <h3 class="text-sm font-semibold text-slate-100">Dictionary Licenses</h3>
           <button
             type="button"
@@ -135,9 +135,13 @@
           </button>
         </div>
 
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div
           data-testid="dictionary-licenses-content"
-          class="overflow-y-auto px-5 py-4 text-left text-xs leading-relaxed text-slate-300"
+          role="region"
+          tabindex="0"
+          aria-label="Dictionary credits and licenses"
+          class="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-left text-xs leading-relaxed text-slate-300 select-text focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
         >
           {#each creditBlocks as block, blockIdx (blockIdx)}
             {#if block.kind === 'heading'}
@@ -169,7 +173,7 @@
           {/each}
         </div>
 
-        <div class="flex items-center justify-end border-t border-slate-800 bg-slate-950/60 px-5 py-3">
+        <div class="flex shrink-0 items-center justify-end border-t border-slate-800 bg-slate-950/60 px-5 py-3">
           <button
             type="button"
             onclick={() => (showLicenses = false)}
