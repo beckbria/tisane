@@ -101,7 +101,8 @@ All code must follow idiomatic conventions and best practices for its language a
   - Keep text contrast ≥ `4.5:1` and control border contrast ≥ `3.0:1` across both Dark and Light palettes in `src/app.css`, and keep `VirtualResultPane` options `tabindex="-1"` with `aria-activedescendant` + `aria-posinset`/`aria-setsize`.
 - **Security invariants**:
   - Any URL passed to `HostBridge.OpenURL` (including `WebProvider.URLTemplate` in `OpenWebLookup` and `UpdateConfig`) must be validated to `http`/`https` (plus `mailto` for `OpenExternalURL`), reject whitespace/quotes/userinfo/control/bidi characters and `{entry}` inside the URL authority, and pass through `application.ValidateAndSanitizeURL`.
-  - Headless `-tags server` builds block host file-mutation and server-side browser-launch RPCs by default unless `TISANE_SERVER_ALLOW_HOST_IO=1` is set.
+  - `HostBridge.OpenDirectory` (`DictionaryService.OpenDictionaryDirectory`) must resolve the parent directory from a registered dictionary ID rather than accepting raw paths from the frontend; on Unix pass an absolute path to `xdg-open`/`open` (without `--`, which `xdg-open` rejects), and on Windows pass an explicitly quoted path via `explorer.exe` `SysProcAttr.CmdLine` so spaces and commas never split arguments.
+  - Headless `-tags server` builds block host file-mutation and server-side browser/file-manager launch RPCs by default unless `TISANE_SERVER_ALLOW_HOST_IO=1` is set.
   - Any `{@html ...}` rendering (such as `DefinitionPane.svelte`) must only receive backend-sanitized HTML, and `cmd/tisane/frontend/index.html` must retain its strict Content Security Policy.
   - Never interpolate user-configurable strings (such as font families in `fonts.ts`) into inline `style` attributes without sanitizing CSS breakout characters (`;`, `{`, `}`, `(`, `)`, `\`).
 - **Runtime pinning**: Keep `@wailsio/runtime` in `cmd/tisane/frontend/package.json` pinned to the exact Wails v3 version in `go.mod`.

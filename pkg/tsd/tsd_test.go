@@ -600,4 +600,42 @@ func TestStripRTFForFTSAndBuilderDeterminism(t *testing.T) {
 			t.Fatalf("OpenBytes: %v", err)
 		}
 	})
+
+	t.Run("min_word_length_and_total_fts_only_words", func(t *testing.T) {
+		emptyBytes, _, err := tsd.BuildBytes(nil, tsd.DefaultBuildOptions())
+		if err != nil {
+			t.Fatalf("BuildBytes(empty): %v", err)
+		}
+		emptyDict, err := tsd.OpenBytes(emptyBytes, "empty")
+		if err != nil {
+			t.Fatalf("OpenBytes(empty): %v", err)
+		}
+		if got := emptyDict.MinWordLength(); got != 0 {
+			t.Errorf("empty MinWordLength() = %d, want 0", got)
+		}
+		if got := emptyDict.TotalFTSOnlyWords(); got != 0 {
+			t.Errorf("empty TotalFTSOnlyWords() = %d, want 0", got)
+		}
+
+		opts := tsd.DefaultBuildOptions()
+		opts.MaxFTSPercent = 100
+		// Headwords have lengths 5 ("apple") and 7 ("apricot"), while "orchard" (7) and "sweet" (5) are FTS-only keys.
+		raw, stats, err := tsd.BuildBytes([]byte("apple|sweet orchard fruit\napricot|stone fruit\n"), opts)
+		if err != nil {
+			t.Fatalf("BuildBytes: %v", err)
+		}
+		d, err := tsd.OpenBytes(raw, "fruit")
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+		if got := d.MinWordLength(); got != 5 {
+			t.Errorf("MinWordLength() = %d, want 5", got)
+		}
+		if got := d.MaxWordLength(); got != 7 {
+			t.Errorf("MaxWordLength() = %d, want 7", got)
+		}
+		if got := d.TotalFTSOnlyWords(); got != uint64(stats.FTSOnlyWords) || got == 0 {
+			t.Errorf("TotalFTSOnlyWords() = %d, want %d (>0)", got, stats.FTSOnlyWords)
+		}
+	})
 }

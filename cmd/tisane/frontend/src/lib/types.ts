@@ -6,8 +6,13 @@ export interface DictionaryInfo {
   name: string;
   description: string;
   version: string;
+  fileSize?: number;
   wordCount: number;
+  minWordLength?: number;
   maxWordLength: number;
+  usedLetters?: number;
+  totalLetters?: number;
+  ftsWordCount?: number;
   hasDefinitions: boolean;
   hasFTS: boolean;
   enabled: boolean;

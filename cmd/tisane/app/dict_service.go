@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"tisane/pkg/profile"
 )
@@ -170,4 +172,33 @@ func (ds *DictionaryService) RemoveDictionary(id string) ([]DictionaryInfo, erro
 		return infos, fmt.Errorf("save config: %w", saveErr)
 	}
 	return infos, nil
+}
+
+// OpenDictionaryDirectory opens the host OS file manager in the directory containing dictionary id.
+func (ds *DictionaryService) OpenDictionaryDirectory(id string) error {
+	if err := ds.state.checkHostIOAllowed("opening host dictionary directories"); err != nil {
+		return err
+	}
+	ds.state.mu.RLock()
+	idx := ds.state.findIndexLocked(id)
+	if idx < 0 {
+		ds.state.mu.RUnlock()
+		return fmt.Errorf("dictionary %q not found", id)
+	}
+	dictPath := ds.state.dicts[idx].info.Path
+	ds.state.mu.RUnlock()
+
+	dir := filepath.Dir(dictPath)
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolve dictionary directory: %w", err)
+	}
+	info, err := os.Stat(absDir)
+	if err != nil {
+		return fmt.Errorf("stat dictionary directory %q: %w", absDir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("dictionary parent %q is not a directory", absDir)
+	}
+	return ds.state.Bridge().OpenDirectory(absDir)
 }

@@ -37,9 +37,14 @@ function createMockHarness() {
       path: '/dicts/core.tsd',
       name: 'Core English',
       description: 'Core word list',
-      version: '1.2.0',
+      version: 'TSD0',
+      fileSize: 415696,
       wordCount: 241350,
+      minWordLength: 2,
       maxWordLength: 28,
+      usedLetters: 26,
+      totalLetters: 63,
+      ftsWordCount: 0,
       hasDefinitions: false,
       hasFTS: false,
       enabled: true
@@ -49,9 +54,14 @@ function createMockHarness() {
       path: '/dicts/devils.tsd',
       name: "The Devil's Dictionary",
       description: 'Ambrose Bierce definitions',
-      version: '1.2.0',
+      version: 'TSD1',
+      fileSize: 1207350,
       wordCount: 1580,
+      minWordLength: 3,
       maxWordLength: 24,
+      usedLetters: 26,
+      totalLetters: 63,
+      ftsWordCount: 412,
       hasDefinitions: true,
       hasFTS: true,
       enabled: true
@@ -93,6 +103,7 @@ function createMockHarness() {
   const searchRequests: SearchRequest[] = [];
   const webLookups: { word: string; providerId: string }[] = [];
   const externalURLs: string[] = [];
+  const openedDirectories: string[] = [];
 
   const definitionsMap = new Map<string, LookupResult>([
     [
@@ -143,6 +154,9 @@ function createMockHarness() {
     removeDictionary: vi.fn(async (id: string) => {
       dicts = dicts.filter((d) => d.id !== id);
       return dicts;
+    }),
+    openDictionaryDirectory: vi.fn(async (id: string) => {
+      openedDirectories.push(id);
     }),
     browseWordListFile: vi.fn(async () => '/tmp/wordlist.txt'),
     browseSaveDictionaryFile: vi.fn(async (defaultPath: string) => defaultPath || '/tmp/custom.tsd'),
@@ -329,7 +343,7 @@ function createMockHarness() {
     }
   };
 
-  return { backend, emit, searchRequests, webLookups, externalURLs };
+  return { backend, emit, searchRequests, webLookups, externalURLs, openedDirectories };
 }
 
 describe('Tisane Svelte 5 Desktop UI', () => {
@@ -2368,5 +2382,223 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     expect(dispatchContextMenu(screen.getByTestId('definition-pane'))).toBe(true);
     expect(dispatchContextMenu(screen.getByTestId('tiled-pane-0'))).toBe(true);
     expect(screen.queryByTestId('result-context-menu')).not.toBeInTheDocument();
+  });
+
+  it('supports right-clicking dictionaries for Enable/Disable, Information dialog, Open Directory, Move Top/Bottom/Up/Down, and Remove From List', async () => {
+    const h = createMockHarness();
+    const threeDicts: DictionaryInfo[] = [
+      {
+        id: '/dicts/core.tsd',
+        path: '/dicts/core.tsd',
+        name: 'Core English',
+        description: 'Core word list\r\nSecond line of notes',
+        version: 'TSD0',
+        fileSize: 415696,
+        wordCount: 67057,
+        minWordLength: 2,
+        maxWordLength: 23,
+        usedLetters: 26,
+        totalLetters: 63,
+        ftsWordCount: 0,
+        hasDefinitions: false,
+        hasFTS: false,
+        enabled: true
+      },
+      {
+        id: '/dicts/devils.tsd',
+        path: '/dicts/devils.tsd',
+        name: "The Devil's Dictionary",
+        description: 'Ambrose Bierce definitions',
+        version: 'TSD1',
+        fileSize: 1207350,
+        wordCount: 1580,
+        minWordLength: 3,
+        maxWordLength: 24,
+        usedLetters: 26,
+        totalLetters: 63,
+        ftsWordCount: 412,
+        hasDefinitions: true,
+        hasFTS: true,
+        enabled: true
+      },
+      {
+        id: '/dicts/wiki.tsd',
+        path: '/dicts/wiki.tsd',
+        name: 'Wikipedia English',
+        description: '',
+        version: 'TSD1',
+        fileSize: 148308572,
+        wordCount: 14538963,
+        minWordLength: 1,
+        maxWordLength: 100,
+        usedLetters: 26,
+        totalLetters: 63,
+        ftsWordCount: 0,
+        hasDefinitions: false,
+        hasFTS: false,
+        enabled: false
+      }
+    ];
+    let currentDicts = threeDicts.map((d) => ({ ...d }));
+    h.backend.listDictionaries = vi.fn(async () => currentDicts.map((d) => ({ ...d })));
+    h.backend.setEnabled = vi.fn(async (id: string, enabled: boolean) => {
+      currentDicts = currentDicts.map((d) => (d.id === id ? { ...d, enabled } : d));
+      return currentDicts.map((d) => ({ ...d }));
+    });
+    h.backend.reorderDictionaries = vi.fn(async (orderedIds: string[]) => {
+      const byId = new Map(currentDicts.map((d) => [d.id, d]));
+      currentDicts = orderedIds.map((id) => byId.get(id)!);
+      return currentDicts.map((d) => ({ ...d }));
+    });
+    h.backend.removeDictionary = vi.fn(async (id: string) => {
+      currentDicts = currentDicts.filter((d) => d.id !== id);
+      return currentDicts.map((d) => ({ ...d }));
+    });
+
+    setBackendForTesting(h.backend);
+    render(App);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dict-item-0')).toHaveTextContent('Core English');
+      expect(screen.getByTestId('dict-item-2')).toHaveTextContent('Wikipedia English');
+    });
+
+    // 1. Right-click enabled top item (index 0): shows Disable (not Enable), Move to Top & Move Up disabled
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-0'), { clientX: 80, clientY: 120 });
+    const menu0 = await screen.findByTestId('dict-context-menu');
+    expect(within(menu0).getByTestId('dict-ctx-disable-btn')).toHaveTextContent('Disable');
+    expect(within(menu0).queryByTestId('dict-ctx-enable-btn')).not.toBeInTheDocument();
+    expect(within(menu0).getByTestId('dict-ctx-move-top-btn')).toBeDisabled();
+    expect(within(menu0).getByTestId('dict-ctx-move-up-btn')).toBeDisabled();
+    expect(within(menu0).getByTestId('dict-ctx-move-bottom-btn')).not.toBeDisabled();
+    expect(within(menu0).getByTestId('dict-ctx-move-down-btn')).not.toBeDisabled();
+
+    // Click Disable -> toggles enabled to false
+    await fireEvent.click(within(menu0).getByTestId('dict-ctx-disable-btn'));
+    await waitFor(() => {
+      expect(h.backend.setEnabled).toHaveBeenCalledWith('/dicts/core.tsd', false);
+      expect(screen.queryByTestId('dict-context-menu')).not.toBeInTheDocument();
+    });
+
+    // Right-click same item now that it is disabled -> shows Enable (not Disable)
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-0'), { clientX: 80, clientY: 120 });
+    const menu0Disabled = await screen.findByTestId('dict-context-menu');
+    expect(within(menu0Disabled).getByTestId('dict-ctx-enable-btn')).toHaveTextContent('Enable');
+    expect(within(menu0Disabled).queryByTestId('dict-ctx-disable-btn')).not.toBeInTheDocument();
+    await fireEvent.click(within(menu0Disabled).getByTestId('dict-ctx-enable-btn'));
+    await waitFor(() => {
+      expect(h.backend.setEnabled).toHaveBeenCalledWith('/dicts/core.tsd', true);
+    });
+
+    // 2. Information dialog shows name, description, and metadata, and closes cleanly on Escape
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-1'), { clientX: 80, clientY: 160 });
+    await fireEvent.click(await screen.findByTestId('dict-ctx-info-btn'));
+
+    const infoModal = await screen.findByTestId('dict-info-modal');
+    expect(within(infoModal).getByTestId('dict-info-heading')).toHaveTextContent(
+      "The Devil's Dictionary"
+    );
+    expect(within(infoModal).getByTestId('dict-info-description')).toHaveTextContent(
+      'Ambrose Bierce definitions'
+    );
+    expect(within(infoModal).getByTestId('dict-info-name')).toHaveTextContent(
+      "The Devil's Dictionary"
+    );
+    expect(within(infoModal).getByTestId('dict-info-format')).toHaveTextContent('TSD1');
+    expect(within(infoModal).getByTestId('dict-info-status')).toHaveTextContent(
+      'Enabled · Priority #2 of 3'
+    );
+    expect(within(infoModal).getByTestId('dict-info-words')).toHaveTextContent('1,580 words');
+    expect(within(infoModal).getByTestId('dict-info-word-length')).toHaveTextContent('3–24 letters');
+    expect(within(infoModal).getByTestId('dict-info-file-size')).toHaveTextContent('1.15 MB');
+    expect(within(infoModal).getByTestId('dict-info-definitions')).toHaveTextContent('Available');
+    expect(within(infoModal).getByTestId('dict-info-fts')).toHaveTextContent(
+      'Indexed (412 FTS-only keys)'
+    );
+    expect(within(infoModal).getByTestId('dict-info-alphabet')).toHaveTextContent(
+      '26 active / 63 total classes'
+    );
+    expect(within(infoModal).getByTestId('dict-info-path')).toHaveTextContent('/dicts/devils.tsd');
+
+    // Open Directory from inside Information dialog
+    await fireEvent.click(within(infoModal).getByTestId('dict-info-open-dir-btn'));
+    await waitFor(() => {
+      expect(h.openedDirectories).toEqual(['/dicts/devils.tsd']);
+    });
+
+    // Dismiss Information dialog with Escape and verify focus restores to row 1
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByTestId('dict-info-modal')).not.toBeInTheDocument();
+      expect(screen.getByTestId('dict-toggle-1')).toHaveFocus();
+    });
+
+    // 3. Open Directory directly from context menu
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-0'), { clientX: 80, clientY: 120 });
+    await fireEvent.click(await screen.findByTestId('dict-ctx-open-dir-btn'));
+    await waitFor(() => {
+      expect(h.openedDirectories).toEqual(['/dicts/devils.tsd', '/dicts/core.tsd']);
+    });
+
+    // 4. Move to Bottom, Move to Top, Move Up, Move Down
+    // Move index 0 (Core English) to Bottom -> [devils, wiki, core]
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-0'), { clientX: 80, clientY: 120 });
+    await fireEvent.click(await screen.findByTestId('dict-ctx-move-bottom-btn'));
+    await waitFor(() => {
+      expect(h.backend.reorderDictionaries).toHaveBeenLastCalledWith([
+        '/dicts/devils.tsd',
+        '/dicts/wiki.tsd',
+        '/dicts/core.tsd'
+      ]);
+      expect(screen.getByTestId('dict-item-2')).toHaveTextContent('Core English');
+    });
+
+    // Right-click bottom item (index 2): Move to Bottom & Move Down are disabled
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-2'), { clientX: 80, clientY: 200 });
+    const menuBottom = await screen.findByTestId('dict-context-menu');
+    expect(within(menuBottom).getByTestId('dict-ctx-move-bottom-btn')).toBeDisabled();
+    expect(within(menuBottom).getByTestId('dict-ctx-move-down-btn')).toBeDisabled();
+    // Click Move to Top -> [core, devils, wiki]
+    await fireEvent.click(within(menuBottom).getByTestId('dict-ctx-move-top-btn'));
+    await waitFor(() => {
+      expect(h.backend.reorderDictionaries).toHaveBeenLastCalledWith([
+        '/dicts/core.tsd',
+        '/dicts/devils.tsd',
+        '/dicts/wiki.tsd'
+      ]);
+    });
+
+    // Move index 0 Down -> [devils, core, wiki]
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-0'), { clientX: 80, clientY: 120 });
+    await fireEvent.click(await screen.findByTestId('dict-ctx-move-down-btn'));
+    await waitFor(() => {
+      expect(h.backend.reorderDictionaries).toHaveBeenLastCalledWith([
+        '/dicts/devils.tsd',
+        '/dicts/core.tsd',
+        '/dicts/wiki.tsd'
+      ]);
+    });
+
+    // Move index 1 Up -> [core, devils, wiki]
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-1'), { clientX: 80, clientY: 160 });
+    await fireEvent.click(await screen.findByTestId('dict-ctx-move-up-btn'));
+    await waitFor(() => {
+      expect(h.backend.reorderDictionaries).toHaveBeenLastCalledWith([
+        '/dicts/core.tsd',
+        '/dicts/devils.tsd',
+        '/dicts/wiki.tsd'
+      ]);
+    });
+
+    // 5. Keyboard Shift+F10 opens context menu on dictionary row, and Remove From List removes it
+    const wikiRow = screen.getByTestId('dict-item-2');
+    await fireEvent.keyDown(wikiRow, { key: 'F10', shiftKey: true });
+    const menuWiki = await screen.findByTestId('dict-context-menu');
+    expect(within(menuWiki).getByTestId('dict-ctx-enable-btn')).toBeInTheDocument();
+    await fireEvent.click(within(menuWiki).getByTestId('dict-ctx-remove-btn'));
+    await waitFor(() => {
+      expect(h.backend.removeDictionary).toHaveBeenCalledWith('/dicts/wiki.tsd');
+      expect(screen.queryByTestId('dict-item-2')).not.toBeInTheDocument();
+    });
   });
 });

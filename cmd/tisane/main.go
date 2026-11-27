@@ -4,8 +4,10 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -41,6 +43,21 @@ func (b *wailsHostBridge) OpenURL(url string) error {
 		return b.wailsApp.Browser.OpenURL(sanitized)
 	}
 	return nil
+}
+
+func (b *wailsHostBridge) OpenDirectory(dir string) error {
+	cleanDir, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(cleanDir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("not a directory: %s", cleanDir)
+	}
+	return openDirectoryInFileManager(cleanDir)
 }
 
 func (b *wailsHostBridge) PickDictionaryFiles() ([]string, error) {

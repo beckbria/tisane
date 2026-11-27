@@ -16,11 +16,22 @@
   import { createDictionaryStore } from './lib/stores/dictionaries.svelte';
   import { createSearchStore } from './lib/stores/search.svelte';
   import { createDefinitionStore } from './lib/stores/definitions.svelte';
-  import type { ConfigPatch, EntryCategory, LayoutMode, Match, SortMode } from './lib/types';
+  import type {
+    ConfigPatch,
+    DictionaryInfo,
+    EntryCategory,
+    LayoutMode,
+    Match,
+    SortMode
+  } from './lib/types';
 
   import PatternBar from './lib/components/PatternBar.svelte';
   import FilterToolbar from './lib/components/FilterToolbar.svelte';
   import DictionarySidebar from './lib/components/DictionarySidebar.svelte';
+  import DictionaryContextMenu, {
+    type DictionaryContextMenuRequest
+  } from './lib/components/DictionaryContextMenu.svelte';
+  import DictionaryInfoModal from './lib/components/DictionaryInfoModal.svelte';
   import VirtualResultPane from './lib/components/VirtualResultPane.svelte';
   import ResultContextMenu, {
     type ResultContextMenuRequest
@@ -65,7 +76,9 @@
   let showAbout = $state(false);
   let showDictBuilder = $state(false);
   let showWordListMerger = $state(false);
+  let infoModalDict: DictionaryInfo | null = $state(null);
   let contextMenu: ResultContextMenuRequest | null = $state(null);
+  let dictContextMenu: DictionaryContextMenuRequest | null = $state(null);
 
   // Resizable & collapsible dictionary sidebar state
   let isResizingSidebar = $state(false);
@@ -104,8 +117,21 @@
     );
     return Math.min(raw, maxH);
   });
+  const infoModalIndex = $derived.by(() => {
+    const target = infoModalDict;
+    if (!target) return -1;
+    return dictStore.list.findIndex((d) => d.id === target.id);
+  });
+  const activeInfoDict = $derived(
+    infoModalIndex >= 0 ? dictStore.list[infoModalIndex] : infoModalDict
+  );
   const anyModalOpen = $derived(
-    showSettings || showFontSettings || showAbout || showDictBuilder || showWordListMerger
+    showSettings ||
+      showFontSettings ||
+      showAbout ||
+      showDictBuilder ||
+      showWordListMerger ||
+      infoModalDict !== null
   );
 
   function handleSkipToResults(e: MouseEvent) {
@@ -174,6 +200,7 @@
   }
 
   function handleResultContextMenu(req: ResultContextMenuRequest) {
+    dictContextMenu = null;
     contextMenu = req;
   }
 
@@ -185,11 +212,41 @@
     }
   }
 
+  function handleDictContextMenu(req: DictionaryContextMenuRequest) {
+    contextMenu = null;
+    dictContextMenu = req;
+  }
+
+  function closeDictContextMenu(restoreFocus = false) {
+    const prev = dictContextMenu;
+    dictContextMenu = null;
+    if (restoreFocus && prev) {
+      prev.restoreFocus();
+    }
+  }
+
+  function moveDictionaryToIndex(fromIdx: number, toIdx: number) {
+    const list = dictStore.list;
+    if (fromIdx < 0 || fromIdx >= list.length || toIdx < 0 || toIdx >= list.length || fromIdx === toIdx) {
+      return;
+    }
+    const ids = list.map((d) => d.id);
+    const [moved] = ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, moved);
+    void dictStore.reorder(ids);
+  }
+
   $effect(() => {
     // Close any open result context menu when a new search starts or layout changes.
     void searchStore.currentSearchId;
     void cfgStore.value.layoutMode;
     contextMenu = null;
+  });
+
+  $effect(() => {
+    if (cfgStore.value.sidebarCollapsed && dictContextMenu) {
+      dictContextMenu = null;
+    }
   });
 
   async function handleDoubleClickMatch(m: Match) {
@@ -432,7 +489,14 @@
         closeContextMenu(true);
         return;
       }
-      if (showAbout) {
+      if (dictContextMenu) {
+        e.preventDefault();
+        closeDictContextMenu(true);
+        return;
+      }
+      if (infoModalDict) {
+        infoModalDict = null;
+      } else if (showAbout) {
         showAbout = false;
       } else if (showWordListMerger) {
         showWordListMerger = false;
@@ -713,6 +777,7 @@
           onOpenBuilder={() => (showDictBuilder = true)}
           onOpenMerger={() => (showWordListMerger = true)}
           onRemove={(id) => dictStore.remove(id)}
+          onContextMenu={handleDictContextMenu}
           onCollapse={() => setSidebarCollapsed(true)}
           onOptionChange={(patch) => applyConfigPatch(patch, true)}
         />
@@ -734,6 +799,7 @@
         onOpenBuilder={() => (showDictBuilder = true)}
         onOpenMerger={() => (showWordListMerger = true)}
         onRemove={(id) => dictStore.remove(id)}
+        onContextMenu={handleDictContextMenu}
         onCollapse={() => setSidebarCollapsed(true)}
         onExpand={() => setSidebarCollapsed(false)}
         onOptionChange={(patch) => applyConfigPatch(patch, true)}
@@ -990,6 +1056,47 @@
     open={showWordListMerger}
     onClose={() => (showWordListMerger = false)}
   />
+
+  <!-- Dictionary Information Modal -->
+  <DictionaryInfoModal
+    open={activeInfoDict !== null}
+    dict={activeInfoDict}
+    priorityIndex={infoModalIndex}
+    totalCount={dictStore.list.length}
+    onClose={() => (infoModalDict = null)}
+    onOpenDirectory={(id) => {
+      void dictStore.openDirectory(id);
+    }}
+  />
+
+  <!-- Dictionary List Right-Click Context Menu -->
+  {#if dictContextMenu}
+    <DictionaryContextMenu
+      x={dictContextMenu.x}
+      y={dictContextMenu.y}
+      dict={dictContextMenu.dict}
+      index={dictContextMenu.index}
+      totalCount={dictContextMenu.totalCount}
+      uiZoom={cfgStore.value.uiZoom}
+      onToggleEnabled={(id, enabled) => {
+        void dictStore.setEnabled(id, enabled);
+      }}
+      onShowInfo={(dict) => {
+        infoModalDict = dict;
+      }}
+      onOpenDirectory={(id) => {
+        void dictStore.openDirectory(id);
+      }}
+      onMoveToTop={(idx) => moveDictionaryToIndex(idx, 0)}
+      onMoveToBottom={(idx) => moveDictionaryToIndex(idx, dictStore.list.length - 1)}
+      onMoveUp={(idx) => moveDictionaryToIndex(idx, idx - 1)}
+      onMoveDown={(idx) => moveDictionaryToIndex(idx, idx + 1)}
+      onRemove={(id) => {
+        void dictStore.remove(id);
+      }}
+      onClose={closeDictContextMenu}
+    />
+  {/if}
 
   <!-- Search Result Right-Click Context Menu -->
   {#if contextMenu}

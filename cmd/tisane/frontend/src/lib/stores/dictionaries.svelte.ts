@@ -120,6 +120,15 @@ export class DictionaryStore {
       this.callbacks.onError(formatError(err));
     }
   }
+
+  async openDirectory(id: string): Promise<void> {
+    try {
+      await getBackend().openDictionaryDirectory(id);
+      this.callbacks.onClearError();
+    } catch (err) {
+      this.callbacks.onError(formatError(err));
+    }
+  }
 }
 
 export function createDictionaryStore(callbacks: DictionaryStoreCallbacks): DictionaryStore {

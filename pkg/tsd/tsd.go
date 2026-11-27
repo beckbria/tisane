@@ -377,6 +377,16 @@ func (d *Dictionary) RawDescription() []byte {
 // NumLengths returns the length of the per-length header tables (MaxWordLength + 1, or 0 if empty).
 func (d *Dictionary) NumLengths() int { return d.numLengths }
 
+// MinWordLength returns the shortest canonical word length present in the dictionary (0 if empty).
+func (d *Dictionary) MinWordLength() int {
+	for l := 1; l < d.numLengths; l++ {
+		if d.wordCounts[l] > 0 {
+			return l
+		}
+	}
+	return 0
+}
+
 // MaxWordLength returns the longest canonical word length present in the dictionary (0 if empty).
 func (d *Dictionary) MaxWordLength() int {
 	if d.numLengths <= 1 {
@@ -489,4 +499,16 @@ func (d *Dictionary) FTSOnlyWordCount(length int) int {
 		return 0
 	}
 	return int((wsOff - occOff) / 4)
+}
+
+// TotalFTSOnlyWords returns the sum of FTSOnlyWordCount(L) across all word lengths.
+func (d *Dictionary) TotalFTSOnlyWords() uint64 {
+	if d.version != VersionTSD1 {
+		return 0
+	}
+	var total uint64
+	for l := 1; l < d.numLengths; l++ {
+		total += uint64(d.FTSOnlyWordCount(l))
+	}
+	return total
 }

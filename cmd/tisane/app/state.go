@@ -31,6 +31,7 @@ func ServerHostIOAllowedFromEnv() bool {
 type HostBridge interface {
 	EmitEvent(name string, data any)
 	OpenURL(url string) error
+	OpenDirectory(dir string) error
 	PickDictionaryFiles() ([]string, error)
 	PickDictionaryDirectory() (string, error)
 	PickWordListFile() (string, error)
@@ -44,6 +45,7 @@ type NoopBridge struct{}
 
 func (NoopBridge) EmitEvent(string, any)                                 {}
 func (NoopBridge) OpenURL(string) error                                  { return nil }
+func (NoopBridge) OpenDirectory(string) error                            { return nil }
 func (NoopBridge) PickDictionaryFiles() ([]string, error)                { return nil, nil }
 func (NoopBridge) PickDictionaryDirectory() (string, error)              { return "", nil }
 func (NoopBridge) PickWordListFile() (string, error)                     { return "", nil }
@@ -58,8 +60,13 @@ type DictionaryInfo struct {
 	Name           string `json:"name"`
 	Description    string `json:"description"`
 	Version        string `json:"version"`
+	FileSize       int64  `json:"fileSize"`
 	WordCount      uint64 `json:"wordCount"`
+	MinWordLength  int    `json:"minWordLength"`
 	MaxWordLength  int    `json:"maxWordLength"`
+	UsedLetters    int    `json:"usedLetters"`
+	TotalLetters   int    `json:"totalLetters"`
+	FTSWordCount   uint64 `json:"ftsWordCount"`
 	HasDefinitions bool   `json:"hasDefinitions"`
 	HasFTS         bool   `json:"hasFTS"`
 	Enabled        bool   `json:"enabled"`
@@ -350,8 +357,13 @@ func (s *State) openAndAppendLocked(path string, customName string, enabled bool
 			Name:           dispName,
 			Description:    d.Description(),
 			Version:        string(d.Version()),
+			FileSize:       d.Size(),
 			WordCount:      d.TotalWords(),
+			MinWordLength:  d.MinWordLength(),
 			MaxWordLength:  d.MaxWordLength(),
+			UsedLetters:    d.NumUsedLetters(),
+			TotalLetters:   d.NumTotalLetters(),
+			FTSWordCount:   d.TotalFTSOnlyWords(),
 			HasDefinitions: d.HasDefinitions(),
 			HasFTS:         d.HasFTSIndex(),
 			Enabled:        enabled,

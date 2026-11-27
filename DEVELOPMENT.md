@@ -98,7 +98,7 @@ CGO_ENABLED=0 go build -tags server -o tisane-server ./cmd/tisane
 ./tisane-server
 # Open http://localhost:8080 in any browser
 ```
-> **Security note**: Server mode shares a single `app.State` across connected clients and has no built-in HTTP authentication. By default, `-tags server` disables host filesystem-mutation tools (Dictionary Builder, Word List Merger, adding/removing dictionaries, config reset) and server-side `OpenURL` launches; set `TISANE_SERVER_ALLOW_HOST_IO=1` only in trusted single-user environments, and place an authenticating reverse proxy in front if exposing beyond `localhost`.
+> **Security note**: Server mode shares a single `app.State` across connected clients and has no built-in HTTP authentication. By default, `-tags server` disables host filesystem-mutation tools (Dictionary Builder, Word List Merger, adding/removing dictionaries, config reset) and server-side `OpenURL` / `OpenDirectory` launches; set `TISANE_SERVER_ALLOW_HOST_IO=1` only in trusted single-user environments, and place an authenticating reverse proxy in front if exposing beyond `localhost`.
 
 ### Step 3: Run `tisane`
 

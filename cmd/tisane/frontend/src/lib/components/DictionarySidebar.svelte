@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { DictionaryInfo } from '../types';
+  import type { DictionaryContextMenuRequest } from './DictionaryContextMenu.svelte';
 
   const COLLAPSED_WIDTH = 32;
 
@@ -19,6 +20,7 @@
     onOpenBuilder?: () => void;
     onOpenMerger?: () => void;
     onRemove: (id: string) => void;
+    onContextMenu?: (req: DictionaryContextMenuRequest) => void;
     onCollapse?: () => void;
     onExpand?: () => void;
     onOptionChange: (patch: {
@@ -45,6 +47,7 @@
     onOpenBuilder,
     onOpenMerger,
     onRemove,
+    onContextMenu,
     onCollapse,
     onExpand,
     onOptionChange
@@ -95,6 +98,37 @@
     const [moved] = ids.splice(index, 1);
     ids.splice(target, 0, moved);
     onReorder(ids);
+  }
+
+  function openContextMenuForItem(
+    dict: DictionaryInfo,
+    idx: number,
+    clientX: number,
+    clientY: number,
+    itemEl: HTMLElement | null
+  ) {
+    if (!onContextMenu) return;
+    addMenuOpen = false;
+    const active =
+      typeof document !== 'undefined' &&
+      document.activeElement instanceof HTMLElement &&
+      itemEl?.contains(document.activeElement)
+        ? document.activeElement
+        : null;
+    const fallbackTarget =
+      active ?? itemEl?.querySelector<HTMLElement>('input[type="checkbox"], button') ?? null;
+    onContextMenu({
+      x: clientX,
+      y: clientY,
+      dict,
+      index: idx,
+      totalCount: dictionaries.length,
+      restoreFocus: () => {
+        if (fallbackTarget && document.contains(fallbackTarget)) {
+          fallbackTarget.focus({ preventScroll: true });
+        }
+      }
+    });
   }
 
   function handleDrop(targetIdx: number) {
@@ -347,6 +381,7 @@
     {:else}
       <ul class="space-y-1">
         {#each dictionaries as dict, idx (dict.id)}
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <li
             draggable="true"
             ondragstart={() => (draggedIndex = idx)}
@@ -364,6 +399,26 @@
             ondragend={() => {
               draggedIndex = null;
               dropTargetIndex = null;
+            }}
+            oncontextmenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openContextMenuForItem(dict, idx, e.clientX, e.clientY, e.currentTarget as HTMLElement);
+            }}
+            onkeydown={(e) => {
+              if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                e.preventDefault();
+                e.stopPropagation();
+                const liEl = e.currentTarget as HTMLElement;
+                const rect = liEl.getBoundingClientRect();
+                openContextMenuForItem(
+                  dict,
+                  idx,
+                  rect.left + Math.min(80, rect.width / 2),
+                  rect.top + rect.height / 2,
+                  liEl
+                );
+              }
             }}
             data-testid={`dict-item-${idx}`}
             style="font-family: var(--tisane-font-dicts-family); font-size: var(--tisane-font-dicts-size);"

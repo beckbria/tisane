@@ -26,6 +26,7 @@ type mockBridge struct {
 	mu              sync.Mutex
 	events          []recordedEvent
 	openedURLs      []string
+	openedDirs      []string
 	picked          []string
 	pickedDir       string
 	pickedWord      string
@@ -63,6 +64,13 @@ func (m *mockBridge) OpenURL(u string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.openedURLs = append(m.openedURLs, u)
+	return nil
+}
+
+func (m *mockBridge) OpenDirectory(dir string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.openedDirs = append(m.openedDirs, dir)
 	return nil
 }
 
@@ -198,6 +206,21 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 	infos, err := dictSvc.BrowseAndAddDictionaries(context.Background())
 	if err != nil || len(infos) != 3 {
 		t.Fatalf("BrowseAndAddDictionaries: len=%d err=%v", len(infos), err)
+	}
+	if infos[0].FileSize <= 0 || infos[0].MinWordLength != 5 || infos[0].MaxWordLength != 7 || infos[0].UsedLetters <= 0 || infos[0].TotalLetters < infos[0].UsedLetters {
+		t.Fatalf("unexpected DictionaryInfo metadata for Core English: %+v", infos[0])
+	}
+	if infos[2].FTSWordCount == 0 {
+		t.Fatalf("expected non-zero FTSWordCount for tsbuild2, got %+v", infos[2])
+	}
+	if err := dictSvc.OpenDictionaryDirectory(infos[0].ID); err != nil {
+		t.Fatalf("OpenDictionaryDirectory(%q): %v", infos[0].ID, err)
+	}
+	if len(bridge.openedDirs) != 1 || bridge.openedDirs[0] != dictsSub {
+		t.Fatalf("expected openedDirs=[%q], got %v", dictsSub, bridge.openedDirs)
+	}
+	if err := dictSvc.OpenDictionaryDirectory("nonexistent-dict-id"); err == nil {
+		t.Fatal("expected OpenDictionaryDirectory error for unknown dictionary ID")
 	}
 
 	// Reorder so Devil's Dictionary precedes Core English, then swap back.
@@ -1112,6 +1135,9 @@ func TestSecurityURLValidationAndServerModeGuards(t *testing.T) {
 	}
 	if _, err := profileSvc.ResetConfig(false); err == nil {
 		t.Fatal("expected server-mode block on ResetConfig")
+	}
+	if err := app.NewDictionaryService(state).OpenDictionaryDirectory(dictPath); err == nil || !strings.Contains(err.Error(), app.EnvServerAllowHostIO) {
+		t.Fatalf("expected server-mode block on OpenDictionaryDirectory, got %v", err)
 	}
 	if _, err := lookupSvc.GetDefinitions(context.Background(), "alpha", false); err != nil {
 		t.Fatalf("expected read-only GetDefinitions to succeed in server mode: %v", err)
