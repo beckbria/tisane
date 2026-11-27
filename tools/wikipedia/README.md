@@ -14,6 +14,8 @@ Run directly with Go or Bazel from the repository root:
 go run ./tools/wikipedia
 # or:
 bazel run //tools/wikipedia
+# or generate and move into release/ as "English Wikipedia YYYY.tsd":
+./tools/wikipedia/generate.sh
 ```
 
 - Prompts for a contact URL and email address (validated) to construct the Wikimedia-compliant `User-Agent`: `TisaneDictionary/0.0 (<url>; <email>)`.
@@ -53,7 +55,7 @@ go run ./tools/wikipedia --txt-only enwiki-20261116-all-titles-in-ns-0.gz
 - `--work-dir`: Directory for temporary downloaded shards and intermediate word lists.
 - `--keep-dump`: Preserve downloaded dump file(s) after processing instead of deleting.
 - `--convert`: Normalization applied to deduplication keys while preserving original titles: `ascii-lower` (default), `none`, `ascii`, `ascii-letters`, or `ascii-upper`.
-- `--desc`: Dictionary description stored in the `.tsd` header (defaults to `Wikipedia article titles (<prefix> <YYYYMMDD>)`).
+- `--desc`: Dictionary description stored in the `.tsd` header (defaults to `Wikipedia English article titles (YYYY-MM-DD)\nReleased under CC-BY-SA http://creativecommons.org/licenses/by-sa/4.0/`).
 - `--no-merge`: Skip the title deduplication step.
 - `--keep-txt`: Preserve intermediate extracted/deduplicated `.txt` file(s) alongside the `.tsd` output.
 - `--txt-only`: Stop after writing the `.txt` word list without compiling a `.tsd` dictionary.

@@ -345,8 +345,9 @@ func TestEndToEndMergeAndBuildTSD(t *testing.T) {
 	if !slices.Equal(gotWords, wantWords) {
 		t.Errorf("dictionary words mismatch:\ngot:  %q\nwant: %q", gotWords, wantWords)
 	}
-	if !strings.Contains(d.Description(), "enwiki 20261116") {
-		t.Errorf("unexpected description: %q", d.Description())
+	wantDesc := "Wikipedia English article titles (2026-11-16)\nReleased under CC-BY-SA http://creativecommons.org/licenses/by-sa/4.0/"
+	if d.Description() != wantDesc {
+		t.Errorf("unexpected description:\ngot:  %q\nwant: %q", d.Description(), wantDesc)
 	}
 
 	// Verify --keep-txt preserved both intermediate files and deduped file keeps proper names.

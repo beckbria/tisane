@@ -182,7 +182,7 @@ func runLocal(ctx context.Context, files []string, cfg wikiConfig, stdout, stder
 		return totalTitles, nil
 	}
 
-	return finishPipeline(ctx, finalOut, prefix, date, cfg, extractFn, stdout, stderr)
+	return finishPipeline(ctx, finalOut, date, cfg, extractFn, stdout, stderr)
 }
 
 func runRemote(
@@ -249,12 +249,12 @@ func runRemote(
 		return RunDownloadPipeline(ctx, client, plan.URLs, tempWorkDir, bw, cfg.keepDump, stdout)
 	}
 
-	return finishPipeline(ctx, finalOut, plan.WikiPrefix, plan.Date, cfg, extractFn, stdout, stderr)
+	return finishPipeline(ctx, finalOut, plan.Date, cfg, extractFn, stdout, stderr)
 }
 
 func finishPipeline(
 	ctx context.Context,
-	finalOut, prefix, date string,
+	finalOut, date string,
 	cfg wikiConfig,
 	extractFn func(*bufio.Writer) (int64, error),
 	stdout, stderr io.Writer,
@@ -360,10 +360,7 @@ func finishPipeline(
 	buildOpts.Encoding = tsd.EncodingUTF8
 	desc := strings.TrimSpace(cfg.description)
 	if desc == "" {
-		if prefix == "" {
-			prefix = "wikipedia"
-		}
-		desc = fmt.Sprintf("Wikipedia article titles (%s %s)", prefix, date)
+		desc = defaultDescription(date)
 	}
 	buildOpts.Description = desc
 
@@ -380,6 +377,30 @@ func finishPipeline(
 	fmt.Fprintf(stdout, "Built %s (%d bytes, %d unique words, max length %d in %s)\n",
 		finalOut, buildStats.BytesWritten, buildStats.UniqueWords, buildStats.MaxWordLength, time.Since(buildStart).Round(time.Millisecond))
 	return 0
+}
+
+func defaultDescription(date string) string {
+	return fmt.Sprintf("Wikipedia English article titles (%s)\nReleased under CC-BY-SA http://creativecommons.org/licenses/by-sa/4.0/", formatISODate(date))
+}
+
+func formatISODate(date string) string {
+	d := strings.TrimSpace(date)
+	if len(d) == 8 {
+		allDigits := true
+		for i := 0; i < 8; i++ {
+			if d[i] < '0' || d[i] > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return d[0:4] + "-" + d[4:6] + "-" + d[6:8]
+		}
+	}
+	if d == "" {
+		return "unknown"
+	}
+	return d
 }
 
 func createOutputWriter(outputPath string) (*os.File, *bufio.Writer, error) {
