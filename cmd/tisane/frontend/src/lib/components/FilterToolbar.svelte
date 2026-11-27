@@ -199,7 +199,7 @@
         aria-label="Minimum word length"
         data-testid="min-length-input"
         onchange={(e) => updateMin( Number((e.currentTarget as HTMLInputElement).value) )}
-        class="min-h-6 w-[5ch] rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-[1em] text-slate-100 focus:border-amber-400 focus:outline-none"
+        class="min-h-6 w-[calc(4.5ch+2.25rem)] rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-[1em] text-slate-100 focus:border-amber-400 focus:outline-none"
       />
       <button
         type="button"
@@ -224,7 +224,7 @@
         aria-label="Maximum word length"
         data-testid="max-length-input"
         onchange={(e) => updateMax( Number((e.currentTarget as HTMLInputElement).value) )}
-        class="min-h-6 w-[5ch] rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-[1em] text-slate-100 focus:border-amber-400 focus:outline-none"
+        class="min-h-6 w-[calc(4.5ch+2.25rem)] rounded border border-slate-600 bg-slate-950 px-1.5 py-0.5 text-center font-mono text-[1em] text-slate-100 focus:border-amber-400 focus:outline-none"
       />
       {#if minLength !== 1 || maxLength !== 100}
         <button
