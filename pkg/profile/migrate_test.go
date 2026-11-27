@@ -407,3 +407,93 @@ func TestMigrateAddBundledDictionaries075(t *testing.T) {
 		}
 	})
 }
+
+func TestMigrateAddEditedEnglish090(t *testing.T) {
+	writeDummy := func(t *testing.T, p string) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte("TSD1"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("upgrade_from_pre_090_adds_edited_english", func(t *testing.T) {
+		dir := t.TempDir()
+		corePath := filepath.Join(dir, "Core English.tsd")
+		editedPath := filepath.Join(dir, "Edited English.tsd")
+		writeDummy(t, corePath)
+		writeDummy(t, editedPath)
+
+		cfg := profile.DefaultConfig()
+		cfg.ConfigVersion = "0.8.0"
+		cfg.Dictionaries = []profile.DictConfig{
+			{Path: corePath, Name: "Core English", Enabled: true},
+		}
+
+		// Empty SearchDirs also verifies fallback to existing cfg.Dictionaries parent directories.
+		res, err := profile.Migrate(cfg, profile.MigrationEnv{}, "0.9.0")
+		if err != nil {
+			t.Fatalf("Migrate: %v", err)
+		}
+		if !res.StateChanged || !res.VersionUpdated || cfg.ConfigVersion != "0.9.0" {
+			t.Fatalf("unexpected migration result: %+v, ConfigVersion=%q", res, cfg.ConfigVersion)
+		}
+
+		want := []profile.DictConfig{
+			{Path: corePath, Name: "Core English", Enabled: true},
+			{Path: editedPath, Name: "Edited English", Enabled: true},
+		}
+		if !slices.Equal(cfg.Dictionaries, want) {
+			t.Fatalf("migrated dictionaries mismatch:\ngot:  %+v\nwant: %+v", cfg.Dictionaries, want)
+		}
+
+		// Subsequent startup at 0.9.0 is an idempotent no-op.
+		res2, err := profile.Migrate(cfg, profile.MigrationEnv{SearchDirs: []string{dir}}, "0.9.0")
+		if err != nil || res2.Changed() {
+			t.Fatalf("expected idempotent no-op on second run, got %+v, %v", res2, err)
+		}
+	})
+
+	t.Run("preserves_existing_edited_english_customization", func(t *testing.T) {
+		dir := t.TempDir()
+		editedPath := filepath.Join(dir, "Edited English.tsd")
+		writeDummy(t, editedPath)
+
+		cfg := profile.DefaultConfig()
+		cfg.ConfigVersion = "0.8.9"
+		cfg.Dictionaries = []profile.DictConfig{
+			{Path: editedPath, Name: "Custom Edited", Enabled: false},
+		}
+
+		res, err := profile.Migrate(cfg, profile.MigrationEnv{SearchDirs: []string{dir}}, "0.9.0")
+		if err != nil {
+			t.Fatalf("Migrate: %v", err)
+		}
+		if res.StateChanged || !res.VersionUpdated || cfg.ConfigVersion != "0.9.0" {
+			t.Fatalf("expected VersionUpdated only, got %+v (%q)", res, cfg.ConfigVersion)
+		}
+		want := []profile.DictConfig{
+			{Path: editedPath, Name: "Custom Edited", Enabled: false},
+		}
+		if !slices.Equal(cfg.Dictionaries, want) {
+			t.Fatalf("dictionaries changed unexpectedly:\ngot:  %+v\nwant: %+v", cfg.Dictionaries, want)
+		}
+	})
+
+	t.Run("first_run_skips_adding_edited_english", func(t *testing.T) {
+		dir := t.TempDir()
+		writeDummy(t, filepath.Join(dir, "Edited English.tsd"))
+
+		cfg := profile.DefaultConfig()
+		cfg.ConfigVersion = ""
+		res, err := profile.Migrate(cfg, profile.MigrationEnv{
+			SearchDirs: []string{dir},
+			FirstRun:   true,
+		}, "0.9.0")
+		if err != nil {
+			t.Fatalf("Migrate(FirstRun): %v", err)
+		}
+		if res.StateChanged || len(cfg.Dictionaries) != 0 || cfg.ConfigVersion != "0.9.0" {
+			t.Fatalf("expected FirstRun no-op on dictionaries, got %+v, dicts=%+v", res, cfg.Dictionaries)
+		}
+	})
+}

@@ -84,6 +84,15 @@ var defaultMigrations = []MigrationStep{
 			)
 		},
 	},
+	{
+		Version: "0.9.0",
+		ID:      "add-edited-english-dictionary",
+		Apply: func(cfg *Config, env MigrationEnv) (bool, error) {
+			return ApplyBundledDictionaryAdd(cfg, env,
+				AddBundledDictionaryRule{Filename: "Edited English.tsd", Enabled: true},
+			)
+		},
+	},
 }
 
 // DefaultMigrations returns a copy of Tisane's registered release migrations.
