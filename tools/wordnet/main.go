@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -291,7 +292,7 @@ func extractAndBuild(
 	buildOpts.Encoding = tsd.EncodingUTF8
 	desc := strings.TrimSpace(cfg.description)
 	if desc == "" {
-		desc = fmt.Sprintf("Open English WordNet (%s)", dumpBase)
+		desc = defaultDescription(dumpBase)
 	}
 	buildOpts.Description = desc
 
@@ -308,6 +309,19 @@ func extractAndBuild(
 	fmt.Fprintf(stdout, "Built %s (%d bytes, %d unique words, max length %d in %s)\n",
 		finalOut, buildStats.BytesWritten, buildStats.UniqueWords, buildStats.MaxWordLength, time.Since(buildStart).Round(time.Millisecond))
 	return 0
+}
+
+var wordnetVersionRe = regexp.MustCompile(`(?:^|[^0-9])([0-9]{4}(?:\.[0-9]+)*)(?:[^0-9]|$)`)
+
+func extractWordnetVersion(dumpBase string) string {
+	if m := wordnetVersionRe.FindStringSubmatch(dumpBase); m != nil {
+		return m[1]
+	}
+	return dumpBase
+}
+
+func defaultDescription(dumpBase string) string {
+	return fmt.Sprintf("English WordNet %s\nUsed under the terms of the CC-BY 4.0 license https://creativecommons.org/licenses/by/4.0/", extractWordnetVersion(dumpBase))
 }
 
 func createOutputWriter(outputPath string) (*os.File, *bufio.Writer, error) {

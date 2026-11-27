@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"tisane/pkg/tsd"
@@ -182,8 +181,9 @@ func TestRemoteDownloadAndBuildTSD(t *testing.T) {
 	if d.TotalWords() != 3 {
 		t.Errorf("got %d words in .tsd, want 3", d.TotalWords())
 	}
-	if !strings.Contains(d.Description(), "english-wordnet-2025-plus") {
-		t.Errorf("unexpected description: %q", d.Description())
+	wantDesc := "English WordNet 2025\nUsed under the terms of the CC-BY 4.0 license https://creativecommons.org/licenses/by/4.0/"
+	if d.Description() != wantDesc {
+		t.Errorf("unexpected description:\ngot:  %q\nwant: %q", d.Description(), wantDesc)
 	}
 
 	// Verify --keep-txt preserved the .txt file.

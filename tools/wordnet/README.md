@@ -42,6 +42,6 @@ go run ./tools/wordnet --txt-only english-wordnet-2025-plus.xml.gz
 - `--work-dir`: Directory for downloaded dump file and temporary staging files.
 - `--keep-dump`: Preserve downloaded dump file after processing instead of deleting.
 - `--convert`: Optional word list conversion applied before building: `none` (default), `ascii`, `ascii-letters`, `ascii-lower`, or `ascii-upper`.
-- `--desc`: Dictionary description stored in the `.tsd` header (defaults to `Open English WordNet (<dump-basename>)`).
+- `--desc`: Dictionary description stored in the `.tsd` header (defaults to `English WordNet <version>\nUsed under the terms of the CC-BY 4.0 license https://creativecommons.org/licenses/by/4.0/`).
 - `--keep-txt`: Preserve intermediate `.txt` word list alongside the `.tsd` output.
 - `--txt-only`: Write only the `.txt` word list without compiling a `.tsd` dictionary.
