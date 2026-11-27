@@ -19,6 +19,8 @@ import type {
   ThemeMode,
   ValidateRequest,
   ValidationResult,
+  WordListPage,
+  WordListRequest,
   ZoomAction
 } from './types';
 
@@ -53,6 +55,8 @@ export interface TisaneBackend {
   browseAndAddDirectory(): Promise<DictionaryInfo[]>;
   removeDictionary(id: string): Promise<DictionaryInfo[]>;
   openDictionaryDirectory(id: string): Promise<void>;
+  getDictionaryWords(req: WordListRequest): Promise<WordListPage>;
+  closeDictionaryWordList(): Promise<void>;
   browseWordListFile(): Promise<string>;
   browseSaveDictionaryFile(defaultPath: string): Promise<string>;
   browseSaveWordListFile(defaultPath: string): Promise<string>;
@@ -86,6 +90,8 @@ const FQN = {
   browseAndAddDirectory: 'tisane/cmd/tisane/app.DictionaryService.BrowseAndAddDirectory',
   removeDictionary: 'tisane/cmd/tisane/app.DictionaryService.RemoveDictionary',
   openDictionaryDirectory: 'tisane/cmd/tisane/app.DictionaryService.OpenDictionaryDirectory',
+  getDictionaryWords: 'tisane/cmd/tisane/app.DictionaryService.GetDictionaryWords',
+  closeDictionaryWordList: 'tisane/cmd/tisane/app.DictionaryService.CloseDictionaryWordList',
   browseWordListFile: 'tisane/cmd/tisane/app.ToolsService.BrowseWordListFile',
   browseSaveDictionaryFile: 'tisane/cmd/tisane/app.ToolsService.BrowseSaveDictionaryFile',
   browseSaveWordListFile: 'tisane/cmd/tisane/app.ToolsService.BrowseSaveWordListFile',
@@ -114,6 +120,8 @@ const wailsBackend: TisaneBackend = {
   browseAndAddDirectory: () => Call.ByName(FQN.browseAndAddDirectory),
   removeDictionary: (id) => Call.ByName(FQN.removeDictionary, id),
   openDictionaryDirectory: (id) => Call.ByName(FQN.openDictionaryDirectory, id),
+  getDictionaryWords: (req) => Call.ByName(FQN.getDictionaryWords, req),
+  closeDictionaryWordList: () => Call.ByName(FQN.closeDictionaryWordList),
   browseWordListFile: () => Call.ByName(FQN.browseWordListFile),
   browseSaveDictionaryFile: (defaultPath) => Call.ByName(FQN.browseSaveDictionaryFile, defaultPath),
   browseSaveWordListFile: (defaultPath) => Call.ByName(FQN.browseSaveWordListFile, defaultPath),

@@ -10,6 +10,7 @@
     priorityIndex?: number;
     totalCount?: number;
     onClose: () => void;
+    onShowWordList?: (dict: DictionaryInfo) => void;
     onOpenDirectory?: (id: string) => void;
   }
 
@@ -19,6 +20,7 @@
     priorityIndex = -1,
     totalCount = 0,
     onClose,
+    onShowWordList,
     onOpenDirectory
   }: Props = $props();
 
@@ -273,7 +275,17 @@
 
       <!-- Footer -->
       <div class="flex items-center justify-between gap-2 border-t border-slate-800 bg-slate-950/60 px-5 py-3">
-        <div>
+        <div class="flex items-center gap-2">
+          {#if onShowWordList}
+            <button
+              type="button"
+              onclick={() => onShowWordList(dict)}
+              data-testid="dict-info-wordlist-btn"
+              class="rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-800 hover:text-slate-100"
+            >
+              Word List
+            </button>
+          {/if}
           {#if onOpenDirectory}
             <button
               type="button"

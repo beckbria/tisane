@@ -18,6 +18,22 @@ export interface DictionaryInfo {
   enabled: boolean;
 }
 
+export interface WordListRequest {
+  id: string;
+  offset: number;
+  limit: number;
+  jumpPrefix?: string;
+}
+
+export interface WordListPage {
+  dictId: string;
+  dictName: string;
+  totalWords: number;
+  offset: number;
+  words: string[];
+  jumpIndex: number;
+}
+
 export interface Span {
   start: number;
   end: number;

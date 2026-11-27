@@ -496,6 +496,23 @@ func (s *State) SnapshotAllDicts() ([]*tsd.Dictionary, profile.Config, func()) {
 	return out, s.cloneConfigLocked(), makeReleaseFunc(held)
 }
 
+// AcquireDictionaryByID looks up dictionary id, increments its reference count, and returns
+// the open *tsd.Dictionary handle, its DictionaryInfo metadata, and a release callback.
+func (s *State) AcquireDictionaryByID(id string) (*tsd.Dictionary, DictionaryInfo, func(), error) {
+	s.mu.RLock()
+	idx := s.findIndexLocked(id)
+	if idx < 0 {
+		s.mu.RUnlock()
+		return nil, DictionaryInfo{}, nil, fmt.Errorf("dictionary %q not found", id)
+	}
+	ld := s.dicts[idx]
+	ld.acquire()
+	dict := ld.dict
+	info := ld.info
+	s.mu.RUnlock()
+	return dict, info, makeReleaseFunc([]*loadedDict{ld}), nil
+}
+
 // RecordRecentQuery prepends query to RecentQueries (deduplicated, max 50) and saves config.
 func (s *State) RecordRecentQuery(query string) {
 	query = strings.TrimSpace(query)

@@ -38,7 +38,7 @@ On first launch, Tisane automatically scans `TISANE_DICT_PATH`, the directory th
   - Click **+ Add** (`Ctrl+O`) to register `.tsd` dictionary files via the native file picker.
   - Toggle checkboxes to enable or disable dictionaries for the active search.
   - **Drag and drop** rows (`≡`) or click **`↑` / `↓`** to set dictionary priority order (controls tiled pane order, `Dictionary Order` sort, and cross-dictionary duplicate suppression).
-  - Right-click any dictionary (or press `Shift+F10` / `ContextMenu`) to **Enable** / **Disable** it, view **Information** (name, description, format, size, word/length/alphabet/FTS metadata, and path), **Open Directory** in your file explorer, **Move to Top**, **Move to Bottom**, **Move Up**, **Move Down**, or **Remove From List**.
+  - Right-click any dictionary (or press `Shift+F10` / `ContextMenu`) to **Enable** / **Disable** it, view **Information** (name, description, format, size, word/length/alphabet/FTS metadata, and path), browse its **Word List** (virtualized alphabetical list of all entries with prefix jump), **Open Directory** in your file explorer, **Move to Top**, **Move to Bottom**, **Move Up**, **Move Down**, or **Remove From List**.
   - Badges indicate total word count plus `defs` (local definitions) and `fts` (Full-Text Search index) capabilities.
 - **Results Workspace (Center)**:
   - **Separate Tiled Panes (`⊞ Tiled`, default)**: Displays an independently virtualized scrollable pane with match counts for each enabled dictionary side-by-side (automatically adapting column count to container width).

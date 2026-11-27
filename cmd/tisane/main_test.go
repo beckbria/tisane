@@ -55,6 +55,8 @@ func TestWailsServiceBindingsAndEmbeddedAssets(t *testing.T) {
 		"tisane/cmd/tisane/app.DictionaryService.BrowseAndAddDirectory",
 		"tisane/cmd/tisane/app.DictionaryService.RemoveDictionary",
 		"tisane/cmd/tisane/app.DictionaryService.OpenDictionaryDirectory",
+		"tisane/cmd/tisane/app.DictionaryService.GetDictionaryWords",
+		"tisane/cmd/tisane/app.DictionaryService.CloseDictionaryWordList",
 		"tisane/cmd/tisane/app.ToolsService.BrowseWordListFile",
 		"tisane/cmd/tisane/app.ToolsService.BrowseSaveDictionaryFile",
 		"tisane/cmd/tisane/app.ToolsService.BrowseSaveWordListFile",

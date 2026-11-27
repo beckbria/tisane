@@ -11,6 +11,7 @@ go_library(
         "stream.go",
         "tsd.go",
         "tsm.go",
+        "wordlist_index.go",
     ],
     importpath = "tisane/pkg/tsd",
     visibility = ["//visibility:public"],

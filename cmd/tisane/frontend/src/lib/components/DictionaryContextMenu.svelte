@@ -20,6 +20,7 @@
     uiZoom?: number;
     onToggleEnabled: (id: string, enabled: boolean) => void;
     onShowInfo: (dict: DictionaryInfo) => void;
+    onShowWordList: (dict: DictionaryInfo) => void;
     onOpenDirectory: (id: string) => void;
     onMoveToTop: (index: number) => void;
     onMoveToBottom: (index: number) => void;
@@ -38,6 +39,7 @@
     uiZoom = 100,
     onToggleEnabled,
     onShowInfo,
+    onShowWordList,
     onOpenDirectory,
     onMoveToTop,
     onMoveToBottom,
@@ -141,6 +143,12 @@
     onShowInfo(target);
   }
 
+  function triggerShowWordList() {
+    const target = dict;
+    onClose(true);
+    onShowWordList(target);
+  }
+
   function triggerOpenDirectory() {
     const id = dict.id;
     onClose(true);
@@ -219,6 +227,16 @@
     class="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left transition hover:bg-slate-800 hover:text-slate-100 focus:bg-slate-800 focus:text-slate-100 focus:outline-none"
   >
     <span class="truncate">Information</span>
+  </button>
+
+  <button
+    type="button"
+    role="menuitem"
+    data-testid="dict-ctx-wordlist-btn"
+    onclick={triggerShowWordList}
+    class="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left transition hover:bg-slate-800 hover:text-slate-100 focus:bg-slate-800 focus:text-slate-100 focus:outline-none"
+  >
+    <span class="truncate">Word List</span>
   </button>
 
   <button

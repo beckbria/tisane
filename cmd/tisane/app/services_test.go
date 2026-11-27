@@ -223,6 +223,35 @@ func TestDesktopServicesEndToEnd(t *testing.T) {
 		t.Fatal("expected OpenDictionaryDirectory error for unknown dictionary ID")
 	}
 
+	// Verify GetDictionaryWords returns alphabetically sorted words, supports pagination & JumpPrefix, and CloseDictionaryWordList clears cache.
+	wlPage, err := dictSvc.GetDictionaryWords(context.Background(), app.WordListRequest{
+		ID:     infos[2].ID,
+		Offset: 0,
+		Limit:  2,
+	})
+	if err != nil {
+		t.Fatalf("GetDictionaryWords(page 0): %v", err)
+	}
+	if wlPage.TotalWords != 4 || len(wlPage.Words) != 2 || wlPage.Words[0] != "Crossword Man" || wlPage.Words[1] != "plate" {
+		t.Fatalf("unexpected GetDictionaryWords(page 0): %+v", wlPage)
+	}
+	wlJump, err := dictSvc.GetDictionaryWords(context.Background(), app.WordListRequest{
+		ID:         infos[2].ID,
+		Offset:     -1,
+		Limit:      2,
+		JumpPrefix: "sp",
+	})
+	if err != nil {
+		t.Fatalf("GetDictionaryWords(jump): %v", err)
+	}
+	if wlJump.JumpIndex != 2 || wlJump.Offset != 2 || len(wlJump.Words) != 2 || wlJump.Words[0] != "spoon" || wlJump.Words[1] != "TEA Support" {
+		t.Fatalf("unexpected GetDictionaryWords(jump): %+v", wlJump)
+	}
+	dictSvc.CloseDictionaryWordList()
+	if _, err := dictSvc.GetDictionaryWords(context.Background(), app.WordListRequest{ID: "nonexistent"}); err == nil {
+		t.Fatal("expected GetDictionaryWords error for unknown dictionary ID")
+	}
+
 	// Reorder so Devil's Dictionary precedes Core English, then swap back.
 	reordered, err := dictSvc.ReorderDictionaries([]string{infos[1].ID, infos[0].ID, infos[2].ID})
 	if err != nil || reordered[0].Name != "The Devil's Dictionary" {
@@ -1138,6 +1167,9 @@ func TestSecurityURLValidationAndServerModeGuards(t *testing.T) {
 	}
 	if err := app.NewDictionaryService(state).OpenDictionaryDirectory(dictPath); err == nil || !strings.Contains(err.Error(), app.EnvServerAllowHostIO) {
 		t.Fatalf("expected server-mode block on OpenDictionaryDirectory, got %v", err)
+	}
+	if page, err := app.NewDictionaryService(state).GetDictionaryWords(context.Background(), app.WordListRequest{ID: dictPath, Limit: 10}); err != nil || page.TotalWords == 0 {
+		t.Fatalf("expected read-only GetDictionaryWords to succeed in server mode: page=%+v err=%v", page, err)
 	}
 	if _, err := lookupSvc.GetDefinitions(context.Background(), "alpha", false); err != nil {
 		t.Fatalf("expected read-only GetDefinitions to succeed in server mode: %v", err)

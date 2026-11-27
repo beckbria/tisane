@@ -2,11 +2,14 @@ package tsd_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"unicode/utf8"
@@ -636,6 +639,68 @@ func TestStripRTFForFTSAndBuilderDeterminism(t *testing.T) {
 		}
 		if got := d.TotalFTSOnlyWords(); got != uint64(stats.FTSOnlyWords) || got == 0 {
 			t.Errorf("TotalFTSOnlyWords() = %d, want %d (>0)", got, stats.FTSOnlyWords)
+		}
+	})
+
+	t.Run("build_sorted_word_list_matches_alpha_export_and_supports_prefix_jump", func(t *testing.T) {
+		opts := tsd.DefaultBuildOptions()
+		opts.SortAlphabetically = false
+		src := strings.Join([]string{
+			"zebra",
+			"Apple+n.",
+			"apple+fruit",
+			"apple+tree",
+			"apricot",
+			"élan",
+			"banana",
+			"matador",
+			"a-frame",
+		}, "\n") + "\n"
+		raw, _, err := tsd.BuildBytes([]byte(src), opts)
+		if err != nil {
+			t.Fatalf("BuildBytes: %v", err)
+		}
+		d, err := tsd.OpenBytes(raw, "words")
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+
+		wl, err := d.BuildSortedWordList(context.Background())
+		if err != nil {
+			t.Fatalf("BuildSortedWordList: %v", err)
+		}
+
+		var exported bytes.Buffer
+		expOpts := tsd.DefaultExportOptions(tsd.ExportSimple)
+		expOpts.Sort = tsd.ExportSortAlpha
+		if _, err := d.Export(&exported, expOpts); err != nil {
+			t.Fatalf("Export: %v", err)
+		}
+		want := strings.Split(strings.TrimSuffix(exported.String(), "\n"), "\n")
+		got := wl.Slice(0, wl.Len()+10)
+		if !slices.Equal(got, want) {
+			t.Fatalf("SortedWordList = %v, want %v", got, want)
+		}
+
+		if page := wl.Slice(2, 3); !slices.Equal(page, want[2:5]) {
+			t.Fatalf("Slice(2, 3) = %v, want %v", page, want[2:5])
+		}
+		if empty := wl.Slice(999, 10); len(empty) != 0 || empty == nil {
+			t.Fatalf("expected non-nil empty slice for out-of-range offset, got %v", empty)
+		}
+
+		matIdx := wl.PrefixIndex("mat")
+		if wl.Word(matIdx) != "matador" {
+			t.Fatalf("PrefixIndex('mat') = %d (%q), want 'matador'", matIdx, wl.Word(matIdx))
+		}
+		if endIdx := wl.PrefixIndex("zzz"); endIdx != wl.Len()-1 {
+			t.Fatalf("PrefixIndex('zzz') = %d, want last index %d", endIdx, wl.Len()-1)
+		}
+
+		cancelledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := d.BuildSortedWordList(cancelledCtx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
 		}
 	})
 }

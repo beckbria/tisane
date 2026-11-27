@@ -25,7 +25,9 @@ import type {
   MergeWordListsRequest,
   MergeWordListsResult,
   SearchRequest,
-  ValidateRequest
+  ValidateRequest,
+  WordListPage,
+  WordListRequest
 } from './lib/types';
 
 function createMockHarness() {
@@ -158,6 +160,30 @@ function createMockHarness() {
     openDictionaryDirectory: vi.fn(async (id: string) => {
       openedDirectories.push(id);
     }),
+    getDictionaryWords: vi.fn(async (req: WordListRequest): Promise<WordListPage> => {
+      const sampleWords = ['abacus', 'breeze', 'cynic', 'delta', 'matador', 'zenith'];
+      const limit = req.limit > 0 ? req.limit : 500;
+      let offset = req.offset;
+      let jumpIndex = -1;
+      if (req.jumpPrefix && req.jumpPrefix.trim() !== '') {
+        const pfx = req.jumpPrefix.trim().toLowerCase();
+        const found = sampleWords.findIndex((w) => w.toLowerCase() >= pfx);
+        jumpIndex = found >= 0 ? found : sampleWords.length - 1;
+        if (offset < 0) {
+          offset = Math.floor(jumpIndex / limit) * limit;
+        }
+      }
+      if (offset < 0) offset = 0;
+      return {
+        dictId: req.id,
+        dictName: dicts.find((d) => d.id === req.id)?.name ?? 'Dictionary',
+        totalWords: sampleWords.length,
+        offset,
+        words: sampleWords.slice(offset, offset + limit),
+        jumpIndex
+      };
+    }),
+    closeDictionaryWordList: vi.fn(async () => {}),
     browseWordListFile: vi.fn(async () => '/tmp/wordlist.txt'),
     browseSaveDictionaryFile: vi.fn(async (defaultPath: string) => defaultPath || '/tmp/custom.tsd'),
     browseSaveWordListFile: vi.fn(async (defaultPath: string) => defaultPath || '/tmp/merged.txt'),
@@ -2599,6 +2625,107 @@ describe('Tisane Svelte 5 Desktop UI', () => {
     await waitFor(() => {
       expect(h.backend.removeDictionary).toHaveBeenCalledWith('/dicts/wiki.tsd');
       expect(screen.queryByTestId('dict-item-2')).not.toBeInTheDocument();
+    });
+  });
+
+  it('opens the alphabetical Word List dialog from the dictionary context menu and Information dialog with virtualized pagination and jump', async () => {
+    const h = createMockHarness();
+    // Create 1,200 sorted words spanning 3 pages (PAGE_SIZE = 500)
+    const bigSortedWords = Array.from({ length: 1200 }, (_, i) => {
+      const prefix = String.fromCharCode(97 + Math.floor(i / 50)); // 'a'..'x'
+      return `${prefix}word${String(i).padStart(4, '0')}`;
+    });
+    bigSortedWords[650] = 'matador';
+    bigSortedWords.sort((a, b) => a.localeCompare(b));
+    const matadorIdx = bigSortedWords.indexOf('matador');
+
+    h.backend.getDictionaryWords = vi.fn(async (req: WordListRequest): Promise<WordListPage> => {
+      const limit = req.limit > 0 ? req.limit : 500;
+      let offset = req.offset;
+      let jumpIndex = -1;
+      if (req.jumpPrefix && req.jumpPrefix.trim() !== '') {
+        const pfx = req.jumpPrefix.trim().toLowerCase();
+        const found = bigSortedWords.findIndex((w) => w.toLowerCase() >= pfx);
+        jumpIndex = found >= 0 ? found : bigSortedWords.length - 1;
+        if (offset < 0) {
+          offset = Math.floor(jumpIndex / limit) * limit;
+        }
+      }
+      if (offset < 0) offset = 0;
+      return {
+        dictId: req.id,
+        dictName: "The Devil's Dictionary",
+        totalWords: bigSortedWords.length,
+        offset,
+        words: bigSortedWords.slice(offset, offset + limit),
+        jumpIndex
+      };
+    });
+
+    setBackendForTesting(h.backend);
+    render(App);
+
+    await waitFor(() => expect(screen.getByTestId('dict-item-1')).toBeInTheDocument());
+
+    // 1. Open Word List directly from right-click context menu
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-1'), { clientX: 80, clientY: 160 });
+    const ctxMenu = await screen.findByTestId('dict-context-menu');
+    expect(within(ctxMenu).getByTestId('dict-ctx-wordlist-btn')).toHaveTextContent('Word List');
+    await fireEvent.click(within(ctxMenu).getByTestId('dict-ctx-wordlist-btn'));
+
+    const wlModal = await screen.findByTestId('dict-wordlist-modal');
+    await waitFor(() => {
+      expect(within(wlModal).getByTestId('dict-wordlist-heading')).toHaveTextContent(
+        "The Devil's Dictionary — Word List"
+      );
+      expect(within(wlModal).getByTestId('dict-wordlist-count')).toHaveTextContent('1,200 words');
+    });
+
+    // Verify virtualized rendering (only visible + overscan rows rendered, not all 1,200)
+    const initialRows = within(wlModal).getAllByTestId('dict-wordlist-row');
+    expect(initialRows.length).toBeGreaterThan(5);
+    expect(initialRows.length).toBeLessThan(80);
+    expect(initialRows[0]).toHaveTextContent(bigSortedWords[0]);
+
+    // Jump to "matador" (on page 1, offset 500) -> fetches page 1 and scrolls/selects matador
+    const jumpInput = within(wlModal).getByTestId('dict-wordlist-jump-input');
+    await fireEvent.input(jumpInput, { target: { value: 'matad' } });
+    await fireEvent.keyDown(jumpInput, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(h.backend.getDictionaryWords).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: '/dicts/devils.tsd',
+          jumpPrefix: 'matad'
+        })
+      );
+      const rendered = within(wlModal).getAllByTestId('dict-wordlist-row');
+      expect(rendered.some((el) => el.textContent?.includes('matador'))).toBe(true);
+    });
+    expect(matadorIdx).toBeGreaterThanOrEqual(500);
+
+    // Close Word List modal via Escape -> calls closeDictionaryWordList to release memory
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByTestId('dict-wordlist-modal')).not.toBeInTheDocument();
+      expect(h.backend.closeDictionaryWordList).toHaveBeenCalledTimes(1);
+    });
+
+    // 2. Also open Word List stacked from inside the Information modal, then Escape back to Information
+    await fireEvent.contextMenu(screen.getByTestId('dict-item-1'), { clientX: 80, clientY: 160 });
+    await fireEvent.click(await screen.findByTestId('dict-ctx-info-btn'));
+    const infoModal = await screen.findByTestId('dict-info-modal');
+    await fireEvent.click(within(infoModal).getByTestId('dict-info-wordlist-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dict-wordlist-modal')).toBeInTheDocument();
+      expect(screen.getByTestId('dict-info-modal')).toBeInTheDocument();
+    });
+
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByTestId('dict-wordlist-modal')).not.toBeInTheDocument();
+      expect(screen.getByTestId('dict-info-modal')).toBeInTheDocument();
     });
   });
 });

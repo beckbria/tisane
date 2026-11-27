@@ -32,6 +32,7 @@
     type DictionaryContextMenuRequest
   } from './lib/components/DictionaryContextMenu.svelte';
   import DictionaryInfoModal from './lib/components/DictionaryInfoModal.svelte';
+  import DictionaryWordListModal from './lib/components/DictionaryWordListModal.svelte';
   import VirtualResultPane from './lib/components/VirtualResultPane.svelte';
   import ResultContextMenu, {
     type ResultContextMenuRequest
@@ -77,6 +78,7 @@
   let showDictBuilder = $state(false);
   let showWordListMerger = $state(false);
   let infoModalDict: DictionaryInfo | null = $state(null);
+  let wordListModalDict: DictionaryInfo | null = $state(null);
   let contextMenu: ResultContextMenuRequest | null = $state(null);
   let dictContextMenu: DictionaryContextMenuRequest | null = $state(null);
 
@@ -125,13 +127,19 @@
   const activeInfoDict = $derived(
     infoModalIndex >= 0 ? dictStore.list[infoModalIndex] : infoModalDict
   );
+  const activeWordListDict = $derived.by(() => {
+    const target = wordListModalDict;
+    if (!target) return null;
+    return dictStore.list.find((d) => d.id === target.id) ?? target;
+  });
   const anyModalOpen = $derived(
     showSettings ||
       showFontSettings ||
       showAbout ||
       showDictBuilder ||
       showWordListMerger ||
-      infoModalDict !== null
+      infoModalDict !== null ||
+      wordListModalDict !== null
   );
 
   function handleSkipToResults(e: MouseEvent) {
@@ -494,7 +502,9 @@
         closeDictContextMenu(true);
         return;
       }
-      if (infoModalDict) {
+      if (wordListModalDict) {
+        wordListModalDict = null;
+      } else if (infoModalDict) {
         infoModalDict = null;
       } else if (showAbout) {
         showAbout = false;
@@ -1064,8 +1074,27 @@
     priorityIndex={infoModalIndex}
     totalCount={dictStore.list.length}
     onClose={() => (infoModalDict = null)}
+    onShowWordList={(dict) => {
+      wordListModalDict = dict;
+    }}
     onOpenDirectory={(id) => {
       void dictStore.openDirectory(id);
+    }}
+  />
+
+  <!-- Dictionary Word List Modal -->
+  <DictionaryWordListModal
+    open={activeWordListDict !== null}
+    dict={activeWordListDict}
+    fontSize={cfgStore.value.fonts.results.size}
+    onClose={() => (wordListModalDict = null)}
+    onLookupWord={(word) => {
+      void defStore.load(word, true);
+      if (cfgStore.value.definitionCollapsed) {
+        setDefinitionCollapsed(false);
+      }
+      wordListModalDict = null;
+      infoModalDict = null;
     }}
   />
 
@@ -1083,6 +1112,9 @@
       }}
       onShowInfo={(dict) => {
         infoModalDict = dict;
+      }}
+      onShowWordList={(dict) => {
+        wordListModalDict = dict;
       }}
       onOpenDirectory={(id) => {
         void dictStore.openDirectory(id);
