@@ -60,22 +60,22 @@ func runContext(ctx context.Context, args []string, stdin io.Reader, stdout, std
 	fs.StringVar(&cfg.workDir, "work-dir", "", "Directory for temporary downloaded dump files and intermediate word lists")
 	fs.StringVar(&cfg.dateOverride, "date", "", "Override dump date (YYYYMMDD) for output filename")
 	fs.BoolVar(&cfg.keepDump, "keep-dump", false, "Preserve downloaded dump file(s) after processing instead of deleting")
-	fs.StringVar(&convertStr, "convert", "none", "Word list conversion applied during deduplication: none, ascii, ascii-letters, ascii-lower, or ascii-upper")
+	fs.StringVar(&convertStr, "convert", "ascii-lower", "Normalization applied to deduplication keys (output preserves original title): ascii-lower, none, ascii, ascii-letters, or ascii-upper")
 	fs.StringVar(&cfg.description, "desc", "", "Dictionary description stored in the .tsd header (up to 999 bytes)")
-	fs.BoolVar(&cfg.noMerge, "no-merge", false, "Skip wordlist deduplication/conversion step")
+	fs.BoolVar(&cfg.noMerge, "no-merge", false, "Skip title deduplication step")
 	fs.BoolVar(&cfg.keepTxt, "keep-txt", false, "Keep intermediate extracted/deduplicated .txt file(s) alongside the .tsd output")
 	fs.BoolVar(&cfg.txtOnly, "txt-only", false, "Stop after writing the .txt word list without compiling a .tsd dictionary")
 
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "Tisane Wikipedia Dictionary Generator\n\n")
-		fmt.Fprintf(stderr, "Extracts Wikipedia article titles, deduplicates them with pkg/wordlist,\n")
-		fmt.Fprintf(stderr, "and compiles a Tisane .tsd dictionary with pkg/tsd.\n\n")
+		fmt.Fprintf(stderr, "Extracts Wikipedia article titles, deduplicates them by normalized key while\n")
+		fmt.Fprintf(stderr, "preserving proper names, and compiles a Tisane .tsd dictionary with pkg/tsd.\n\n")
 		fmt.Fprintf(stderr, "Usage:\n")
 		fmt.Fprintf(stderr, "  tisane-wiki [options] [local-dump-file...]\n\n")
 		fmt.Fprintf(stderr, "Examples:\n")
 		fmt.Fprintf(stderr, "  tisane-wiki                                  # Fetch latest enwiki pagetitles dump (prompts for confirmation)\n")
 		fmt.Fprintf(stderr, "  tisane-wiki enwiki-20261116-all-titles-in-ns-0.gz\n")
-		fmt.Fprintf(stderr, "  tisane-wiki --convert ascii-lower enwiki-20261116-all-titles-in-ns-0.gz\n")
+		fmt.Fprintf(stderr, "  tisane-wiki --convert none enwiki-20261116-all-titles-in-ns-0.gz\n")
 		fmt.Fprintf(stderr, "  tisane-wiki --txt-only -o titles.txt enwiki-20261116-all-titles-in-ns-0.gz\n\n")
 		fmt.Fprintf(stderr, "Options:\n")
 		fs.PrintDefaults()
@@ -334,25 +334,20 @@ func finishPipeline(
 		return 0
 	}
 
-	// Step 2: Deduplicate (and optionally convert) via pkg/wordlist.
+	// Step 2: Deduplicate in priority tier order using normalized keys while preserving original titles.
 	buildInput := rawTxtPath
 	if !cfg.noMerge {
-		mergeStart := time.Now()
-		mergeOpts := wordlist.MergeOptions{
-			Operation:  wordlist.OpOR,
-			Conversion: cfg.conversion,
-			Encoding:   tsd.EncodingUTF8,
-		}
-		stats, mergeErr := wordlist.MergeFilesContext(ctx, rawTxtPath, rawTxtPath, dedupedTxtPath, mergeOpts)
-		if mergeErr != nil {
-			if ctx.Err() != nil || errors.Is(mergeErr, context.Canceled) {
+		dedupStart := time.Now()
+		inLines, outEntries, dedupErr := deduplicateTitlesFile(ctx, rawTxtPath, dedupedTxtPath, cfg.conversion)
+		if dedupErr != nil {
+			if ctx.Err() != nil || errors.Is(dedupErr, context.Canceled) {
 				return 130
 			}
-			fmt.Fprintf(stderr, "tisane-wiki: deduplication failed: %v\n", mergeErr)
+			fmt.Fprintf(stderr, "tisane-wiki: deduplication failed: %v\n", dedupErr)
 			return 1
 		}
-		fmt.Fprintf(stdout, "Deduplicated %d -> %d entries (conversion: %s, %s) to %s\n",
-			stats.PrimaryLines, stats.OutputEntries, cfg.conversion, time.Since(mergeStart).Round(time.Millisecond), dedupedTxtPath)
+		fmt.Fprintf(stdout, "Deduplicated %d -> %d entries (key: %s, %s) to %s\n",
+			inLines, outEntries, cfg.conversion, time.Since(dedupStart).Round(time.Millisecond), dedupedTxtPath)
 		buildInput = dedupedTxtPath
 	}
 

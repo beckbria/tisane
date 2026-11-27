@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -269,15 +270,54 @@ func TestShardedPipelineMaxTwoFilesAndSingleStream(t *testing.T) {
 	}
 }
 
+func collectTSDWords(t *testing.T, d *tsd.Dictionary) []string {
+	t.Helper()
+	var words []string
+	for length := d.MinWordLength(); length <= d.MaxWordLength(); length++ {
+		if d.WordCount(length) == 0 {
+			continue
+		}
+		for entry, err := range d.ScanWords(length) {
+			if err != nil {
+				t.Fatalf("ScanWords(%d) failed: %v", length, err)
+			}
+			words = append(words, entry.Word)
+		}
+	}
+	slices.Sort(words)
+	return words
+}
+
 func TestEndToEndMergeAndBuildTSD(t *testing.T) {
 	tmp := t.TempDir()
 	dumpPath := filepath.Join(tmp, "enwiki-20261116-all-titles-in-ns-0.gz")
-	// Includes duplicates ("West Hall" and "Westhall" collapse under ascii-lower, and exact duplicate "Crossword").
-	writeGzipFile(t, dumpPath, "page_title\nCrossword\nCrossword\nAnagrams\nTisane\nWest_Hall\nWesthall\nAlbert_Einstein\n")
+	// Includes:
+	// - exact duplicate ("Crossword")
+	// - normalized duplicates ("West Hall" vs "Westhall", "Galaxy Quest" vs "galaxyquest" vs tier-3 "Galaxy Quest 2")
+	// - tier priority ("Apollo 11" appears before "Apollo" in dump, but tier-1 "Apollo" must win)
+	// - digits-only title ("1984") omitted under ascii-lower
+	// - non-ASCII title ("Café") preserved verbatim when no tier-1 "Cafe" exists
+	writeGzipFile(t, dumpPath, strings.Join([]string{
+		"page_title",
+		"1984",
+		"Apollo_11",
+		"Galaxy_Quest_2",
+		"Crossword",
+		"Crossword",
+		"Anagrams",
+		"Tisane",
+		"West_Hall",
+		"Westhall",
+		"Galaxy_Quest",
+		"galaxyquest",
+		"Albert_Einstein",
+		"Apollo",
+		"Café",
+	}, "\n")+"\n")
 
 	outTSD := filepath.Join(tmp, "wiki.tsd")
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"--convert", "ascii-lower", "--keep-txt", "-o", outTSD, dumpPath}, strings.NewReader(""), &stdout, &stderr)
+	code := run([]string{"--keep-txt", "-o", outTSD, dumpPath}, strings.NewReader(""), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("tisane-wiki failed (%d): %s", code, stderr.String())
 	}
@@ -289,20 +329,81 @@ func TestEndToEndMergeAndBuildTSD(t *testing.T) {
 	}
 	defer d.Close()
 
-	// Unique after ascii-lower deduplication: crossword, anagrams, tisane, westhall, alberteinstein = 5
-	if d.TotalWords() != 5 {
-		t.Errorf("got %d words in .tsd, want 5", d.TotalWords())
+	wantWords := []string{
+		"Albert Einstein",
+		"Anagrams",
+		"Apollo",
+		"Café",
+		"Crossword",
+		"Galaxy Quest",
+		"Tisane",
+		"West Hall",
+	}
+	slices.Sort(wantWords)
+
+	gotWords := collectTSDWords(t, d)
+	if !slices.Equal(gotWords, wantWords) {
+		t.Errorf("dictionary words mismatch:\ngot:  %q\nwant: %q", gotWords, wantWords)
 	}
 	if !strings.Contains(d.Description(), "enwiki 20261116") {
 		t.Errorf("unexpected description: %q", d.Description())
 	}
 
-	// Verify --keep-txt preserved the intermediate files.
+	// Verify --keep-txt preserved both intermediate files and deduped file keeps proper names.
 	if _, err := os.Stat(filepath.Join(tmp, "wiki-20261116-titles.txt")); err != nil {
 		t.Errorf("expected kept raw titles file: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(tmp, "wiki-20261116-titles-deduped.txt")); err != nil {
-		t.Errorf("expected kept deduped titles file: %v", err)
+	dedupedBytes, err := os.ReadFile(filepath.Join(tmp, "wiki-20261116-titles-deduped.txt"))
+	if err != nil {
+		t.Fatalf("expected kept deduped titles file: %v", err)
+	}
+	wantDeduped := strings.Join([]string{
+		"Crossword",
+		"Anagrams",
+		"Tisane",
+		"West Hall",
+		"Galaxy Quest",
+		"Albert Einstein",
+		"Apollo",
+		"Café",
+	}, "\n") + "\n"
+	if string(dedupedBytes) != wantDeduped {
+		t.Errorf("deduped titles mismatch:\ngot:\n%s\nwant:\n%s", string(dedupedBytes), wantDeduped)
+	}
+
+	// Explicit --convert ascii-lower must also preserve proper names.
+	outExplicit := filepath.Join(tmp, "explicit.tsd")
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"--convert", "ascii-lower", "-o", outExplicit, dumpPath}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("tisane-wiki --convert ascii-lower failed (%d): %s", code, stderr.String())
+	}
+	d2, err := tsd.Open(filepath.Join(tmp, "explicit-20261116.tsd"))
+	if err != nil {
+		t.Fatalf("tsd.Open(explicit) failed: %v", err)
+	}
+	defer d2.Close()
+	if got2 := collectTSDWords(t, d2); !slices.Equal(got2, wantWords) {
+		t.Errorf("explicit ascii-lower words mismatch:\ngot:  %q\nwant: %q", got2, wantWords)
+	}
+
+	// --convert none deduplicates only exact title matches.
+	outExact := filepath.Join(tmp, "exact.tsd")
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"--convert", "none", "-o", outExact, dumpPath}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("tisane-wiki --convert none failed (%d): %s", code, stderr.String())
+	}
+	d3, err := tsd.Open(filepath.Join(tmp, "exact-20261116.tsd"))
+	if err != nil {
+		t.Fatalf("tsd.Open(exact) failed: %v", err)
+	}
+	defer d3.Close()
+	got3 := collectTSDWords(t, d3)
+	if !slices.Contains(got3, "West Hall") || !slices.Contains(got3, "Westhall") {
+		t.Errorf("--convert none should keep both West Hall and Westhall, got %q", got3)
 	}
 }
 

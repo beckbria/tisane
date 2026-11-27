@@ -10,9 +10,13 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"strings"
+
+	"tisane/pkg/wordlist"
 )
 
 const (
@@ -168,4 +172,83 @@ func (tw *TieredTitleWriter) Close() {
 			*pair.bp = nil
 		}
 	}
+}
+
+// deduplicateTitlesFile streams tier-sorted titles from srcPath and writes
+// unique titles to dstPath. Deduplication is keyed on the normalized form
+// produced by wordlist.ConvertEntry(title, conv) while preserving the
+// first-seen original title (e.g., keeping "Galaxy Quest" rather than
+// "galaxyquest"). Titles whose normalized key is empty are omitted.
+func deduplicateTitlesFile(ctx context.Context, srcPath, dstPath string, conv wordlist.Conversion) (inLines, outEntries int64, err error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+
+	inFile, err := os.Open(srcPath)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to open %q: %w", srcPath, err)
+	}
+	defer inFile.Close()
+
+	outFile, bw, err := createOutputWriter(dstPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	cleanup := func() {
+		_ = outFile.Close()
+		_ = os.Remove(dstPath)
+	}
+
+	seen := make(map[string]struct{})
+	br := bufio.NewReaderSize(inFile, 256*1024)
+
+	for {
+		if inLines&0xFFF == 0 {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				cleanup()
+				return inLines, outEntries, ctxErr
+			}
+		}
+
+		line, readErr := br.ReadString('\n')
+		if len(line) > 0 {
+			title := strings.TrimRight(line, "\r\n")
+			if title != "" {
+				inLines++
+				key := wordlist.ConvertEntry(title, conv)
+				if key != "" {
+					if _, exists := seen[key]; !exists {
+						seen[key] = struct{}{}
+						if _, wErr := bw.WriteString(title); wErr != nil {
+							cleanup()
+							return inLines, outEntries, wErr
+						}
+						if wErr := bw.WriteByte('\n'); wErr != nil {
+							cleanup()
+							return inLines, outEntries, wErr
+						}
+						outEntries++
+					}
+				}
+			}
+		}
+
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			cleanup()
+			return inLines, outEntries, readErr
+		}
+	}
+
+	if err := bw.Flush(); err != nil {
+		cleanup()
+		return inLines, outEntries, fmt.Errorf("failed flushing deduplicated output: %w", err)
+	}
+	if err := outFile.Close(); err != nil {
+		_ = os.Remove(dstPath)
+		return inLines, outEntries, fmt.Errorf("failed closing deduplicated output: %w", err)
+	}
+	return inLines, outEntries, nil
 }
